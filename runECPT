@@ -1,0 +1,4 @@
+#!/bin/bash
+
+qemu-system-x86_64 -s -S -kernel arch/x86/boot/bzImage -boot c -m 4096M -hda rootfs.ext4 -append "root=/dev/sda rw console=ttyS0,115200 acpi=off nokaslr" -serial stdio -display none 
+# -d mmu -D mmu.log
