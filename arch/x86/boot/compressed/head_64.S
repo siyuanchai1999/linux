@@ -203,7 +203,77 @@ SYM_FUNC_START(startup_32)
 	leal	rva(pgtable)(%ebx), %edi
 	xorl	%eax, %eax
 	movl	$(BOOT_INIT_PGT_SIZE/4), %ecx
-	rep	stosl
+	rep	stosl /* Repeat the following actions for %ecx times: 1. store %eax=0 into at address %edi and increase %edi by 4 */ 
+
+#ifdef CONFIG_X86_64_ECPT
+	/**
+		Drill VA at 3GB, 2GB, 1GB, 0 sequentially
+		Building Page Table entries with 1GB HPT for 4 GB init memory */
+	
+	
+	/* Clear start with 3GB VA*/
+	movl	$0xc0000000, %ecx
+
+	/**
+	 	Perform triple Hash 
+		x ^= x >> 17;
+		x *= 0xed5ad4bb;
+		x ^= x >> 11;
+		x *= 0xac4c1b51;
+		x ^= x >> 15;
+		x *= 0x31848bab;
+		x ^= x >> 14;		 
+	*/
+hash_and_write:
+
+	movl 	%ecx, %eax
+
+	movl 	%eax, %edi
+	shrl	$17, %eax
+	xorl 	%edi, %eax
+	movl 	$0xed5ad4bb, %edi
+	mul 	%edi		/* result write to %eax*/
+	movl 	%eax, %edi
+	shrl	$11, %eax
+	xorl 	%edi, %eax
+	movl 	$0xac4c1b51, %edi
+	mul 	%edi		/* result write to %eax*/
+	movl 	%eax, %edi
+	shrl	$15, %eax
+	xorl 	%edi, %eax
+	movl 	$0x31848bab, %edi
+	mul 	%edi		/* result write to %eax*/
+	movl 	%eax, %edi
+	shrl	$14, %edi
+	xorl 	%edi, %eax
+	
+	leal	rva(pgtable)(%ebx), %edi
+	andl 	$(BOOT_HPT_ENTRIES), %eax 	/* get hash % size*/
+	shll	$3, %eax						/* from # of entries -> bytes offset*/ 					
+	addl	%eax, %edi					/* calculate address to write in the hash table */
+
+	movl	$0x00000183, %eax /* 0x183 -> Global page + 1MB page + RW + Present */
+	addl 	%ecx, %eax
+	
+	movl 	%eax, 0x00(%edi)	/* write to the lower 4 bytes in the HPT entry*/
+	addl	%edx, 0x04(%edi)	/* write to the higher 4 bytes in the HPT entry, edx is zero for most cases*/	
+
+	subl	$0x40000000, %ecx
+	jnz 	hash_and_write
+
+	/**
+		cr3 structure for now:
+     *      51-12 bits base address for hash page table
+     *      11-0 bits #of entries the hash page table can contain
+	 
+	 Enable the boot page tables
+	 */
+	leal	rva(pgtable)(%ebx), %eax
+	addl 	$(BOOT_HPT_ENTRIES), %eax 
+	movl	%eax, %cr3
+#else
+	/* The following code builds identity map for lower 4GB */
+
 
 	/* Build Level 4 */
 	leal	rva(pgtable + 0)(%ebx), %edi
@@ -224,7 +294,7 @@ SYM_FUNC_START(startup_32)
 
 	/* Build Level 2 */
 	leal	rva(pgtable + 0x2000)(%ebx), %edi
-	movl	$0x00000183, %eax
+	movl	$0x00000183, %eax /* 0x183 -> Global page + 2MB page + RW + Present */
 	movl	$2048, %ecx
 1:	movl	%eax, 0(%edi)
 	addl	%edx, 4(%edi)
@@ -236,7 +306,7 @@ SYM_FUNC_START(startup_32)
 	/* Enable the boot page tables */
 	leal	rva(pgtable)(%ebx), %eax
 	movl	%eax, %cr3
-
+#endif
 	/* Enable Long mode in EFER (Extended Feature Enable Register) */
 	movl	$MSR_EFER, %ecx
 	rdmsr

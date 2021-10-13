@@ -1471,7 +1471,7 @@ config X86_PAE
 	  has the cost of more pagetable lookup overhead, and also
 	  consumes more pagetable space per process.
 
-config X86_ECPT
+config X86_64_ECPT
 	bool "ECPT virtual memory translation"
 	depends on X86_64
 	help
