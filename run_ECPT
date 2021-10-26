@@ -19,6 +19,7 @@ qemu_args=(
 	"-initrd" "ramdisk.img"
 	"-serial" "stdio"
 	"-append" "init=/bin/sh console=ttyS0,115200"
+	"-d" "mmu" "-D" "mmu.log"
 	)
 
 

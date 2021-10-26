@@ -4,6 +4,98 @@
  * included by both the compressed kernel and the regular kernel.
  */
 
+
+
+
+
+
+#ifdef CONFIG_X86_64_ECPT
+
+/* each entry is 8 (2**3) bytes long */
+#define HASH_TO_INDEX(h) (h << 3)
+#define PAGE_SIZE_TO_PAGE_NUM_MASK(x) (~((x) - 1))
+
+static uint32_t triple32(uint32_t x)
+{
+    x ^= x >> 17;
+    x *= 0xed5ad4bb;
+    x ^= x >> 11;
+    x *= 0xac4c1b51;
+    x ^= x >> 15;
+    x *= 0x31848bab;
+    x ^= x >> 14;
+    return x;
+}
+
+
+static uint64_t gen_has(uint64_t addr, uint64_t size) {
+    uint64_t hash = triple32(addr);
+    hash = hash % size;
+    if (hash > size) {
+        /* should not be */
+        // printf("Hash value %lu, size %lu\n", hash, size);
+        // assert(1 == 0 && "Hash value is larger than index\n");
+    }
+
+    return hash;
+}
+
+
+int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
+			      unsigned long pstart, unsigned long pend)
+{
+	unsigned long addr = pstart + info->offset;
+	unsigned long end = pend + info->offset;
+	// unsigned long next;
+	// int result;
+
+	/* Set the default pagetable flags if not supplied */
+	if (!info->kernpg_flag)
+		info->kernpg_flag = _KERNPG_TABLE;
+
+	/* Filter out unsupported __PAGE_KERNEL_* bits: */
+	info->kernpg_flag &= __default_kernel_pte_mask;
+
+    addr &= PAGE_SIZE_TO_PAGE_NUM_MASK(info->hpt_page_size);
+
+	for (; addr < end; addr += info->hpt_page_size) {
+        uint64_t hash = gen_has(addr, info->hpt_size);
+
+		pgd_t *pgd = pgd_page + HASH_TO_INDEX(hash);
+					
+
+		if (pgd_present(*pgd)) {
+			/* already setup good to go */
+			continue;
+		}
+        set_hpt_pgd_entry(pgd, __pgd(__pa(pstart) | info->kernpg_flag));
+
+
+        pstart += info->hpt_page_size;
+
+		// p4d = (p4d_t *)info->alloc_pgt_page(info->context);
+		// if (!p4d)
+		// 	return -ENOMEM;
+		// result = ident_p4d_init(info, p4d, addr, next);
+		// if (result)
+		// 	return result;
+		// if (pgtable_l5_enabled()) {
+		// 	set_pgd(pgd, __pgd(__pa(p4d) | info->kernpg_flag));
+		// } else {
+		// 	/*
+		// 	 * With p4d folded, pgd is equal to p4d.
+		// 	 * The pgd entry has to point to the pud page table in this case.
+		// 	 */
+		// 	pud_t *pud = pud_offset(p4d, 0);
+		// 	set_pgd(pgd, __pgd(__pa(pud) | info->kernpg_flag));
+		// }
+	}
+
+	return 0;
+}
+
+
+#else
 static void ident_pmd_init(struct x86_mapping_info *info, pmd_t *pmd_page,
 			   unsigned long addr, unsigned long end)
 {
@@ -94,6 +186,7 @@ static int ident_p4d_init(struct x86_mapping_info *info, p4d_t *p4d_page,
 	return 0;
 }
 
+
 int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
 			      unsigned long pstart, unsigned long pend)
 {
@@ -145,3 +238,7 @@ int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
 
 	return 0;
 }
+#endif
+
+
+

@@ -147,7 +147,7 @@ struct paging_config paging_prepare(void *rmode)
 
 	/*
 	 * The code below prepares page table in trampoline memory.
-	 *
+	 * 
 	 * The new page table will be used by trampoline code for switching
 	 * from 4- to 5-level paging or vice versa.
 	 *

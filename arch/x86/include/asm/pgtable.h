@@ -62,6 +62,11 @@ extern pmdval_t early_pmd_flags;
 #ifdef CONFIG_PARAVIRT_XXL
 #include <asm/paravirt.h>
 #else  /* !CONFIG_PARAVIRT_XXL */
+
+#ifdef CONFIG_X86_64_ECPT
+	#define set_hpt_pgd_entry(pgdp, pgd)	native_set_hpt_pgd_entry(pgdp, pgd)
+#endif
+
 #define set_pte(ptep, pte)		native_set_pte(ptep, pte)
 
 #define set_pte_atomic(ptep, pte)					\

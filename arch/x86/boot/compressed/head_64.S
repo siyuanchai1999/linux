@@ -212,7 +212,7 @@ SYM_FUNC_START(startup_32)
 	
 	
 	/* Clear start with 3GB VA*/
-	movl	$0xc0000000, %ecx
+	movl	$0x0, %ecx
 
 	/**
 	 	Perform triple Hash 
@@ -222,11 +222,32 @@ SYM_FUNC_START(startup_32)
 		x *= 0xac4c1b51;
 		x ^= x >> 15;
 		x *= 0x31848bab;
-		x ^= x >> 14;		 
-	*/
-hash_and_write:
+		x ^= x >> 14;	
 
+
+		   intermediate: x = c8107e31
+			intermediate: x = d582d99e
+			intermediate: x = c0f3b689
+		addr=3 hash result=c0f0b547 mod512=147
+			intermediate: x = dab5a976
+			intermediate: x = 983c7db3
+			intermediate: x = f1dc2f99
+		addr=2 hash result=f1dfe8e9 mod512=e9
+			intermediate: x = ed5ad4bb
+			intermediate: x = c0e83131
+			intermediate: x = 427514b
+		addr=1 hash result=42741d6 mod512=1d6
+			intermediate: x = 0
+			intermediate: x = 0
+			intermediate: x = 0
+			intermediate: x = 0
+			intermediate: x = 0
+			intermediate: x = 0
+		addr=0 hash result=0 mod512=0
+	*/
+1:
 	movl 	%ecx, %eax
+	shrl	$30,  %eax /* get page number*/
 
 	movl 	%eax, %edi
 	shrl	$17, %eax
@@ -248,18 +269,18 @@ hash_and_write:
 	xorl 	%edi, %eax
 	
 	leal	rva(pgtable)(%ebx), %edi
-	andl 	$(BOOT_HPT_ENTRIES), %eax 	/* get hash % size*/
+	andl 	$(BOOT_HPT_OFFSET_MASK), %eax 	/* get hash % size*/
 	shll	$3, %eax						/* from # of entries -> bytes offset*/ 					
 	addl	%eax, %edi					/* calculate address to write in the hash table */
 
-	movl	$0x00000183, %eax /* 0x183 -> Global page + 1MB page + RW + Present */
+	movl	$0x00000183, %eax /* 0x183 -> Global page + 1GBB page + RW + Present */
 	addl 	%ecx, %eax
 	
 	movl 	%eax, 0x00(%edi)	/* write to the lower 4 bytes in the HPT entry*/
 	addl	%edx, 0x04(%edi)	/* write to the higher 4 bytes in the HPT entry, edx is zero for most cases*/	
 
-	subl	$0x40000000, %ecx
-	jnz 	hash_and_write
+	addl	$(BOOT_PAGE_SIZE), %ecx
+	jnz 	1b
 
 	/**
 		cr3 structure for now:
@@ -467,7 +488,10 @@ SYM_CODE_START(startup_64)
 	movq	$LOAD_PHYSICAL_ADDR, %rbp
 1:
 
-	/* Target address to relocate to for decompression */
+	/**
+		Target address to relocate to for decompression
+		%rbx will contain the address kernel code will be relocated for decompression
+	*/
 	movl	BP_init_size(%rsi), %ebx
 	subl	$ rva(_end), %ebx
 	addq	%rbp, %rbx
@@ -506,6 +530,8 @@ SYM_CODE_START(startup_64)
 	lgdt	(%rax)
 
 	/* Reload CS so IRET returns to a CS actually in the GDT */
+
+	/* Why bother with return here? */
 	pushq	$__KERNEL_CS
 	leaq	.Lon_kernel_cs(%rip), %rax
 	pushq	%rax

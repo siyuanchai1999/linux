@@ -62,6 +62,14 @@ static inline bool mm_p4d_folded(struct mm_struct *mm)
 void set_pte_vaddr_p4d(p4d_t *p4d_page, unsigned long vaddr, pte_t new_pte);
 void set_pte_vaddr_pud(pud_t *pud_page, unsigned long vaddr, pte_t new_pte);
 
+
+#ifdef CONFIG_X86_64_ECPT
+static inline void native_set_hpt_pgd_entry(pgd_t *pgdp, pgd_t pgd)
+{
+	WRITE_ONCE(*pgdp, pgd);
+}
+#endif
+
 static inline void native_set_pte(pte_t *ptep, pte_t pte)
 {
 	WRITE_ONCE(*ptep, pte);
