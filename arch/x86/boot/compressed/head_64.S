@@ -211,7 +211,6 @@ SYM_FUNC_START(startup_32)
 		Building Page Table entries with 1GB HPT for 4 GB init memory */
 	
 	
-	/* Clear start with 3GB VA*/
 	movl	$0x0, %ecx
 
 	/**
@@ -246,34 +245,48 @@ SYM_FUNC_START(startup_32)
 		addr=0 hash result=0 mod512=0
 	*/
 1:
-	movl 	%ecx, %eax
-	shrl	$30,  %eax /* get page number*/
+	movl 	%ecx, %edi
+	shrl	$BOOT_PAGE_SHIFT,  %edi /* get page number*/
 
-	movl 	%eax, %edi
-	shrl	$17, %eax
-	xorl 	%edi, %eax
-	movl 	$0xed5ad4bb, %edi
-	mul 	%edi		/* result write to %eax*/
-	movl 	%eax, %edi
-	shrl	$11, %eax
-	xorl 	%edi, %eax
-	movl 	$0xac4c1b51, %edi
-	mul 	%edi		/* result write to %eax*/
-	movl 	%eax, %edi
-	shrl	$15, %eax
-	xorl 	%edi, %eax
-	movl 	$0x31848bab, %edi
-	mul 	%edi		/* result write to %eax*/
-	movl 	%eax, %edi
-	shrl	$14, %edi
-	xorl 	%edi, %eax
 	
-	leal	rva(pgtable)(%ebx), %edi
+	/*
+	* movl 	%eax, %edi
+		shrl	$17, %eax
+		xorl 	%edi, %eax
+		movl 	$0xed5ad4bb, %edi
+		mul 	%edi		
+		movl 	%eax, %edi
+		shrl	$11, %eax
+		xorl 	%edi, %eax
+		movl 	$0xac4c1b51, %edi
+		mul 	%edi		
+		movl 	%eax, %edi
+		shrl	$15, %eax
+		xorl 	%edi, %eax
+		movl 	$0x31848bab, %edi
+		mul 	%edi		
+		movl 	%eax, %edi
+		shrl	$14, %edi
+		xorl 	%edi, %eax
+	*/
+	
+
+
+	push 	%ecx
+	push 	%edx
+	push 	%esi
+	call 	boot_hash				/* eax will contain the hash result after the call  */
+	pop		%esi
+	pop		%edx
+	pop 	%ecx
+	
 	andl 	$(BOOT_HPT_OFFSET_MASK), %eax 	/* get hash % size*/
-	shll	$3, %eax						/* from # of entries -> bytes offset*/ 					
+	shll	$3, %eax						/* from # of entries -> bytes offset*/ 	
+
+	leal	rva(pgtable)(%ebx), %edi		
 	addl	%eax, %edi					/* calculate address to write in the hash table */
 
-	movl	$0x00000183, %eax /* 0x183 -> Global page + 1GBB page + RW + Present */
+	movl	$0x00000183, %eax /* 0x183 -> Global page + 2MB page + RW + Present */
 	addl 	%ecx, %eax
 	
 	movl 	%eax, 0x00(%edi)	/* write to the lower 4 bytes in the HPT entry*/
@@ -290,8 +303,9 @@ SYM_FUNC_START(startup_32)
 	 Enable the boot page tables
 	 */
 	leal	rva(pgtable)(%ebx), %eax
-	addl 	$(BOOT_HPT_ENTRIES), %eax 
+	addl 	$(BOOT_CR3_ENTRIES_VAL), %eax 
 	movl	%eax, %cr3
+
 #else
 	/* The following code builds identity map for lower 4GB */
 
@@ -386,6 +400,51 @@ SYM_FUNC_START(startup_32)
 	/* Jump from 32bit compatibility mode into 64bit mode. */
 	lret
 SYM_FUNC_END(startup_32)
+
+SYM_FUNC_START(boot_hash)
+
+
+	/* subl    $0x8, %esp	  */	
+  	movl    $0xffffffff, %eax
+	leal	rva(crc32_table)(%ebp), %esi          /* using ebp here because data section is where before the kernel relocate and decompress  */
+	/* movl    %edi, 0x4(%esp)	  */			/* e di contains ppn to hash  */
+	/*  leal    0x4(%esp), %edx	  */			/* edx contains the address of 0x4(%esp)  */
+	xor		%edx, %edx
+1:  
+	movl    %eax, %ecx
+  	shrl    $0x18, %eax					/* crc >> 24  */
+	xorl    %edi, %eax					/* ((crc >> 24) ^ *buf )  */
+	andl	$0xff, %eax					/* ((crc >> 24) ^ *buf ) & 255 */
+  	shll    $0x8 ,%ecx					/* crc << 8 */
+  	addl    $0x1, %edx
+  	xorl    (%esi,%eax,4), %ecx
+  	movl    %ecx, %eax
+	shrl	$8, %edi
+  	cmpl    $4, %edx
+  	jne     1b
+  	ret									/* using ret instead of lret  */
+/*
+ 100:	83 ec 08             	sub    $0x8,%esp
+ 103:	b8 ff ff ff ff       	mov    $0xffffffff,%eax
+ 108:	8d b3 f0 26 13 00    	lea    0x1326f0(%rbx),%esi
+ 10e:	89 7c 24 04          	mov    %edi,0x4(%rsp)
+ 112:	8d 54 24 04          	lea    0x4(%rsp),%edx
+ 116:	89 c1                	mov    %eax,%ecx
+ 118:	c1 e8 18             	shr    $0x18,%eax
+ 11b:	33 02                	xor    (%rdx),%eax
+ 11d:	25 ff 00 00 00       	and    $0xff,%eax
+ 122:	8d 7c 24 08          	lea    0x8(%rsp),%edi
+ 126:	c1 e1 08             	shl    $0x8,%ecx
+ 129:	83 c2 01             	add    $0x1,%edx
+ 12c:	33 0c 86             	xor    (%rsi,%rax,4),%ecx
+ 12f:	89 c8                	mov    %ecx,%eax
+ 131:	39 fa                	cmp    %edi,%edx
+ 133:	75 e1                	jne    116 <boot_hash+0x16>
+ 135:	83 c4 08             	add    $0x8,%esp
+ 138:	cb                   	lret   
+*/
+SYM_FUNC_END(boot_hash)
+
 
 #ifdef CONFIG_EFI_MIXED
 	.org 0x190
@@ -789,6 +848,266 @@ SYM_FUNC_END(.Lno_longmode)
 #include "../../kernel/verify_cpu.S"
 
 	.data
+
+SYM_DATA_START_LOCAL(crc32_table)
+	.long	0x00000000
+	.long	0x04c11db7
+	.long	0x09823b6e
+	.long	0x0d4326d9
+	.long	0x130476dc
+	.long	0x17c56b6b
+	.long	0x1a864db2
+	.long	0x1e475005
+	.long	0x2608edb8
+	.long	0x22c9f00f
+	.long	0x2f8ad6d6
+	.long	0x2b4bcb61
+	.long	0x350c9b64
+	.long	0x31cd86d3
+	.long	0x3c8ea00a
+	.long	0x384fbdbd
+	.long	0x4c11db70
+	.long	0x48d0c6c7
+	.long	0x4593e01e
+	.long	0x4152fda9
+	.long	0x5f15adac
+	.long	0x5bd4b01b
+	.long	0x569796c2
+	.long	0x52568b75
+	.long	0x6a1936c8
+	.long	0x6ed82b7f
+	.long	0x639b0da6
+	.long	0x675a1011
+	.long	0x791d4014
+	.long	0x7ddc5da3
+	.long	0x709f7b7a
+	.long	0x745e66cd
+	.long	0x9823b6e0
+	.long	0x9ce2ab57
+	.long	0x91a18d8e
+	.long	0x95609039
+	.long	0x8b27c03c
+	.long	0x8fe6dd8b
+	.long	0x82a5fb52
+	.long	0x8664e6e5
+	.long	0xbe2b5b58
+	.long	0xbaea46ef
+	.long	0xb7a96036
+	.long	0xb3687d81
+	.long	0xad2f2d84
+	.long	0xa9ee3033
+	.long	0xa4ad16ea
+	.long	0xa06c0b5d
+	.long	0xd4326d90
+	.long	0xd0f37027
+	.long	0xddb056fe
+	.long	0xd9714b49
+	.long	0xc7361b4c
+	.long	0xc3f706fb
+	.long	0xceb42022
+	.long	0xca753d95
+	.long	0xf23a8028
+	.long	0xf6fb9d9f
+	.long	0xfbb8bb46
+	.long	0xff79a6f1
+	.long	0xe13ef6f4
+	.long	0xe5ffeb43
+	.long	0xe8bccd9a
+	.long	0xec7dd02d
+	.long	0x34867077
+	.long	0x30476dc0
+	.long	0x3d044b19
+	.long	0x39c556ae
+	.long	0x278206ab
+	.long	0x23431b1c
+	.long	0x2e003dc5
+	.long	0x2ac12072
+	.long	0x128e9dcf
+	.long	0x164f8078
+	.long	0x1b0ca6a1
+	.long	0x1fcdbb16
+	.long	0x018aeb13
+	.long	0x054bf6a4
+	.long	0x0808d07d
+	.long	0x0cc9cdca
+	.long	0x7897ab07
+	.long	0x7c56b6b0
+	.long	0x71159069
+	.long	0x75d48dde
+	.long	0x6b93dddb
+	.long	0x6f52c06c
+	.long	0x6211e6b5
+	.long	0x66d0fb02
+	.long	0x5e9f46bf
+	.long	0x5a5e5b08
+	.long	0x571d7dd1
+	.long	0x53dc6066
+	.long	0x4d9b3063
+	.long	0x495a2dd4
+	.long	0x44190b0d
+	.long	0x40d816ba
+	.long	0xaca5c697
+	.long	0xa864db20
+	.long	0xa527fdf9
+	.long	0xa1e6e04e
+	.long	0xbfa1b04b
+	.long	0xbb60adfc
+	.long	0xb6238b25
+	.long	0xb2e29692
+	.long	0x8aad2b2f
+	.long	0x8e6c3698
+	.long	0x832f1041
+	.long	0x87ee0df6
+	.long	0x99a95df3
+	.long	0x9d684044
+	.long	0x902b669d
+	.long	0x94ea7b2a
+	.long	0xe0b41de7
+	.long	0xe4750050
+	.long	0xe9362689
+	.long	0xedf73b3e
+	.long	0xf3b06b3b
+	.long	0xf771768c
+	.long	0xfa325055
+	.long	0xfef34de2
+	.long	0xc6bcf05f
+	.long	0xc27dede8
+	.long	0xcf3ecb31
+	.long	0xcbffd686
+	.long	0xd5b88683
+	.long	0xd1799b34
+	.long	0xdc3abded
+	.long	0xd8fba05a
+	.long	0x690ce0ee
+	.long	0x6dcdfd59
+	.long	0x608edb80
+	.long	0x644fc637
+	.long	0x7a089632
+	.long	0x7ec98b85
+	.long	0x738aad5c
+	.long	0x774bb0eb
+	.long	0x4f040d56
+	.long	0x4bc510e1
+	.long	0x46863638
+	.long	0x42472b8f
+	.long	0x5c007b8a
+	.long	0x58c1663d
+	.long	0x558240e4
+	.long	0x51435d53
+	.long	0x251d3b9e
+	.long	0x21dc2629
+	.long	0x2c9f00f0
+	.long	0x285e1d47
+	.long	0x36194d42
+	.long	0x32d850f5
+	.long	0x3f9b762c
+	.long	0x3b5a6b9b
+	.long	0x0315d626
+	.long	0x07d4cb91
+	.long	0x0a97ed48
+	.long	0x0e56f0ff
+	.long	0x1011a0fa
+	.long	0x14d0bd4d
+	.long	0x19939b94
+	.long	0x1d528623
+	.long	0xf12f560e
+	.long	0xf5ee4bb9
+	.long	0xf8ad6d60
+	.long	0xfc6c70d7
+	.long	0xe22b20d2
+	.long	0xe6ea3d65
+	.long	0xeba91bbc
+	.long	0xef68060b
+	.long	0xd727bbb6
+	.long	0xd3e6a601
+	.long	0xdea580d8
+	.long	0xda649d6f
+	.long	0xc423cd6a
+	.long	0xc0e2d0dd
+	.long	0xcda1f604
+	.long	0xc960ebb3
+	.long	0xbd3e8d7e
+	.long	0xb9ff90c9
+	.long	0xb4bcb610
+	.long	0xb07daba7
+	.long	0xae3afba2
+	.long	0xaafbe615
+	.long	0xa7b8c0cc
+	.long	0xa379dd7b
+	.long	0x9b3660c6
+	.long	0x9ff77d71
+	.long	0x92b45ba8
+	.long	0x9675461f
+	.long	0x8832161a
+	.long	0x8cf30bad
+	.long	0x81b02d74
+	.long	0x857130c3
+	.long	0x5d8a9099
+	.long	0x594b8d2e
+	.long	0x5408abf7
+	.long	0x50c9b640
+	.long	0x4e8ee645
+	.long	0x4a4ffbf2
+	.long	0x470cdd2b
+	.long	0x43cdc09c
+	.long	0x7b827d21
+	.long	0x7f436096
+	.long	0x7200464f
+	.long	0x76c15bf8
+	.long	0x68860bfd
+	.long	0x6c47164a
+	.long	0x61043093
+	.long	0x65c52d24
+	.long	0x119b4be9
+	.long	0x155a565e
+	.long	0x18197087
+	.long	0x1cd86d30
+	.long	0x029f3d35
+	.long	0x065e2082
+	.long	0x0b1d065b
+	.long	0x0fdc1bec
+	.long	0x3793a651
+	.long	0x3352bbe6
+	.long	0x3e119d3f
+	.long	0x3ad08088
+	.long	0x2497d08d
+	.long	0x2056cd3a
+	.long	0x2d15ebe3
+	.long	0x29d4f654
+	.long	0xc5a92679
+	.long	0xc1683bce
+	.long	0xcc2b1d17
+	.long	0xc8ea00a0
+	.long	0xd6ad50a5
+	.long	0xd26c4d12
+	.long	0xdf2f6bcb
+	.long	0xdbee767c
+	.long	0xe3a1cbc1
+	.long	0xe760d676
+	.long	0xea23f0af
+	.long	0xeee2ed18
+	.long	0xf0a5bd1d
+	.long	0xf464a0aa
+	.long	0xf9278673
+	.long	0xfde69bc4
+	.long	0x89b8fd09
+	.long	0x8d79e0be
+	.long	0x803ac667
+	.long	0x84fbdbd0
+	.long	0x9abc8bd5
+	.long	0x9e7d9662
+	.long	0x933eb0bb
+	.long	0x97ffad0c
+	.long	0xafb010b1
+	.long	0xab710d06
+	.long	0xa6322bdf
+	.long	0xa2f33668
+	.long	0xbcb4666d
+	.long	0xb8757bda
+	.long	0xb5365d03
+	.long	0xb1f740b4
+SYM_DATA_END(crc32_table)
+
 SYM_DATA_START_LOCAL(gdt64)
 	.word	gdt_end - gdt - 1
 	.quad   gdt - gdt64
@@ -816,6 +1135,10 @@ SYM_DATA_START(boot_idt)
 	.quad	0
 	.endr
 SYM_DATA_END_LABEL(boot_idt, SYM_L_GLOBAL, boot_idt_end)
+
+
+
+
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 SYM_DATA_START(boot32_idt_desc)
@@ -1071,9 +1394,12 @@ SYM_DATA_END_LABEL(boot_stack, SYM_L_LOCAL, boot_stack_end)
 	.section ".pgtable","aw",@nobits
 	.balign 4096
 SYM_DATA_LOCAL(pgtable,		.fill BOOT_PGT_SIZE, 1, 0)
+/* SYM_DATA_LOCAL(pgtable,		.fill BOOT_HPT_ENTRIES, 8, 0)  */
 
 /*
  * The page table is going to be used instead of page table in the trampoline
  * memory.
  */
 SYM_DATA_LOCAL(top_pgtable,	.fill PAGE_SIZE, 1, 0)
+
+

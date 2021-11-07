@@ -48,16 +48,27 @@
 	 * 	4096 bytes can allocate 512 entries.
 	 * 	Sufficient for 4 entries (4GB init memory)
 	 */
-	# define BOOT_INIT_PGT_SIZE	4096
-	#define BOOT_PGT_SIZE BOOT_INIT_PGT_SIZE
+	// #define BOOT_INIT_PGT_SIZE	4096
+	// #define BOOT_PGT_SIZE BOOT_INIT_PGT_SIZE
 
-	#define BOOT_HPT_ENTRIES 512
-	#define BOOT_HPT_OFFSET_MASK (BOOT_HPT_ENTRIES - 1) /* the trailing 9 bits*/
+	// #define BOOT_HPT_ENTRIES 512
+	// #define BOOT_HPT_OFFSET_MASK (BOOT_HPT_ENTRIES - 1) /* the trailing 9 bits*/
 	
-	#define BOOT_PAGE_SHIFT 30
-	#define BOOT_PAGE_SIZE (1 << BOOT_PAGE_SHIFT)
-	#define BOOT_ADDR_TO_OFFSET(x)   ((x) &   (BOOT_PAGE_SIZE - 1))		
-	#define BOOT_ADDR_TO_PAGE_NUM (((x) >> BOOT_PAGE_SHIFT) << BOOT_PAGE_SHIFT)	/* everything in front of bit 29 */
+	// #define BOOT_PAGE_SHIFT 30
+	// #define BOOT_PAGE_SIZE (1 << BOOT_PAGE_SHIFT)
+	// #define BOOT_ADDR_TO_OFFSET(x)   ((x) &   (BOOT_PAGE_SIZE - 1))		
+	// #define BOOT_ADDR_TO_PAGE_NUM (((x) >> BOOT_PAGE_SHIFT) << BOOT_PAGE_SHIFT)	/* everything in front of bit 29 */
+
+	#define BOOT_HPT_ENTRIES (512 * 8)
+    #define BOOT_INIT_PGT_SIZE (BOOT_HPT_ENTRIES * 8)
+    #define BOOT_PGT_SIZE BOOT_INIT_PGT_SIZE
+    #define BOOT_HPT_OFFSET_MASK (BOOT_HPT_ENTRIES - 1)         /* the trailing */
+
+	#define HPT_SIZE_HIDDEN_BITS (4)    /* 16 * cr3[0:11] for number of entries */
+	#define BOOT_CR3_ENTRIES_VAL (BOOT_HPT_ENTRIES >> HPT_SIZE_HIDDEN_BITS)		/* 16 * cr3[0:11] for number of entries */
+    
+	#define BOOT_PAGE_SHIFT (21)
+    #define BOOT_PAGE_SIZE (1 << BOOT_PAGE_SHIFT)
 #else
 
 	# define BOOT_INIT_PGT_SIZE	(6*4096)
