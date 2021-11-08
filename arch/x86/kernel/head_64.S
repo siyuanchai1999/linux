@@ -485,13 +485,14 @@ SYM_CODE_END(vc_no_ghcb)
     SYM_DATA_START_HPT_4K_ALIGNED(early_hpt)
         .fill	EARLY_HPT_ENTRIES, 8, 0
     SYM_DATA_END(early_hpt)
+#endif
 
-#else
+
+
 	SYM_DATA_START_PTI_ALIGNED(early_top_pgt)
 		.fill	512,8,0
 		.fill	PTI_USER_PGD_FILL,8,0
 	SYM_DATA_END(early_top_pgt)
-#endif
 
 
 
