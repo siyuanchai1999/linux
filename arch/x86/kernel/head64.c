@@ -20,7 +20,9 @@
 #include <linux/io.h>
 #include <linux/memblock.h>
 #include <linux/mem_encrypt.h>
+
 #include <linux/pgtable.h>
+
 
 #include <asm/processor.h>
 #include <asm/proto.h>
@@ -129,6 +131,9 @@ static bool __head check_la57_support(unsigned long physaddr)
 
 
 #ifdef CONFIG_X86_64_ECPT
+
+	#include <asm/ECPT.h>
+
 /* Code in __startup_64() can be relocated during execution, but the compiler
  * doesn't have to generate PC-relative relocations when accessing globals from
  * that function. Clang actually does not generate them, which leads to
@@ -139,17 +144,24 @@ unsigned long __head __startup_64(unsigned long physaddr,
 				  struct boot_params *bp)
 {
 	/* TODO: change this code into ECPT  */
-	unsigned long vaddr, vaddr_end;
-	unsigned long load_delta, *p;
-	unsigned long pgtable_flags;
-	pgdval_t *pgd;
-	p4dval_t *p4d;
-	pudval_t *pud;
-	pmdval_t *pmd, pmd_entry;
+	// unsigned long vaddr_end;
+	unsigned long load_delta;
+	// unsigned long pgtable_flags;
+	// pgdval_t *pgd;
+	// p4dval_t *p4d;
+	// pudval_t *pud;
+	// pmdval_t *pmd, pmd_entry;
 	pteval_t *mask_ptr;
-	bool la57;
-	int i;
-	unsigned int *next_pgt_ptr;
+	// bool la57;
+	
+	uint64_t i, j;
+	uint64_t vaddr, paddr;
+	uint64_t vaddr_start , paddr_start;
+	uint64_t early_cr3;
+	ecpt_pgprot_t prot;
+	uint64_t VA_offset[4];
+
+	// unsigned int *next_pgt_ptr;
 
 	// la57 = check_la57_support(physaddr);
 
@@ -175,26 +187,74 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	/* Fixup the physical addresses in the page table */
 
-	pgd = fixup_pointer(&early_top_pgt, physaddr);
-	p = pgd + pgd_index(__START_KERNEL_map);
-	if (la57)
-		*p = (unsigned long)level4_kernel_pgt;
-	else
-		*p = (unsigned long)level3_kernel_pgt;
-	*p += _PAGE_TABLE_NOENC - __START_KERNEL_map + load_delta;
+	early_cr3 = (uint64_t) fixup_pointer(&early_hpt, physaddr);
+	
+	/* require early hpt to be 4K aligned */
+	if (early_cr3 & ~PAGE_MASK)
+		for (;;);
 
-	if (la57) {
-		p4d = fixup_pointer(&level4_kernel_pgt, physaddr);
-		p4d[511] += load_delta;
+	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
+
+	vaddr_start = __START_KERNEL_map;
+	paddr_start = load_delta;
+
+	/* build kernel mapping */
+	for (i = 0; i < KERNEL_IMAGE_SIZE/PMD_PAGE_SIZE; i++) {
+		
+		if (i >= ADDR_TO_PAGE_NUM_2MB((uint64_t) _text) && i <= ADDR_TO_PAGE_NUM_2MB((uint64_t) _end)) {
+			prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC);
+		} else {
+			/* mapping not present for entries outside kernel image */
+			prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC & ~_PAGE_PRESENT);
+		}
+
+		vaddr = vaddr_start + PAGE_NUM_TO_ADDR_2MB(i);
+		paddr = paddr_start + PAGE_NUM_TO_ADDR_2MB(i);
+
+		/*
+		* Clear the memory encryption mask from the .bss..decrypted section.
+		* The bss section will be memset to zero later in the initialization so
+		* there is no need to zero it after changing the memory encryption
+		* attribute.
+		*/
+		if (mem_encrypt_active()) {
+			if (vaddr >= (uint64_t) __start_bss_decrypted && vaddr < (uint64_t) __end_bss_decrypted){
+				paddr -= sme_get_me_mask();
+			}
+		}
+
+		hpt_insert(
+			early_cr3,
+			vaddr,
+			paddr,
+			prot 
+		);
+
+		
+		
 	}
 
-	pud = fixup_pointer(&level3_kernel_pgt, physaddr);
-	pud[510] += load_delta;
-	pud[511] += load_delta;
+	/* build fixmappping */
+	/**
+	 * TODO: figure out what's the physical address here
+	 * In paging, the kernel code just setup the level2_fixmap_pgt to have its fixmap entries 
+	 * 	point to level1_fixmap_pgt, but level1_fixmap_pgt is not initialized here
+	 */
 
-	pmd = fixup_pointer(level2_fixmap_pgt, physaddr);
-	for (i = FIXMAP_PMD_TOP; i > FIXMAP_PMD_TOP - FIXMAP_PMD_NUM; i--)
-		pmd[i] += load_delta;
+	// vaddr = __START_KERNEL_map + PUD_PAGE_SIZE; 			/* In paging, last entry of pud table  */
+	// paddr = 0;							
+	// prot = __ecpt_pgprot(_PAGE_TABLE_NOENC);
+
+	// for (i = FIXMAP_PMD_TOP; i > FIXMAP_PMD_TOP - FIXMAP_PMD_NUM; i--) {
+	// 	hpt_insert(
+	// 		early_cr3,
+	// 		vaddr + PAGE_NUM_TO_ADDR_2MB(i),
+	// 		paddr + PAGE_NUM_TO_ADDR_2MB(i),
+	// 		prot 
+	// 	);
+	// }
+	
+
 
 	/*
 	 * Set up the identity mapping for the switchover.  These
@@ -203,45 +263,80 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 * it avoids problems around wraparound.
 	 */
 
-	next_pgt_ptr = fixup_pointer(&next_early_pgt, physaddr);
-	pud = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++], physaddr);
-	pmd = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++], physaddr);
+	/**
+	 * NOTE: in paging implementation, pgd[0], pgd[1] and pud[0] pud[1] are both setup
+	 * 	which means four VA regions 
+	 * 	  1. [0 + physaddr, physaddr + KERNEL_SIZE], 
+	 * 	  2. [1GB + physaddr, 1GB + physaddr + KERNEL_SIZE]
+	 * 	  3. [512GB + physaddr, 512GB + physaddr KERNEL_SIZE]
+	 *    4. [512GB + 1GB + physaddr, 512GB + 1GB + physaddr + KERNEL_SIZE]
+	 * 	have been mappe to  PA region [physaddr, physaddr + KERNEL_SIZE]
+	 */
 
-	pgtable_flags = _KERNPG_TABLE_NOENC + sme_get_me_mask();
-
-	if (la57) {
-		p4d = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++],
-				    physaddr);
-
-		i = (physaddr >> PGDIR_SHIFT) % PTRS_PER_PGD;
-		pgd[i + 0] = (pgdval_t)p4d + pgtable_flags;
-		pgd[i + 1] = (pgdval_t)p4d + pgtable_flags;
-
-		i = physaddr >> P4D_SHIFT;
-		p4d[(i + 0) % PTRS_PER_P4D] = (pgdval_t)pud + pgtable_flags;
-		p4d[(i + 1) % PTRS_PER_P4D] = (pgdval_t)pud + pgtable_flags;
-	} else {
-		i = (physaddr >> PGDIR_SHIFT) % PTRS_PER_PGD;
-		pgd[i + 0] = (pgdval_t)pud + pgtable_flags;
-		pgd[i + 1] = (pgdval_t)pud + pgtable_flags;
-	}
-
-	i = physaddr >> PUD_SHIFT;
-	pud[(i + 0) % PTRS_PER_PUD] = (pudval_t)pmd + pgtable_flags;
-	pud[(i + 1) % PTRS_PER_PUD] = (pudval_t)pmd + pgtable_flags;
-
-	pmd_entry = __PAGE_KERNEL_LARGE_EXEC & ~_PAGE_GLOBAL;
+	/* build identity mapping for kernel image */
 	/* Filter out unsupported __PAGE_KERNEL_* bits: */
 	mask_ptr = fixup_pointer(&__supported_pte_mask, physaddr);
-	pmd_entry &= *mask_ptr;
-	pmd_entry += sme_get_me_mask();
-	pmd_entry +=  physaddr;
+	prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC & ~_PAGE_GLOBAL & *mask_ptr);
+	
+	VA_offset [0] = 0;
+	VA_offset [1] = PAGE_SIZE_1GB;
+	VA_offset [2] = PAGE_SIZE_512GB;
+	VA_offset [3] = PAGE_SIZE_512GB + PAGE_SIZE_1GB;
 
 	for (i = 0; i < DIV_ROUND_UP(_end - _text, PMD_SIZE); i++) {
-		int idx = i + (physaddr >> PMD_SHIFT);
+		
+		paddr = PAGE_NUM_TO_ADDR_2MB(i) + physaddr;
+		for (j = 0; j < 4; j++) {
+			vaddr = paddr + VA_offset[0];
+			hpt_insert(
+				early_cr3,
+				vaddr,
+				paddr,
+				prot 
+			);
+		}
+		
+	} 
 
-		pmd[idx % PTRS_PER_PMD] = pmd_entry + i * PMD_SIZE;
-	}
+	// next_pgt_ptr = fixup_pointer(&next_early_pgt, physaddr);
+	// pud = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++], physaddr);
+	// pmd = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++], physaddr);
+
+	// pgtable_flags = _KERNPG_TABLE_NOENC + sme_get_me_mask();
+
+	// if (la57) {
+	// 	p4d = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++],
+	// 			    physaddr);
+
+	// 	i = (physaddr >> PGDIR_SHIFT) % PTRS_PER_PGD;
+	// 	pgd[i + 0] = (pgdval_t)p4d + pgtable_flags;
+	// 	pgd[i + 1] = (pgdval_t)p4d + pgtable_flags;
+
+	// 	i = physaddr >> P4D_SHIFT;
+	// 	p4d[(i + 0) % PTRS_PER_P4D] = (pgdval_t)pud + pgtable_flags;
+	// 	p4d[(i + 1) % PTRS_PER_P4D] = (pgdval_t)pud + pgtable_flags;
+	// } else {
+	// 	i = (physaddr >> PGDIR_SHIFT) % PTRS_PER_PGD;
+	// 	pgd[i + 0] = (pgdval_t)pud + pgtable_flags;
+	// 	pgd[i + 1] = (pgdval_t)pud + pgtable_flags;
+	// }
+
+	// i = physaddr >> PUD_SHIFT;
+	// pud[(i + 0) % PTRS_PER_PUD] = (pudval_t)pmd + pgtable_flags;
+	// pud[(i + 1) % PTRS_PER_PUD] = (pudval_t)pmd + pgtable_flags;
+
+	// pmd_entry = __PAGE_KERNEL_LARGE_EXEC & ~_PAGE_GLOBAL;
+	// /* Filter out unsupported __PAGE_KERNEL_* bits: */
+	// mask_ptr = fixup_pointer(&__supported_pte_mask, physaddr);
+	// pmd_entry &= *mask_ptr;
+	// pmd_entry += sme_get_me_mask();
+	// pmd_entry +=  physaddr;
+
+	// for (i = 0; i < DIV_ROUND_UP(_end - _text, PMD_SIZE); i++) {
+	// 	int idx = i + (physaddr >> PMD_SHIFT);
+
+	// 	pmd[idx % PTRS_PER_PMD] = pmd_entry + i * PMD_SIZE;
+	// }
 
 	/*
 	 * Fixup the kernel text+data virtual addresses. Note that
@@ -259,20 +354,20 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 * error, causing the BIOS to halt the system.
 	 */
 
-	pmd = fixup_pointer(level2_kernel_pgt, physaddr);
+	// pmd = fixup_pointer(level2_kernel_pgt, physaddr);
 
-	/* invalidate pages before the kernel image */
-	for (i = 0; i < pmd_index((unsigned long)_text); i++)
-		pmd[i] &= ~_PAGE_PRESENT;
+	// /* invalidate pages before the kernel image */
+	// for (i = 0; i < pmd_index((unsigned long)_text); i++)
+	// 	pmd[i] &= ~_PAGE_PRESENT;
 
-	/* fixup pages that are part of the kernel image */
-	for (; i <= pmd_index((unsigned long)_end); i++)
-		if (pmd[i] & _PAGE_PRESENT)
-			pmd[i] += load_delta;
+	// /* fixup pages that are part of the kernel image */
+	// for (; i <= pmd_index((unsigned long)_end); i++)
+	// 	if (pmd[i] & _PAGE_PRESENT)
+	// 		pmd[i] += load_delta;
 
-	/* invalidate pages after the kernel image */
-	for (; i < PTRS_PER_PMD; i++)
-		pmd[i] &= ~_PAGE_PRESENT;
+	// /* invalidate pages after the kernel image */
+	// for (; i < PTRS_PER_PMD; i++)
+	// 	pmd[i] &= ~_PAGE_PRESENT;
 
 	/*
 	 * Fixup phys_base - remove the memory encryption mask to obtain
@@ -283,20 +378,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	/* Encrypt the kernel and related (if SME is active) */
 	sme_encrypt_kernel(bp);
 
-	/*
-	 * Clear the memory encryption mask from the .bss..decrypted section.
-	 * The bss section will be memset to zero later in the initialization so
-	 * there is no need to zero it after changing the memory encryption
-	 * attribute.
-	 */
-	if (mem_encrypt_active()) {
-		vaddr = (unsigned long)__start_bss_decrypted;
-		vaddr_end = (unsigned long)__end_bss_decrypted;
-		for (; vaddr < vaddr_end; vaddr += PMD_SIZE) {
-			i = pmd_index(vaddr);
-			pmd[i] -= sme_get_me_mask();
-		}
-	}
+	
 
 	/*
 	 * Return the SME encryption mask (if SME is active) to be used as a
@@ -780,7 +862,6 @@ void __head startup_64_setup_env(unsigned long physbase)
 	/* Load GDT */
 	startup_gdt_descr.address = (unsigned long)fixup_pointer(startup_gdt, physbase);
 	native_load_gdt(&startup_gdt_descr);
-
 	/* New GDT is live - reload data segment registers */
 	asm volatile("movl %%eax, %%ds\n"
 		     "movl %%eax, %%ss\n"

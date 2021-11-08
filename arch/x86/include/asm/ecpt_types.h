@@ -53,6 +53,12 @@ typedef struct ecpt_pgprot { ecpt_pgprotval_t pgprot; } ecpt_pgprot_t;
 #define PHYSICAL_PMD_PAGE_MASK	(((signed long)PMD_PAGE_MASK) & __PHYSICAL_MASK)
 #define PHYSICAL_PUD_PAGE_MASK	(((signed long)PUD_PAGE_MASK) & __PHYSICAL_MASK)
 
+#ifdef CONFIG_RANDOMIZE_BASE
+#define KERNEL_IMAGE_SIZE	(1024 * 1024 * 1024)
+#else
+#define KERNEL_IMAGE_SIZE	(512 * 1024 * 1024)
+#endif
+
 
 #define _PAGE_BIT_PRESENT	0	/* is present */
 #define _PAGE_BIT_RW		1	/* writeable */
