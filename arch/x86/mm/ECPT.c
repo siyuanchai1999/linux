@@ -1,5 +1,6 @@
 
 #include <asm/ECPT.h>
+#include <asm/ECPT_defs.h>
 
 #include <linux/panic.h>
 

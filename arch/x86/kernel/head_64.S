@@ -26,6 +26,9 @@
 #include <asm/nospec-branch.h>
 #include <asm/fixmap.h>
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT_defs.h>
+#endif
 /*
  * We are not able to switch in one step to the final KERNEL ADDRESS SPACE
  * because we need identity-mapped pages.
@@ -93,7 +96,12 @@ SYM_CODE_START_NOALIGN(startup_64)
 	popq	%rsi
 
 	/* Form the CR3 value being sure to include the CR3 modifier */
-	addq	$(early_top_pgt - __START_KERNEL_map), %rax
+#ifdef CONFIG_X86_64_ECPT
+	addq	$(early_hpt - __START_KERNEL_map), %rax
+#else
+    addq	$(early_top_pgt - __START_KERNEL_map), %rax
+#endif
+
 	jmp 1f
 SYM_CODE_END(startup_64)
 
@@ -469,10 +477,23 @@ SYM_CODE_END(vc_no_ghcb)
 	__INITDATA
 	.balign 4
 
-SYM_DATA_START_PTI_ALIGNED(early_top_pgt)
-	.fill	512,8,0
-	.fill	PTI_USER_PGD_FILL,8,0
-SYM_DATA_END(early_top_pgt)
+#ifdef CONFIG_X86_64_ECPT
+
+#define SYM_DATA_START_HPT_4K_ALIGNED(name) \
+	SYM_START(name, SYM_L_GLOBAL, .balign  PAGE_SIZE)
+
+    SYM_DATA_START_HPT_4K_ALIGNED(early_hpt)
+        .fill	EARLY_HPT_ENTRIES, 8, 0
+    SYM_DATA_END(early_hpt)
+
+#else
+	SYM_DATA_START_PTI_ALIGNED(early_top_pgt)
+		.fill	512,8,0
+		.fill	PTI_USER_PGD_FILL,8,0
+	SYM_DATA_END(early_top_pgt)
+#endif
+
+
 
 SYM_DATA_START_PAGE_ALIGNED(early_dynamic_pgts)
 	.fill	512*EARLY_DYNAMIC_PAGE_TABLES,8,0

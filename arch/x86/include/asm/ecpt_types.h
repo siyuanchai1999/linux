@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-#ifndef _ASM_X86_ECPT_DEFS_H
-#define _ASM_X86_ECPT_DEFS_H
+#ifndef _ASM_X86_ECPT_TYPES_H
+#define _ASM_X86_ECPT_TYPES_H
 
 /* adpated from <asm/pgtable_types.h> */
 #include <linux/const.h>
@@ -656,4 +656,4 @@ static inline ecpt_pteval_t ecpt_pte_flags(ecpt_pte_t pte)
 // 					    unsigned long numpages);
 #endif	/* !__ASSEMBLY__ */
 
-#endif /* _ASM_X86_ECPT_DEFS_H */
+#endif /* _ASM_X86_ECPT_TYPES_H */
