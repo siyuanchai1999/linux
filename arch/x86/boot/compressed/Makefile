@@ -94,7 +94,7 @@ ifdef CONFIG_X86_64
 ifdef CONFIG_X86_64_ECPT
 	# @echo "hello world from arch/x86/boot/compressed"
 	vmlinux-objs-y += $(obj)/ident_map_ECPT.o
-	# vmlinux-objs-y += $(obj)/hash.o
+	vmlinux-objs-y += $(obj)/boot_ECPT.o
 	# vmlinux-objs-y += $(obj)/../../../../lib/crc32.o
 else
 	vmlinux-objs-y += $(obj)/ident_map_64.o

@@ -54,9 +54,13 @@
 
 #ifdef CONFIG_DYNAMIC_PHYSICAL_MASK
 extern phys_addr_t physical_mask;
+#ifndef __PHYSICAL_MASK
 #define __PHYSICAL_MASK		physical_mask
+#endif
 #else
+#ifndef __PHYSICAL_MASK
 #define __PHYSICAL_MASK		((phys_addr_t)((1ULL << __PHYSICAL_MASK_SHIFT) - 1))
+#endif
 #endif
 
 extern int devmem_is_allowed(unsigned long pagenr);

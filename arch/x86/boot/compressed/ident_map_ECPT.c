@@ -26,6 +26,8 @@
 
 /* These actually do the work of building the kernel identity maps. */
 #include <linux/pgtable.h>
+#include <asm/ECPT.h>
+
 #include <asm/cmpxchg.h>
 #include <asm/trap_pf.h>
 #include <asm/trapnr.h>
@@ -79,7 +81,7 @@ static void *alloc_pgt_page(void *context)
 static struct alloc_pgt_data pgt_data;
 
 /* The top level page table entry pointer. */
-static unsigned long top_level_pgt;
+static unsigned long cur_cr3;
 
 phys_addr_t physical_mask = (1ULL << __PHYSICAL_MASK_SHIFT) - 1;
 
@@ -103,7 +105,7 @@ static void add_identity_map(unsigned long start, unsigned long end)
 		return;
 
 	/* Build the mapping. */
-	ret = kernel_ident_mapping_init(&mapping_info, (pgd_t *)top_level_pgt, start, end);
+	ret = kernel_ident_mapping_init(&mapping_info, cur_cr3, start, end);
 	if (ret)
 		error("Error: kernel_ident_mapping_init() failed\n");
 }
@@ -123,7 +125,6 @@ void initialize_identity_maps(void *rmode)
 	mapping_info.kernpg_flag = _KERNPG_TABLE;
 
     /* new added for ECPT */
-    mapping_info.hpt_size = BOOT_HPT_ENTRIES;
     mapping_info.hpt_page_size = BOOT_PAGE_SIZE;
 	/*
 	 * It should be impossible for this not to already be true,
@@ -147,15 +148,7 @@ void initialize_identity_maps(void *rmode)
     /**
      *  don't care about top level page in hash page table
      * */
-	top_level_pgt = read_cr3_pa();
-	// if (p4d_offset((pgd_t *)top_level_pgt, 0) == (p4d_t *)_pgtable) {
-		
-	// } else {
-	// 	pgt_data.pgt_buf = _pgtable;
-	// 	pgt_data.pgt_buf_size = BOOT_PGT_SIZE;
-	// 	memset(pgt_data.pgt_buf, 0, pgt_data.pgt_buf_size);
-	// 	top_level_pgt = (unsigned long)alloc_pgt_page(&pgt_data);
-	// }
+	cur_cr3 = read_cr3_pa();
 
     /**
      *  Clear page table buffer  
@@ -165,6 +158,26 @@ void initialize_identity_maps(void *rmode)
     pgt_data.pgt_buf_size = BOOT_PGT_SIZE - BOOT_INIT_PGT_SIZE;
     memset(pgt_data.pgt_buf, 0, pgt_data.pgt_buf_size);
 	
+	mapping_info.hpt_size = BOOT_HPT_ENTRIES;
+
+	if (pgt_data.pgt_buf_size != 0) {
+		/* should not enter for case when we start from start_32 */
+
+		uint32_t hpt_entries = BOOT_PGT_SIZE / BOOT_HPT_ENTRY_SIZE; /* # of entries in hpt */
+		if(hpt_entries <= BOOT_HPT_ENTRIES_MAX) {
+
+			mapping_info.hpt_size = hpt_entries;
+		} else {
+			panic("kernel panic hpt entries over limit!\n");
+		}
+	}	
+
+	/**
+     * hpt_base | size
+     * NOTE: definition of cr3 different from native x86_64
+     */
+	cur_cr3 += HPT_NUM_ENTRIES_TO_CR3(mapping_info.hpt_size);
+
     /*
 	 * New page-table is set up - map the kernel image, boot_params and the
 	 * command line. The uncompressed kernel requires boot_params and the
@@ -179,15 +192,9 @@ void initialize_identity_maps(void *rmode)
 	add_identity_map(cmdline, cmdline + COMMAND_LINE_SIZE);
 
 	/* Load the new page-table. */
-	sev_verify_cbit(top_level_pgt);
+	sev_verify_cbit(cur_cr3);
 
-
-    /**
-     * top_level_pgt | size
-     * NOTE: definition of cr3 different from native x86_64
-     */
-    unsigned long new_cr3 = top_level_pgt + BOOT_HPT_ENTRIES;
-	write_cr3(new_cr3);
+	write_cr3(cur_cr3);
 }
 
 static pte_t *split_large_pmd(struct x86_mapping_info *info,
@@ -225,7 +232,7 @@ static pte_t *split_large_pmd(struct x86_mapping_info *info,
 	pmd = __pmd((unsigned long)pte | info->kernpg_flag);
 	set_pmd(pmdp, pmd);
 	/* Flush TLB to establish the new PMD */
-	write_cr3(top_level_pgt);
+	write_cr3(cur_cr3);
 
 	return pte + pte_index(__address);
 }
@@ -257,7 +264,7 @@ static int set_clr_page_flags(struct x86_mapping_info *info,
 			      unsigned long address,
 			      pteval_t set, pteval_t clr)
 {
-	pgd_t *pgdp = (pgd_t *)top_level_pgt;
+	pgd_t *pgdp = (pgd_t *)cur_cr3;
 	p4d_t *p4dp;
 	pud_t *pudp;
 	pmd_t *pmdp;
@@ -307,7 +314,7 @@ static int set_clr_page_flags(struct x86_mapping_info *info,
 	set_pte(ptep, pte);
 
 	/* Flush TLB after changing encryption attribute */
-	write_cr3(top_level_pgt);
+	write_cr3(cur_cr3);
 
 	return 0;
 }

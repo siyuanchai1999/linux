@@ -5,43 +5,14 @@
  */
 
 
-
-
-
-
 #ifdef CONFIG_X86_64_ECPT
 
 /* each entry is 8 (2**3) bytes long */
-#define HASH_TO_INDEX(h) (h << 3)
 #define PAGE_SIZE_TO_PAGE_NUM_MASK(x) (~((x) - 1))
 
-static uint32_t triple32(uint32_t x)
-{
-    x ^= x >> 17;
-    x *= 0xed5ad4bb;
-    x ^= x >> 11;
-    x *= 0xac4c1b51;
-    x ^= x >> 15;
-    x *= 0x31848bab;
-    x ^= x >> 14;
-    return x;
-}
+#include <asm/ECPT.h>
 
-
-static uint64_t gen_has(uint64_t addr, uint64_t size) {
-    uint64_t hash = triple32(addr);
-    hash = hash % size;
-    if (hash > size) {
-        /* should not be */
-        // printf("Hash value %lu, size %lu\n", hash, size);
-        // assert(1 == 0 && "Hash value is larger than index\n");
-    }
-
-    return hash;
-}
-
-
-int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
+int kernel_ident_mapping_init(struct x86_mapping_info *info, uint64_t cr3,
 			      unsigned long pstart, unsigned long pend)
 {
 	unsigned long addr = pstart + info->offset;
@@ -59,17 +30,24 @@ int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
     addr &= PAGE_SIZE_TO_PAGE_NUM_MASK(info->hpt_page_size);
 
 	for (; addr < end; addr += info->hpt_page_size) {
-        uint64_t hash = gen_has(addr, info->hpt_size);
+        // uint64_t hash = gen_hash_32(addr, info->hpt_size);
 
-		pgd_t *pgd = pgd_page + HASH_TO_INDEX(hash);
+		// pgd_t *pgd = pgd_page + HASH_TO_INDEX(hash);
 					
 
-		if (pgd_present(*pgd)) {
-			/* already setup good to go */
-			continue;
-		}
-        set_hpt_pgd_entry(pgd, __pgd(__pa(pstart) | info->kernpg_flag));
+		// if (pgd_present(*pgd)) {
+		// 	/* already setup good to go */
+		// 	continue;
+		// }
+        // set_hpt_pgd_entry(pgd, __pgd(__pa(pstart) | info->kernpg_flag));
 
+		int res = hpt_insert(cr3, addr, addr, __ecpt_pgprot(info->kernpg_flag));
+
+		if (res) {
+			// panic("error from hpt_inerst!\n");
+			// error("Error: hpt_inerst failed!\n");
+			return res;
+		}
 
         pstart += info->hpt_page_size;
 

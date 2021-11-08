@@ -303,7 +303,7 @@ SYM_FUNC_START(startup_32)
 	 Enable the boot page tables
 	 */
 	leal	rva(pgtable)(%ebx), %eax
-	addl 	$(BOOT_CR3_ENTRIES_VAL), %eax 
+	addl 	$(BOOT_CR3_NUM_ENTRIES_VAL), %eax 
 	movl	%eax, %cr3
 
 #else
@@ -1393,7 +1393,7 @@ SYM_DATA_END_LABEL(boot_stack, SYM_L_LOCAL, boot_stack_end)
  */
 	.section ".pgtable","aw",@nobits
 	.balign 4096
-SYM_DATA_LOCAL(pgtable,		.fill BOOT_PGT_SIZE, 1, 0)
+SYM_DATA_LOCAL(pgtable,		.fill BOOT_INIT_PGT_SIZE, 1, 0)
 /* SYM_DATA_LOCAL(pgtable,		.fill BOOT_HPT_ENTRIES, 8, 0)  */
 
 /*

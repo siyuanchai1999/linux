@@ -38,6 +38,8 @@
 /* - if the user mapped it with PROT_NONE; pte_present gives true */
 #define _PAGE_BIT_PROTNONE	_PAGE_BIT_GLOBAL
 
+#ifndef _ASM_X86_ECPT_DEFS_H			/* temporarily undefine to suppress compiler warning */
+
 #define _PAGE_PRESENT	(_AT(pteval_t, 1) << _PAGE_BIT_PRESENT)
 #define _PAGE_RW	(_AT(pteval_t, 1) << _PAGE_BIT_RW)
 #define _PAGE_USER	(_AT(pteval_t, 1) << _PAGE_BIT_USER)
@@ -264,9 +266,14 @@ enum page_cache_mode {
 # include <asm/pgtable_64_types.h>
 #endif
 
+#endif /*  ifndef _ASM_X86_ECPT_DEFS_H*/
+
+
 #ifndef __ASSEMBLY__
 
 #include <linux/types.h>
+
+#ifndef PTE_PFN_MASK
 
 /* Extracts the PFN from a (pte|pmd|pud|pgd)val_t of a 4KB page */
 #define PTE_PFN_MASK		((pteval_t)PHYSICAL_PAGE_MASK)
@@ -276,6 +283,8 @@ enum page_cache_mode {
  *  This includes the protection key value.
  */
 #define PTE_FLAGS_MASK		(~PTE_PFN_MASK)
+#endif /* ifndef PTE_PFN_MASK */
+
 
 typedef struct pgprot { pgprotval_t pgprot; } pgprot_t;
 

@@ -60,13 +60,16 @@
 	// #define BOOT_ADDR_TO_PAGE_NUM (((x) >> BOOT_PAGE_SHIFT) << BOOT_PAGE_SHIFT)	/* everything in front of bit 29 */
 
 	#define BOOT_HPT_ENTRIES (512 * 8)
-    #define BOOT_INIT_PGT_SIZE (BOOT_HPT_ENTRIES * 8)
+	#define BOOT_HPT_ENTRY_SIZE (8)
+    #define BOOT_INIT_PGT_SIZE (BOOT_HPT_ENTRIES * BOOT_HPT_ENTRY_SIZE)
     #define BOOT_PGT_SIZE BOOT_INIT_PGT_SIZE
-    #define BOOT_HPT_OFFSET_MASK (BOOT_HPT_ENTRIES - 1)         /* the trailing */
+    #define BOOT_HPT_OFFSET_MASK (BOOT_HPT_ENTRIES - 1)         /* the trailing 12 */
 
-	#define HPT_SIZE_HIDDEN_BITS (4)    /* 16 * cr3[0:11] for number of entries */
-	#define BOOT_CR3_ENTRIES_VAL (BOOT_HPT_ENTRIES >> HPT_SIZE_HIDDEN_BITS)		/* 16 * cr3[0:11] for number of entries */
-    
+	#define HPT_SIZE_MASK (0xfff)      /* 16 * cr3[0:11] for number of entries */
+	#define HPT_SIZE_HIDDEN_BITS (4)    
+	#define BOOT_CR3_NUM_ENTRIES_VAL (BOOT_HPT_ENTRIES >> HPT_SIZE_HIDDEN_BITS)		/* 16 * cr3[0:11] for number of entries */
+    #define BOOT_HPT_ENTRIES_MAX (HPT_SIZE_MASK << HPT_SIZE_HIDDEN_BITS)
+	
 	#define BOOT_PAGE_SHIFT (21)
     #define BOOT_PAGE_SIZE (1 << BOOT_PAGE_SHIFT)
 #else

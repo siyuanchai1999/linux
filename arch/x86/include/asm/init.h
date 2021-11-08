@@ -17,7 +17,8 @@ struct x86_mapping_info {
 #endif
 };
 
-int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
-				unsigned long pstart, unsigned long pend);
-
+// int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
+				// unsigned long pstart, unsigned long pend);
+int kernel_ident_mapping_init(struct x86_mapping_info *info, uint64_t cr3,
+			      unsigned long pstart, unsigned long pend);
 #endif /* _ASM_X86_INIT_H */
