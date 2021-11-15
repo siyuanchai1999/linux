@@ -159,6 +159,10 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	movq	%rcx, %cr4
 
 	/* Setup early boot stage 4-/5-level pagetables. */
+	#ifdef CONFIG_X86_64_ECPT
+		addq $(EARLY_HPT_CR3_SIZE_VAL), %rax
+	#endif
+
 	addq	phys_base(%rip), %rax
 
 	/*
@@ -479,10 +483,7 @@ SYM_CODE_END(vc_no_ghcb)
 
 #ifdef CONFIG_X86_64_ECPT
 
-#define SYM_DATA_START_HPT_4K_ALIGNED(name) \
-	SYM_START(name, SYM_L_GLOBAL, .balign  PAGE_SIZE)
-
-    SYM_DATA_START_HPT_4K_ALIGNED(early_hpt)
+    SYM_DATA_START_PAGE_ALIGNED(early_hpt)
         .fill	EARLY_HPT_ENTRIES, 8, 0
     SYM_DATA_END(early_hpt)
 #endif

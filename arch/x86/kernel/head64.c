@@ -161,11 +161,17 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	ecpt_pgprot_t prot;
 	uint64_t VA_offset[4];
 
+	uint64_t fixup_text, fixup_end;
+
 	// unsigned int *next_pgt_ptr;
 
 	// la57 = check_la57_support(physaddr);
 
 	/* Is the address too large? */
+	// char printstr[30] = "early printk hello!\n";
+
+
+	// early_printk((char *)fixup_pointer(printstr, physaddr));
 	if (physaddr >> MAX_PHYSMEM_BITS)
 		for (;;);
 
@@ -197,11 +203,16 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	vaddr_start = __START_KERNEL_map;
 	paddr_start = load_delta;
-
+	fixup_text = (uint64_t) fixup_pointer(_text, physaddr);
+	fixup_end = (uint64_t) fixup_pointer(_end, physaddr);
 	/* build kernel mapping */
 	for (i = 0; i < KERNEL_IMAGE_SIZE/PMD_PAGE_SIZE; i++) {
 		
-		if (i >= ADDR_TO_PAGE_NUM_2MB((uint64_t) _text) && i <= ADDR_TO_PAGE_NUM_2MB((uint64_t) _end)) {
+
+		/* text and end need to fixup */
+		if (i >= ADDR_TO_PAGE_NUM_2MB(fixup_text) 
+			&& i <= ADDR_TO_PAGE_NUM_2MB(fixup_end)
+		) {
 			prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC);
 		} else {
 			/* mapping not present for entries outside kernel image */
@@ -223,11 +234,13 @@ unsigned long __head __startup_64(unsigned long physaddr,
 			}
 		}
 
-		hpt_insert(
+		early_hpt_insert(
 			early_cr3,
 			vaddr,
 			paddr,
-			prot 
+			prot,
+			_text,
+			physaddr
 		);
 
 		
@@ -287,12 +300,14 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		
 		paddr = PAGE_NUM_TO_ADDR_2MB(i) + physaddr;
 		for (j = 0; j < 4; j++) {
-			vaddr = paddr + VA_offset[0];
-			hpt_insert(
+			vaddr = paddr + VA_offset[j];
+			early_hpt_insert(
 				early_cr3,
 				vaddr,
 				paddr,
-				prot 
+				prot,
+				_text,
+				physaddr
 			);
 		}
 		
@@ -386,6 +401,8 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 */
 	return sme_get_me_mask();
 }
+
+
 #else
 
 /* Code in __startup_64() can be relocated during execution, but the compiler

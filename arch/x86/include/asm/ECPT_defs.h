@@ -3,7 +3,7 @@
 
 #define HPT_SIZE_MASK (0xfff)      	/* 16 * cr3[0:11] for number of entries */
 #define HPT_SIZE_HIDDEN_BITS (4)    
-#define HPT_NUM_ENTRIES_TO_CR3(cr3) (((uint64_t) cr3 ) >> HPT_SIZE_HIDDEN_BITS)
+#define HPT_NUM_ENTRIES_TO_CR3(size) (((uint64_t) size ) >> HPT_SIZE_HIDDEN_BITS)
 #define HPT_BASE_MASK (~(HPT_SIZE_MASK))
 #define GET_HPT_SIZE(cr3) ((((uint64_t) cr3) & HPT_SIZE_MASK ) << HPT_SIZE_HIDDEN_BITS)
 #define GET_HPT_BASE(cr3) (((uint64_t) cr3) & HPT_BASE_MASK )
@@ -49,9 +49,9 @@
 #define EARLY_HPT_SIZE (EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_SIZE)
 #define EARLY_HPT_OFFSET_MASK (EARLY_HPT_ENTRIES - 1)         /* the trailing 12 */
 
-#define HPT_SIZE_MASK (0xfff)      /* 16 * cr3[0:11] for number of entries */
-#define HPT_SIZE_HIDDEN_BITS (4)   
-
+// #define HPT_SIZE_MASK (0xfff)      /* 16 * cr3[0:11] for number of entries */
+// #define HPT_SIZE_HIDDEN_BITS (4)   
+#define EARLY_HPT_CR3_SIZE_VAL (EARLY_HPT_ENTRIES >> HPT_SIZE_HIDDEN_BITS)
 
 
 #endif /* _ASM_X86_ECPT_DEFS_H */

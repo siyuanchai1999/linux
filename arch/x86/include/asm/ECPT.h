@@ -128,4 +128,6 @@ static inline int ecpt_pte_present(ecpt_pte_t a)
 
 int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot);
 
+int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, int64_t kernel_start, uint64_t physaddr);
+
 #endif /* _ASM_X86_ECPT_HASH_H */
