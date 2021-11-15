@@ -126,8 +126,7 @@ static inline int ecpt_pte_present(ecpt_pte_t a)
 
 // uint64_t gen_hash_32(uint32_t vpn, uint64_t size);
 
-int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot);
+int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
 
-int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, int64_t kernel_start, uint64_t physaddr);
-
+int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 #endif /* _ASM_X86_ECPT_HASH_H */

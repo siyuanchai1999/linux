@@ -239,7 +239,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 			vaddr,
 			paddr,
 			prot,
-			_text,
+			(uint64_t) _text,
 			physaddr
 		);
 
@@ -302,15 +302,14 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
 			early_hpt_insert(
-				early_cr3,
+				early_cr3,		
 				vaddr,
 				paddr,
 				prot,
-				_text,
+				(uint64_t) _text,
 				physaddr
 			);
 		}
-		
 	} 
 
 	// next_pgt_ptr = fixup_pointer(&next_early_pgt, physaddr);
@@ -596,6 +595,68 @@ unsigned long __startup_secondary_64(void)
 }
 
 /* Wipe all early page tables except for the kernel symbol map */
+#ifdef CONFIG_X86_64_ECPT
+
+
+static void __init reset_early_hpt(void)
+{
+	/* paging implementation removes all identity mapping (only saves the last page kernel mapping) */
+	uint64_t VA_offset[4];
+	ecpt_pgprot_t prot;
+	uint64_t vaddr, paddr, early_cr3;
+	uint32_t i, j;
+
+	early_cr3 = (uint64_t) &early_hpt[0];
+	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
+	prot = __ecpt_pgprot(0);
+	
+	VA_offset [0] = 0;
+	VA_offset [1] = PAGE_SIZE_1GB;
+	VA_offset [2] = PAGE_SIZE_512GB;
+	VA_offset [3] = PAGE_SIZE_512GB + PAGE_SIZE_1GB;
+
+	for (i = 0; i < DIV_ROUND_UP(_end - _text, PMD_SIZE); i++) {
+		
+		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __START_KERNEL;
+		for (j = 0; j < 4; j++) {
+			vaddr = paddr + VA_offset[j];
+			hpt_insert(
+				early_cr3,		
+				vaddr,
+				0,
+				prot,
+				1
+			);
+		}
+	}
+	
+	// early_hpt
+	// memset(early_top_pgt, 0, sizeof(pgd_t)*(PTRS_PER_PGD-1));
+	next_early_pgt = 0;
+}
+
+static bool __init early_make_hpt(unsigned long address)
+{
+
+	unsigned long physaddr = address - __PAGE_OFFSET;
+	int res;
+	// pmdval_t pmd;
+
+	// pmd = (physaddr & PMD_MASK) + early_pmd_flags;
+
+	// return __early_make_pgtable(address, pmd);
+
+	if (physaddr >= MAXMEM || read_cr3_pa() != __pa_nodebug(early_hpt))
+		return false;
+	
+	res = hpt_insert(read_cr3(), address, physaddr, __ecpt_pgprot(early_pmd_flags), 1 /* override */);
+
+	/* hpt_insert return 0 as normal, but early_make_hpt needs 1 as normal
+	 */
+	return !res;
+}
+
+#else
 static void __init reset_early_page_tables(void)
 {
 	memset(early_top_pgt, 0, sizeof(pgd_t)*(PTRS_PER_PGD-1));
@@ -676,6 +737,7 @@ again:
 
 static bool __init early_make_pgtable(unsigned long address)
 {
+
 	unsigned long physaddr = address - __PAGE_OFFSET;
 	pmdval_t pmd;
 
@@ -684,12 +746,22 @@ static bool __init early_make_pgtable(unsigned long address)
 	return __early_make_pgtable(address, pmd);
 }
 
+#endif
+
+
+
 void __init do_early_exception(struct pt_regs *regs, int trapnr)
 {
+
+#ifdef CONFIG_X86_64_ECPT
+	if (trapnr == X86_TRAP_PF &&
+	    early_make_hpt(native_read_cr2()))
+		return;
+#else 
 	if (trapnr == X86_TRAP_PF &&
 	    early_make_pgtable(native_read_cr2()))
 		return;
-
+#endif
 	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT) &&
 	    trapnr == X86_TRAP_VC && handle_vc_boot_ghcb(regs))
 		return;
@@ -761,11 +833,17 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	cr4_init_shadow();
 
 	/* Kill off the identity-map trampoline */
+#ifdef CONFIG_X86_64_ECPT
+	// reset_early_hpt();
+#else 
 	reset_early_page_tables();
+#endif
+
+	
 
 	clear_bss();
 
-	clear_page(init_top_pgt);
+	// clear_page(init_top_pgt);
 
 	/*
 	 * SME support may update early_pmd_flags to include the memory
@@ -786,7 +864,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	load_ucode_bsp();
 
 	/* set init_top_pgt kernel high mapping*/
-	init_top_pgt[511] = early_top_pgt[511];
+	// init_top_pgt[511] = early_top_pgt[511];
 
 	x86_64_start_reservations(real_mode_data);
 }

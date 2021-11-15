@@ -244,6 +244,12 @@ native_cpuid_reg(edx)
 /*
  * Friendlier CR3 helpers.
  */
+static inline unsigned long read_cr3(void)
+{
+	return __read_cr3();
+}
+
+
 static inline unsigned long read_cr3_pa(void)
 {
 	return __read_cr3() & CR3_ADDR_MASK;

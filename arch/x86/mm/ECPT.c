@@ -524,7 +524,7 @@ static uint64_t gen_hash_64(uint64_t vpn, uint64_t size) {
 
 #define HASH_TO_INDEX(h) (h << 3)
 
-int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, int64_t kernel_start, uint64_t physaddr) {
+int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr) {
 	uint64_t size;
 	uint64_t hash;
 	uint32_t vpn;
@@ -547,23 +547,24 @@ int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t
 	// pmdp = hpt_base + (hash << 3);
 
 	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	pmdp = hpt_base + hash;
+	pmdp = &hpt_base[hash];
 
-	// if (ecpt_pmd_present(*pmdp)) {
-	// 	/* already present */
-	// 	/* warning */
-	// }
+	if (ecpt_pmd_present(*pmdp)) {
+		/* already present */
+		/* warning */
+		return -1;
+	}
 	
 	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
 
 	*pmdp = entry;
 	// set_ecpt_pmd(pmdp, entry);
-
+	
 	return 0;
 }
 
 
-int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot) {
+int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
 	uint64_t size, hash;
 	uint32_t vpn;
 
@@ -579,17 +580,21 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot)
 	// hash = gen_hash_64(vpn, size);
 
 
-	pmdp = hpt_base + HASH_TO_INDEX(hash);
+	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	pmdp = &hpt_base[hash];
 
 	if (ecpt_pmd_present(*pmdp)) {
 		/* already present */
 		/* warning */
+		if (!override) {	
+			return -1;
+		}
 	}
 	
 	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
 
-
 	set_ecpt_pmd(pmdp, entry);
 
 	return 0;
+
 }
