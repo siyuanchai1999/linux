@@ -583,6 +583,9 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
 	pmdp = &hpt_base[hash];
 
+
+
+	/* if you unmap trampoline !!!!! PF here */
 	if (ecpt_pmd_present(*pmdp)) {
 		/* already present */
 		/* warning */

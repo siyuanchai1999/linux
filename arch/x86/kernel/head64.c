@@ -43,6 +43,8 @@
 #include <asm/trapnr.h>
 #include <asm/sev.h>
 
+
+
 /*
  * Manage page tables very early on.
  */
@@ -169,7 +171,6 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	/* Is the address too large? */
 	// char printstr[30] = "early printk hello!\n";
-
 
 	// early_printk((char *)fixup_pointer(printstr, physaddr));
 	if (physaddr >> MAX_PHYSMEM_BITS)
@@ -617,7 +618,10 @@ static void __init reset_early_hpt(void)
 
 	for (i = 0; i < DIV_ROUND_UP(_end - _text, PMD_SIZE); i++) {
 		
-		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __START_KERNEL;
+
+		/* this should be correct as long as text starts at __PHYSICAL_START */
+
+		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __PHYSICAL_START;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
 			hpt_insert(
@@ -639,6 +643,7 @@ static bool __init early_make_hpt(unsigned long address)
 {
 
 	unsigned long physaddr = address - __PAGE_OFFSET;
+	uint64_t early_cr3;
 	int res;
 	// pmdval_t pmd;
 
@@ -649,7 +654,11 @@ static bool __init early_make_hpt(unsigned long address)
 	if (physaddr >= MAXMEM || read_cr3_pa() != __pa_nodebug(early_hpt))
 		return false;
 	
-	res = hpt_insert(read_cr3(), address, physaddr, __ecpt_pgprot(early_pmd_flags), 1 /* override */);
+
+	early_cr3 = (uint64_t) &early_hpt[0];
+	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
+
+	res = hpt_insert(early_cr3, address, physaddr, __ecpt_pgprot(early_pmd_flags), 1 /* override */);
 
 	/* hpt_insert return 0 as normal, but early_make_hpt needs 1 as normal
 	 */
@@ -834,7 +843,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 
 	/* Kill off the identity-map trampoline */
 #ifdef CONFIG_X86_64_ECPT
-	// reset_early_hpt();
+	reset_early_hpt();
 #else 
 	reset_early_page_tables();
 #endif
