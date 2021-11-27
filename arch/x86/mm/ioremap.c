@@ -29,6 +29,12 @@
 
 #include "physaddr.h"
 
+#ifdef CONFIG_X86_64_ECPT
+
+#include <asm/ECPT.h>
+
+#endif
+
 /*
  * Descriptor controlling ioremap() behavior.
  */
@@ -822,9 +828,29 @@ void __init early_ioremap_init(void)
 
 	early_ioremap_setup();
 
+#ifdef CONFIG_X86_64_CONFIG
+	/**
+	 * In this init function, it hooks up the pmd level entry with the pte level pgtable, but real mapping was established in  
+	 * __early_ioremap
+	 * 
+	 * */
+
+#else 
+	/**
+	 * 	paging implementation
+	 * 		1. find the pmd entry corresponded
+	 * 		2. clear bm_pte
+	 * 		3. set pmd to point to bm_pte
+	 * 	but right now bm_pte is still all zero?
+	 * 		where's the physical address that fixmap is mapped to 
+	 */
 	pmd = early_ioremap_pmd(fix_to_virt(FIX_BTMAP_BEGIN));
 	memset(bm_pte, 0, sizeof(bm_pte));
 	pmd_populate_kernel(&init_mm, pmd, bm_pte);
+#endif
+
+
+	
 
 	/*
 	 * The boot-ioremap range spans multiple pmds, for which

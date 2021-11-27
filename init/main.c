@@ -932,14 +932,14 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 
-	set_task_stack_end_magic(&init_task);
-	smp_setup_processor_id();
+	set_task_stack_end_magic(&init_task);	/* setup stack end */
+	smp_setup_processor_id();				/* no usage for x86 */
 	debug_objects_early_init();
 	init_vmlinux_build_id();
 
 	cgroup_init_early();
 
-	local_irq_disable();
+	local_irq_disable();					/* disable local interrupt request */
 	early_boot_irqs_disabled = true;
 
 	/*

@@ -12,6 +12,11 @@
 #include <linux/user_namespace.h>
 #include <asm/mmu.h>
 
+#ifdef CONFIG_X86_64_ECPT
+	#include <asm/ECPT.h>
+#endif
+
+
 #ifndef INIT_MM_CONTEXT
 #define INIT_MM_CONTEXT(name)
 #endif
@@ -28,7 +33,11 @@
  */
 struct mm_struct init_mm = {
 	.mm_rb		= RB_ROOT,
+#ifdef CONFIG_X86_64_ECPT
+	.pgd 		= (pgd_t *) early_hpt,		/* early hpt was defined as 2M at first */
+#else 
 	.pgd		= swapper_pg_dir,
+#endif
 	.mm_users	= ATOMIC_INIT(2),
 	.mm_count	= ATOMIC_INIT(1),
 	.write_protect_seq = SEQCNT_ZERO(init_mm.write_protect_seq),

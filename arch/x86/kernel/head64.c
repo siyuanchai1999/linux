@@ -852,7 +852,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 
 	clear_bss();
 
-	// clear_page(init_top_pgt);
+	clear_page(init_top_pgt);
 
 	/*
 	 * SME support may update early_pmd_flags to include the memory

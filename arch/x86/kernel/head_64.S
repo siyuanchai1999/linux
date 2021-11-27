@@ -481,13 +481,6 @@ SYM_CODE_END(vc_no_ghcb)
 	__INITDATA
 	.balign 4
 
-#ifdef CONFIG_X86_64_ECPT
-
-    SYM_DATA_START_PAGE_ALIGNED(early_hpt)
-        .fill	EARLY_HPT_ENTRIES, 8, 0
-    SYM_DATA_END(early_hpt)
-#endif
-
 
 
 	SYM_DATA_START_PTI_ALIGNED(early_top_pgt)
@@ -504,6 +497,14 @@ SYM_DATA_END(early_dynamic_pgts)
 SYM_DATA(early_recursion_flag, .long 0)
 
 	.data
+
+#ifdef CONFIG_X86_64_ECPT
+
+    SYM_DATA_START_PAGE_ALIGNED(early_hpt)
+        .fill	EARLY_HPT_ENTRIES, 8, 0
+    SYM_DATA_END(early_hpt)
+#endif
+
 
 #if defined(CONFIG_XEN_PV) || defined(CONFIG_PVH)
 SYM_DATA_START_PTI_ALIGNED(init_top_pgt)
