@@ -818,7 +818,7 @@ bool __init is_early_ioremap_ptep(pte_t *ptep)
 
 void __init early_ioremap_init(void)
 {
-	pmd_t *pmd;
+	pmd_t *pmd = NULL;
 
 #ifdef CONFIG_X86_64
 	BUILD_BUG_ON((fix_to_virt(0) + PAGE_SIZE) & ((1 << PMD_SHIFT) - 1));
@@ -828,7 +828,7 @@ void __init early_ioremap_init(void)
 
 	early_ioremap_setup();
 
-#ifdef CONFIG_X86_64_CONFIG
+#ifdef CONFIG_X86_64_ECPT
 	/**
 	 * In this init function, it hooks up the pmd level entry with the pte level pgtable, but real mapping was established in  
 	 * __early_ioremap
@@ -875,6 +875,33 @@ void __init early_ioremap_init(void)
 	}
 }
 
+#ifdef CONFIG_X86_64_ECPT
+void __init __early_set_fixmap(enum fixed_addresses idx,
+			       phys_addr_t phys, pgprot_t flags)
+{
+	unsigned long addr = __fix_to_virt(idx);
+	uint64_t early_cr3;
+	if (idx >= __end_of_fixed_addresses) {
+		BUG();
+		return;
+	}
+
+	pgprot_val(flags) &= __supported_pte_mask;
+
+	early_cr3 = (uint64_t) &early_hpt[0];
+	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
+
+	if (pgprot_val(flags)) {
+		int res = hpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 0);
+	} else {
+		/* if flags == 0, we have to clear the entry with overrride */
+		int res = hpt_insert(early_cr3, addr, 0,  __ecpt_pgprot(0), 1);
+	}
+	
+	/* flush tlb? how does invlpage assembly works underline? */
+	flush_tlb_one_kernel(addr);
+}
+#else
 void __init __early_set_fixmap(enum fixed_addresses idx,
 			       phys_addr_t phys, pgprot_t flags)
 {
@@ -896,3 +923,5 @@ void __init __early_set_fixmap(enum fixed_addresses idx,
 		pte_clear(&init_mm, addr, pte);
 	flush_tlb_one_kernel(addr);
 }
+
+#endif

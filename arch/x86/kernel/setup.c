@@ -24,6 +24,8 @@
 #include <linux/static_call.h>
 #include <linux/swiotlb.h>
 
+#include <linux/printk.h>
+
 #include <uapi/linux/mount.h>
 
 #include <xen/xen.h>
@@ -51,6 +53,29 @@
 #include <asm/vsyscall.h>
 #include <linux/vmalloc.h>
 
+
+#ifdef CONFIG_DEBUG_BEFORE_CONSOLE
+#include <asm/early_debug.h>
+#else
+
+#undef debug_putstr
+#define debug_putstr(__x)
+#undef debug_putaddr
+#define debug_putaddr(__x)
+
+#endif
+
+#define DEBUG_STR(__x) { \
+		debug_putstr("setup: "); \
+		debug_putstr(__x); \
+	}
+
+#define DEBUG_VAR(__x) { \
+		debug_putstr("setup: "); \
+		debug_putaddr(__x); \
+	}
+
+// #include <../boot/compressed/misc.h>
 /*
  * max_low_pfn_mapped: highest directly mapped pfn < 4 GB
  * max_pfn_mapped:     highest directly mapped pfn > 4 GB
@@ -784,6 +809,8 @@ void __init setup_arch(char **cmdline_p)
 	boot_cpu_data.x86_phys_bits = MAX_PHYSMEM_BITS;
 #endif
 
+	DEBUG_STR("in setup_arch\n" );
+	
 	/*
 	 * If we have OLPC OFW, we might end up relocating the fixmap due to
 	 * reserve_top(), so do this before touching the ioremap area.
@@ -888,7 +915,11 @@ void __init setup_arch(char **cmdline_p)
 	 */
 	x86_configure_nx();
 
+
+	DEBUG_STR("Before parse_early_param\n");
+	/* after this early_printk should work */
 	parse_early_param();
+	
 
 #ifdef CONFIG_MEMORY_HOTPLUG
 	/*
@@ -922,6 +953,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 		setup_clear_cpu_cap(X86_FEATURE_APIC);
 	}
+
 
 	e820__reserve_setup_data();
 	e820__finish_early_params();
@@ -1006,7 +1038,7 @@ void __init setup_arch(char **cmdline_p)
 	 * Find and reserve possible boot-time SMP configuration:
 	 */
 	find_smp_config();
-
+	/* save it unchanged for now, this allocate buffer to extend page tables */
 	early_alloc_pgt_buf();
 
 	/*
@@ -1016,7 +1048,8 @@ void __init setup_arch(char **cmdline_p)
 	 */
 	reserve_brk();
 
-	cleanup_highmap();
+	/* cleanup invalid mappings in head.S. We don't have to do this because we only do the valid mappings there. */
+	// cleanup_highmap();
 
 	memblock_set_current_limit(ISA_END_ADDRESS);
 	e820__memblock_setup();

@@ -395,4 +395,29 @@ static int __init setup_early_printk(char *buf)
 	return 0;
 }
 
+// int __init setup_early_serial_console(void)
+// {
+// #ifdef CONFIG_EARLY_PRINTK
+// 	char *arg;
+
+// 	/*
+// 	 * make sure that we have:
+// 	 *	"serial,0x3f8,115200"
+// 	 *	"serial,ttyS0,115200"
+// 	 *	"ttyS0,115200"
+// 	 */
+// 	arg = strstr(boot_command_line, "earlyprintk=serial");
+// 	if (!arg)
+// 		arg = strstr(boot_command_line, "earlyprintk=ttyS");
+// 	if (!arg)
+// 		return -1;
+
+// 	arg = strstr(boot_command_line, "earlyprintk=");
+// 	/* += strlen("earlyprintk"); */
+// 	arg += 12;
+
+// 	return setup_early_printk(arg);
+// #endif
+// }
+
 early_param("earlyprintk", setup_early_printk);

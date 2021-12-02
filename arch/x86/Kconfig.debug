@@ -14,6 +14,14 @@ config X86_VERBOSE_BOOTUP
 	  (e.g. bzImage) of the boot. If you disable this you will still
 	  see errors. Disable this if you want silent bootup.
 
+config DEBUG_BEFORE_CONSOLE
+	bool "print debug information before early_printk is ready"  
+	default y
+	help 
+	  Debug before early_printk is ready in arch/x86/kernel/setup.c 
+	  and after kernel high mapping has been built in arch/x86/kernel/head64.c
+	
+
 config EARLY_PRINTK
 	bool "Early printk" if EXPERT
 	default y

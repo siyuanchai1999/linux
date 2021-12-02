@@ -27,4 +27,7 @@
 	{ .uart = 0,	BASE_BAUD,	0x3E8,	4,	STD_COMX_FLAGS	}, /* ttyS2 */	\
 	{ .uart = 0,	BASE_BAUD,	0x2E8,	3,	STD_COM4_FLAGS	}, /* ttyS3 */
 
+// int __init setup_early_serial_console(void);
+
+
 #endif /* _ASM_X86_SERIAL_H */

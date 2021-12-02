@@ -941,7 +941,8 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 
 	local_irq_disable();					/* disable local interrupt request */
 	early_boot_irqs_disabled = true;
-
+	
+	// console_init();
 	/*
 	 * Interrupts are still disabled. Do necessary setups, then
 	 * enable them.
