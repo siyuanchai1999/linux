@@ -3,6 +3,9 @@
 
 // #include <asm/page_types.h>
 // #include <asm/page_64_types.h>
+#include <linux/mm_types.h>
+#include <linux/spinlock.h>
+
 #include <asm/ecpt_types.h>
 #include <linux/types.h>
 
@@ -127,6 +130,7 @@ static inline int ecpt_pte_present(ecpt_pte_t a)
 // uint64_t gen_hash_32(uint32_t vpn, uint64_t size);
 
 int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
+int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
 
 int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 #endif /* _ASM_X86_ECPT_HASH_H */

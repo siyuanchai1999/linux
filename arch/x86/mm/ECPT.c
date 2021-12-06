@@ -4,6 +4,16 @@
 
 #include <linux/panic.h>
 
+#ifdef CONFIG_DEBUG_BEFORE_CONSOLE
+#include <asm/early_debug.h>
+#else
+
+#undef DEBUG_STR
+#define DEBUG_STR(__x)
+#undef DEBUG_VAR
+#define DEBUG_VAR(__x)
+
+#endif
 
 /* crc32.c
    Copyright (C) 2009-2021 Free Software Foundation, Inc.
@@ -599,5 +609,79 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 	set_ecpt_pmd(pmdp, entry);
 
 	return 0;
+}
 
+int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
+	uint64_t size, hash;
+	uint32_t vpn;
+
+	ecpt_pmd_t *hpt_base, *pmdp;
+	ecpt_pmd_t entry = __ecpt_pmd(0);
+	uint64_t cr3;
+
+	DEBUG_VAR(vaddr);
+	DEBUG_VAR(paddr);
+	DEBUG_VAR(prot.pgprot);
+
+	
+	
+	cr3 = (uint64_t) mm->pgd;
+
+	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
+	size = GET_HPT_SIZE(cr3);
+	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
+
+	hash = gen_hash_32(vpn, size);
+
+	// hash = gen_hash_64(vpn, size);
+
+	// DEBUG_VAR(hpt_base);
+	// DEBUG_VAR(hash);
+	// DEBUG_VAR(size);
+	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	pmdp = &hpt_base[hash];
+	// DEBUG_VAR(pmdp);
+
+
+	/* if you unmap trampoline !!!!! PF here */
+	if (ecpt_pmd_present(*pmdp)) {
+		/* already present */
+		/* warning */
+		DEBUG_STR("WARN: hash collision!\n");
+		DEBUG_VAR(override);
+		DEBUG_VAR((*pmdp).pmd);
+		if (!override) {	
+			return -1;
+		}
+	}
+	
+	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
+
+	
+	spin_lock(&init_mm.page_table_lock);
+	// DEBUG_STR("lock ready\n");
+	set_ecpt_pmd(pmdp, entry);
+	// DEBUG_STR("write done\n");
+	spin_unlock(&init_mm.page_table_lock);
+	// DEBUG_STR("unlocked\n");
+	// DEBUG_STR("inserted\n");
+	return 0;
+}
+
+int hpt_invalidate(uint64_t cr3, uint64_t vaddr) {
+	uint64_t size, hash;
+	uint32_t vpn;
+
+	ecpt_pmd_t *hpt_base, *pmdp;
+	ecpt_pmd_t entry = __ecpt_pmd(0);
+
+	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
+	size = GET_HPT_SIZE(cr3);
+	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
+
+	hash = gen_hash_32(vpn, size);
+	pmdp = &hpt_base[hash];
+
+	set_ecpt_pmd(pmdp, entry);
+	return 0;
 }

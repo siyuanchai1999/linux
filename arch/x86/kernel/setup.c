@@ -58,22 +58,13 @@
 #include <asm/early_debug.h>
 #else
 
-#undef debug_putstr
-#define debug_putstr(__x)
-#undef debug_putaddr
-#define debug_putaddr(__x)
+#undef DEBUG_STR
+#define DEBUG_STR(__x)
+#undef DEBUG_VAR
+#define DEBUG_VAR(__x)
 
 #endif
 
-#define DEBUG_STR(__x) { \
-		debug_putstr("setup: "); \
-		debug_putstr(__x); \
-	}
-
-#define DEBUG_VAR(__x) { \
-		debug_putstr("setup: "); \
-		debug_putaddr(__x); \
-	}
 
 // #include <../boot/compressed/misc.h>
 /*
@@ -809,8 +800,6 @@ void __init setup_arch(char **cmdline_p)
 	boot_cpu_data.x86_phys_bits = MAX_PHYSMEM_BITS;
 #endif
 
-	DEBUG_STR("in setup_arch\n" );
-	
 	/*
 	 * If we have OLPC OFW, we might end up relocating the fixmap due to
 	 * reserve_top(), so do this before touching the ioremap area.
@@ -916,7 +905,7 @@ void __init setup_arch(char **cmdline_p)
 	x86_configure_nx();
 
 
-	DEBUG_STR("Before parse_early_param\n");
+	// DEBUG_STR("Before parse_early_param\n");
 	/* after this early_printk should work */
 	parse_early_param();
 	

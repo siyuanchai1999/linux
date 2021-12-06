@@ -27,6 +27,19 @@
 #include <asm/text-patching.h>
 #include <asm/memtype.h>
 
+#include <asm/ECPT.h>
+
+#ifdef CONFIG_DEBUG_BEFORE_CONSOLE
+#include <asm/early_debug.h>
+#else
+
+#undef DEBUG_STR
+#define DEBUG_STR(__x)
+#undef DEBUG_VAR
+#define DEBUG_VAR(__x)
+
+#endif
+
 /*
  * We need to define the tracepoints somewhere, and tlb.c
  * is only compiled when SMP=y.
@@ -514,19 +527,24 @@ unsigned long __ref init_memory_mapping(unsigned long start,
 	unsigned long ret = 0;
 	int nr_range, i;
 
+	DEBUG_VAR(start);
+	DEBUG_VAR(end);
 	pr_debug("init_memory_mapping: [mem %#010lx-%#010lx]\n",
 	       start, end - 1);
 
 	memset(mr, 0, sizeof(mr));
 	nr_range = split_mem_range(mr, 0, start, end);
 
-	for (i = 0; i < nr_range; i++)
+	for (i = 0; i < nr_range; i++){
+		DEBUG_VAR(i);
 		ret = kernel_physical_mapping_init(mr[i].start, mr[i].end,
 						   mr[i].page_size_mask,
 						   prot);
+	}
+		
 
 	add_pfn_range_mapped(start >> PAGE_SHIFT, ret >> PAGE_SHIFT);
-
+	DEBUG_STR("done\n");
 	return ret >> PAGE_SHIFT;
 }
 
@@ -735,6 +753,7 @@ void __init init_mem_mapping(void)
 	end = max_low_pfn << PAGE_SHIFT;
 #endif
 
+	DEBUG_STR("inside: init_mem_mapping\n");
 	/* the ISA range is always mapped regardless of memory holes */
 	init_memory_mapping(0, ISA_END_ADDRESS, PAGE_KERNEL);
 
@@ -755,9 +774,11 @@ void __init init_mem_mapping(void)
 		 * as soon as possible. And then use page tables allocated above
 		 * the kernel to map [ISA_END_ADDRESS, kernel_end).
 		 */
+		DEBUG_STR("DO bottom up mapping\n");
 		memory_map_bottom_up(kernel_end, end);
 		memory_map_bottom_up(ISA_END_ADDRESS, kernel_end);
 	} else {
+		DEBUG_STR("DO top down mapping\n");
 		memory_map_top_down(ISA_END_ADDRESS, end);
 	}
 
@@ -769,13 +790,17 @@ void __init init_mem_mapping(void)
 #else
 	early_ioremap_page_table_range_init();
 #endif
-
-	load_cr3(swapper_pg_dir);
+	DEBUG_STR("Before Loading cr3\n");
+	DEBUG_VAR(EARLY_HPT_CR3_SIZE_VAL);
+	DEBUG_VAR((uint64_t)init_mm.pgd);
+	
+	load_cr3(init_mm.pgd);
 	__flush_tlb_all();
 
 	x86_init.hyper.init_mem_mapping();
 
 	early_memtest(0, max_pfn_mapped << PAGE_SHIFT);
+	DEBUG_STR("done\n");
 }
 
 /*

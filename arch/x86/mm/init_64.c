@@ -60,6 +60,22 @@
 
 #include "ident_map.c"
 
+#ifdef CONFIG_DEBUG_BEFORE_CONSOLE
+#include <asm/early_debug.h>
+#else
+
+#undef DEBUG_STR
+#define DEBUG_STR(__x)
+#undef DEBUG_VAR
+#define DEBUG_VAR(__x)
+
+#endif
+
+
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
 #define DEFINE_POPULATE(fname, type1, type2, init)		\
 static inline void fname##_init(struct mm_struct *mm,		\
 		type1##_t *arg1, type2##_t *arg2, bool init)	\
@@ -451,6 +467,7 @@ phys_pte_init(pte_t *pte_page, unsigned long paddr, unsigned long paddr_end,
 {
 	unsigned long pages = 0, paddr_next;
 	unsigned long paddr_last = paddr_end;
+	unsigned long pte_val;
 	pte_t *pte;
 	int i;
 
@@ -484,6 +501,10 @@ phys_pte_init(pte_t *pte_page, unsigned long paddr, unsigned long paddr_end,
 		if (0)
 			pr_info("   pte=%p addr=%lx pte=%016lx\n", pte, paddr,
 				pfn_pte(paddr >> PAGE_SHIFT, PAGE_KERNEL).pte);
+		DEBUG_VAR(paddr);
+		pte_val = pfn_pte(paddr >> PAGE_SHIFT, PAGE_KERNEL).pte;
+		DEBUG_VAR(pte_val);
+		
 		pages++;
 		set_pte_init(pte, pfn_pte(paddr >> PAGE_SHIFT, prot), init);
 		paddr_last = (paddr & PAGE_MASK) + PAGE_SIZE;
@@ -722,6 +743,88 @@ phys_p4d_init(p4d_t *p4d_page, unsigned long paddr, unsigned long paddr_end,
 	return paddr_last;
 }
 
+#ifdef CONFIG_X86_64_ECPT
+/**
+ * @brief 
+ * 
+ * 
+ * 
+ * @param paddr_start 
+ * @param paddr_end 
+ * @param page_size_mask indicate the page granularity; ignored for now, we only have 2MB pages
+ * @param prot 		
+ * @param init 			use set_{pmd|pte}_safe to avoid flush TLB if init == 1, ignore for now, always flush
+ * @return unsigned 
+ */
+
+static unsigned long __meminit
+__kernel_physical_mapping_init(unsigned long paddr_start,
+			       unsigned long paddr_end,
+			       unsigned long page_size_mask,
+			       pgprot_t prot, bool init)
+{
+
+
+	bool pgd_changed = false;
+	unsigned long vaddr, vaddr_start, vaddr_end, vaddr_next;
+	uint64_t paddr, paddr_last;
+
+	DEBUG_VAR(paddr_start);
+	DEBUG_VAR(paddr_end);
+	DEBUG_VAR(page_size_mask);
+	DEBUG_VAR(prot.pgprot);
+	DEBUG_VAR(init);
+
+	paddr = paddr_start;
+	paddr_last = paddr_end;
+	vaddr = (unsigned long)__va(paddr_start);
+	vaddr_end = (unsigned long)__va(paddr_end);
+	vaddr_start = vaddr;
+
+	for (; vaddr < vaddr_end;) {
+		int res = hpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), 1);
+
+		paddr_last = paddr;
+		vaddr = (vaddr & PMD_MASK) + PMD_SIZE;
+		paddr = (paddr & PMD_MASK) + PMD_SIZE;
+
+		// pgd_t *pgd = pgd_offset_k(vaddr);	/* access pgd with init_mm.pgd */
+		// p4d_t *p4d;
+
+		// vaddr_next = (vaddr & PGDIR_MASK) + PGDIR_SIZE;
+
+		// if (pgd_val(*pgd)) {
+		// 	p4d = (p4d_t *)pgd_page_vaddr(*pgd);
+		// 	paddr_last = phys_p4d_init(p4d, __pa(vaddr),
+		// 				   __pa(vaddr_end),
+		// 				   page_size_mask,
+		// 				   prot, init);
+		// 	continue;
+		// }
+
+		// p4d = alloc_low_page();
+		// paddr_last = phys_p4d_init(p4d, __pa(vaddr), __pa(vaddr_end),
+		// 			   page_size_mask, prot, init);
+
+		// spin_lock(&init_mm.page_table_lock);
+		// if (pgtable_l5_enabled())
+		// 	/* populate function hook up connections  */
+		// 	pgd_populate_init(&init_mm, pgd, p4d, init);
+		// else
+		// 	p4d_populate_init(&init_mm, p4d_offset(pgd, vaddr),
+		// 			  (pud_t *) p4d, init);
+
+		// spin_unlock(&init_mm.page_table_lock);
+		// pgd_changed = true;
+	}
+
+	// if (pgd_changed)
+		// sync_global_pgds(vaddr_start, vaddr_end - 1);
+	DEBUG_VAR(paddr_last);
+	return paddr_last;
+}
+
+#else 
 static unsigned long __meminit
 __kernel_physical_mapping_init(unsigned long paddr_start,
 			       unsigned long paddr_end,
@@ -771,6 +874,9 @@ __kernel_physical_mapping_init(unsigned long paddr_start,
 
 	return paddr_last;
 }
+#endif
+
+
 
 
 /*
