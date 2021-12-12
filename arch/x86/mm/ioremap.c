@@ -35,6 +35,19 @@
 
 #endif
 
+#ifdef CONFIG_DEBUG_BEFORE_CONSOLE
+#include <asm/early_debug.h>
+#else
+
+#undef DEBUG_STR
+#define DEBUG_STR(__x)
+#undef DEBUG_VAR
+#define DEBUG_VAR(__x)
+
+#endif
+
+
+
 /*
  * Descriptor controlling ioremap() behavior.
  */
@@ -881,6 +894,9 @@ void __init __early_set_fixmap(enum fixed_addresses idx,
 {
 	unsigned long addr = __fix_to_virt(idx);
 	uint64_t early_cr3;
+	int res;
+
+	// DEBUG_VAR(addr);
 	if (idx >= __end_of_fixed_addresses) {
 		BUG();
 		return;
@@ -892,12 +908,17 @@ void __init __early_set_fixmap(enum fixed_addresses idx,
 	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
 
 	if (pgprot_val(flags)) {
-		int res = hpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 0);
+		// pr_info("%s: addr = %lx phys = %llx\n", __func__, addr,(uint64_t) phys);
+		res = hpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 1);
 	} else {
 		/* if flags == 0, we have to clear the entry with overrride */
-		int res = hpt_insert(early_cr3, addr, 0,  __ecpt_pgprot(0), 1);
+		res = hpt_invalidate(early_cr3, addr);
 	}
 	
+	if (res) { 
+		pr_warn("%s: WARN res = %d\n", __func__, res);
+	}
+
 	/* flush tlb? how does invlpage assembly works underline? */
 	flush_tlb_one_kernel(addr);
 }

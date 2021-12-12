@@ -581,6 +581,7 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 	ecpt_pmd_t *hpt_base, *pmdp;
 	ecpt_pmd_t entry = __ecpt_pmd(0);
 
+
 	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
 	size = GET_HPT_SIZE(cr3);
 	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
@@ -594,94 +595,68 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 	pmdp = &hpt_base[hash];
 
 
-
-	/* if you unmap trampoline !!!!! PF here */
-	if (ecpt_pmd_present(*pmdp)) {
-		/* already present */
-		/* warning */
-		if (!override) {	
-			return -1;
-		}
-	}
-	
 	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
 
-	set_ecpt_pmd(pmdp, entry);
+	if (ecpt_pmd_present(*pmdp)) {
+		if (entry.pmd != 0 && entry.pmd != pmdp->pmd) {
+			/* we are not invalidate the entry but change the mapping to somewhere else warning! */
+			DEBUG_STR("WARN: hash collision!\n");
+			DEBUG_VAR(vaddr);
+			DEBUG_VAR(entry.pmd);
+			DEBUG_VAR(pmdp->pmd);
+			DEBUG_STR("\n");
+			if (!override) {	
+				return -1;
+			}
+		}
 
+		
+	}
+	
+	/* write and exit with no trouble */
+
+ 	set_ecpt_pmd(pmdp, entry);
 	return 0;
 }
 
 int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
-	uint64_t size, hash;
-	uint32_t vpn;
+	int res;
 
-	ecpt_pmd_t *hpt_base, *pmdp;
-	ecpt_pmd_t entry = __ecpt_pmd(0);
-	uint64_t cr3;
-
-	DEBUG_VAR(vaddr);
-	DEBUG_VAR(paddr);
-	DEBUG_VAR(prot.pgprot);
-
-	
-	
-	cr3 = (uint64_t) mm->pgd;
-
-	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
-	size = GET_HPT_SIZE(cr3);
-	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
-
-	hash = gen_hash_32(vpn, size);
-
-	// hash = gen_hash_64(vpn, size);
-
-	// DEBUG_VAR(hpt_base);
-	// DEBUG_VAR(hash);
-	// DEBUG_VAR(size);
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	pmdp = &hpt_base[hash];
-	// DEBUG_VAR(pmdp);
-
-
-	/* if you unmap trampoline !!!!! PF here */
-	if (ecpt_pmd_present(*pmdp)) {
-		/* already present */
-		/* warning */
-		DEBUG_STR("WARN: hash collision!\n");
-		DEBUG_VAR(override);
-		DEBUG_VAR((*pmdp).pmd);
-		if (!override) {	
-			return -1;
-		}
-	}
-	
-	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
-
-	
 	spin_lock(&init_mm.page_table_lock);
-	// DEBUG_STR("lock ready\n");
-	set_ecpt_pmd(pmdp, entry);
-	// DEBUG_STR("write done\n");
+
+	res = hpt_insert(
+		(uint64_t) mm->pgd,
+		vaddr,
+		paddr,
+		prot,
+		override
+	);
 	spin_unlock(&init_mm.page_table_lock);
-	// DEBUG_STR("unlocked\n");
-	// DEBUG_STR("inserted\n");
-	return 0;
+
+	return res;
 }
 
 int hpt_invalidate(uint64_t cr3, uint64_t vaddr) {
-	uint64_t size, hash;
-	uint32_t vpn;
+	// DEBUG_VAR(vaddr);
+	int res = hpt_insert(
+		cr3,
+		vaddr,
+		0,	/* override everything */
+		__ecpt_pgprot(0),
+		1
+	);
+	return res;
+}
 
-	ecpt_pmd_t *hpt_base, *pmdp;
-	ecpt_pmd_t entry = __ecpt_pmd(0);
+int hpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr) {
+	int res;
+	spin_lock(&init_mm.page_table_lock);
 
-	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
-	size = GET_HPT_SIZE(cr3);
-	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
-
-	hash = gen_hash_32(vpn, size);
-	pmdp = &hpt_base[hash];
-
-	set_ecpt_pmd(pmdp, entry);
-	return 0;
+	res = hpt_invalidate(
+		(uint64_t) mm->pgd,
+		vaddr
+	);
+	spin_unlock(&init_mm.page_table_lock);
+	
+	return res;
 }

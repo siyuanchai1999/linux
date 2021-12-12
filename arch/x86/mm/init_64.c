@@ -765,15 +765,9 @@ __kernel_physical_mapping_init(unsigned long paddr_start,
 {
 
 
-	bool pgd_changed = false;
-	unsigned long vaddr, vaddr_start, vaddr_end, vaddr_next;
+	// bool pgd_changed = false;
+	unsigned long vaddr, vaddr_start, vaddr_end;
 	uint64_t paddr, paddr_last;
-
-	DEBUG_VAR(paddr_start);
-	DEBUG_VAR(paddr_end);
-	DEBUG_VAR(page_size_mask);
-	DEBUG_VAR(prot.pgprot);
-	DEBUG_VAR(init);
 
 	paddr = paddr_start;
 	paddr_last = paddr_end;
@@ -784,43 +778,19 @@ __kernel_physical_mapping_init(unsigned long paddr_start,
 	for (; vaddr < vaddr_end;) {
 		int res = hpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), 1);
 
+		if (res) {
+			pr_warn("%s: WARN res = %d\n", __func__, res);
+		}
+
 		paddr_last = paddr;
 		vaddr = (vaddr & PMD_MASK) + PMD_SIZE;
 		paddr = (paddr & PMD_MASK) + PMD_SIZE;
 
-		// pgd_t *pgd = pgd_offset_k(vaddr);	/* access pgd with init_mm.pgd */
-		// p4d_t *p4d;
-
-		// vaddr_next = (vaddr & PGDIR_MASK) + PGDIR_SIZE;
-
-		// if (pgd_val(*pgd)) {
-		// 	p4d = (p4d_t *)pgd_page_vaddr(*pgd);
-		// 	paddr_last = phys_p4d_init(p4d, __pa(vaddr),
-		// 				   __pa(vaddr_end),
-		// 				   page_size_mask,
-		// 				   prot, init);
-		// 	continue;
-		// }
-
-		// p4d = alloc_low_page();
-		// paddr_last = phys_p4d_init(p4d, __pa(vaddr), __pa(vaddr_end),
-		// 			   page_size_mask, prot, init);
-
-		// spin_lock(&init_mm.page_table_lock);
-		// if (pgtable_l5_enabled())
-		// 	/* populate function hook up connections  */
-		// 	pgd_populate_init(&init_mm, pgd, p4d, init);
-		// else
-		// 	p4d_populate_init(&init_mm, p4d_offset(pgd, vaddr),
-		// 			  (pud_t *) p4d, init);
-
-		// spin_unlock(&init_mm.page_table_lock);
-		// pgd_changed = true;
 	}
 
 	// if (pgd_changed)
 		// sync_global_pgds(vaddr_start, vaddr_end - 1);
-	DEBUG_VAR(paddr_last);
+	// DEBUG_VAR(paddr_last);
 	return paddr_last;
 }
 
@@ -918,9 +888,10 @@ void __init initmem_init(void)
 #endif
 
 void __init paging_init(void)
-{
+{	
+	DEBUG_STR("before sparse_init\n");
 	sparse_init();
-
+	DEBUG_STR("after sparse_init\n");
 	/*
 	 * clear the default setting with node 0
 	 * note: don't use nodes_clear here, that is really clearing when
@@ -930,6 +901,7 @@ void __init paging_init(void)
 	node_clear_state(0, N_MEMORY);
 	node_clear_state(0, N_NORMAL_MEMORY);
 
+	DEBUG_STR("after clear state\n");
 	zone_sizes_init();
 }
 
@@ -1648,6 +1620,14 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 	pud_t *pud;
 	pmd_t *pmd;
 
+	pr_info("%s: start: %lx end: %lx node: %x altmap: %lx\n",
+		 	__func__,
+			start,
+			end,
+			node,
+			(unsigned long)altmap		
+	);
+
 	for (addr = start; addr < end; addr = next) {
 		next = pmd_addr_end(addr, end);
 
@@ -1705,11 +1685,56 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 	}
 	return 0;
 }
+/**
+ * @brief populate page table entries for sparse memory management
+ * 	called by  __populate_section_memmap in mm/sparse-vmemmap.c
+ * 	vmmemmap points to the start of array of struct page which describes physical sparse memory
+ * 	it can be accessed by &vmemmap[pfn] or __section_mem_map_addr(section)
+ * 	
+ * 	The fucntion setup mapping of VA: [start, end] -> [_pa(start), _pa(end)]
+ * 
+ * @param start  start of virtual address first one should be 0xffffea0000000000
+ * @param end 	 end of virtual address
+ * @param node 	 at which node you are building the mapping
+ * @param altmap altmap info incase of need
+ * @return int   return non zero value if things are wrong
+ */
+#ifdef CONFIG_X86_64_ECPT
+	int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
+		struct vmem_altmap *altmap)
+{	
+	uint64_t addr, next;
+	pr_debug("%s: start: %lx end: %lx node: %x altmap: %lx\n",
+		 	__func__,
+			start,
+			end,
+			node,
+			(unsigned long)altmap		
+	);
+	for (addr = start; addr < end; addr = next) {
+		next = pmd_addr_end(addr, end);
+
+		
+	}
+
+
+	return 0;
+}
+#else
 
 int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 		struct vmem_altmap *altmap)
 {
 	int err;
+
+	pr_info("%s: start: %lx end: %lx node: %x altmap: %lx\n",
+		 	__func__,
+			start,
+			end,
+			node,
+			(unsigned long)altmap		
+	);
+	pr_info("%s: thresh: %lx", __func__, PAGES_PER_SECTION * sizeof(struct page));
 
 	VM_BUG_ON(!IS_ALIGNED(start, PAGE_SIZE));
 	VM_BUG_ON(!IS_ALIGNED(end, PAGE_SIZE));
@@ -1728,6 +1753,9 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 		sync_global_pgds(start, end - 1);
 	return err;
 }
+#endif
+
+
 
 #ifdef CONFIG_HAVE_BOOTMEM_INFO_NODE
 void register_page_bootmem_memmap(unsigned long section_nr,

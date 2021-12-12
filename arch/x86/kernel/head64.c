@@ -43,7 +43,16 @@
 #include <asm/trapnr.h>
 #include <asm/sev.h>
 
+#ifdef CONFIG_DEBUG_BEFORE_CONSOLE
+#include <asm/early_debug.h>
+#else
 
+#undef DEBUG_STR
+#define DEBUG_STR(__x)
+#undef DEBUG_VAR
+#define DEBUG_VAR(__x)
+
+#endif
 
 /*
  * Manage page tables very early on.
@@ -606,6 +615,7 @@ static void __init reset_early_hpt(void)
 	ecpt_pgprot_t prot;
 	uint64_t vaddr, paddr, early_cr3;
 	uint32_t i, j;
+	int res;
 
 	early_cr3 = (uint64_t) &early_hpt[0];
 	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
@@ -624,13 +634,12 @@ static void __init reset_early_hpt(void)
 		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __PHYSICAL_START;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
-			hpt_insert(
-				early_cr3,		
-				vaddr,
-				0,
-				prot,
-				1
-			);
+			res = hpt_invalidate(early_cr3, vaddr);
+			if (res) {
+				/* this is before early console ready so let's use the rudimentary print */
+				DEBUG_STR("WARNING!\n");
+				DEBUG_VAR(res);
+			}
 		}
 	}
 	
@@ -650,7 +659,7 @@ static bool __init early_make_hpt(unsigned long address)
 	// pmd = (physaddr & PMD_MASK) + early_pmd_flags;
 
 	// return __early_make_pgtable(address, pmd);
-
+	DEBUG_VAR(address);
 	if (physaddr >= MAXMEM || read_cr3_pa() != __pa_nodebug(early_hpt))
 		return false;
 	
@@ -658,9 +667,20 @@ static bool __init early_make_hpt(unsigned long address)
 	early_cr3 = (uint64_t) &early_hpt[0];
 	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
 
-	res = hpt_insert(early_cr3, address, physaddr, __ecpt_pgprot(early_pmd_flags), 1 /* override */);
-
-	/* hpt_insert return 0 as normal, but early_make_hpt needs 1 as normal
+	res = hpt_insert(early_cr3,
+	 	address,
+		physaddr,
+		__ecpt_pgprot(early_pmd_flags),
+		0 /* not override */
+	);
+	
+	if (res) {
+		/* this is can come before early console ready so let's use the rudimentary print */
+		DEBUG_STR("WARNING!\n");
+		DEBUG_VAR(res);
+	}
+	/* 
+		hpt_insert return 0 as normal, but early_make_hpt needs 1 as normal
 	 */
 	return !res;
 }
@@ -872,8 +892,12 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	 */
 	load_ucode_bsp();
 
+#ifdef CONFIG_X86_64_ECPT
+
+#else
 	/* set init_top_pgt kernel high mapping*/
-	// init_top_pgt[511] = early_top_pgt[511];
+	init_top_pgt[511] = early_top_pgt[511];
+#endif
 
 	x86_64_start_reservations(real_mode_data);
 }
