@@ -136,8 +136,11 @@ int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgp
 int hpt_invalidate(uint64_t cr3, uint64_t vaddr);
 int hpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr);
 
+ecpt_pmd_t hpt_peek(uint64_t cr3, uint64_t vaddr);
 ecpt_pmd_t hpt_mm_peek(struct mm_struct* mm, uint64_t vaddr);
 
+int hpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot);
+int hpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot);
 
 
 #endif /* _ASM_X86_ECPT_HASH_H */

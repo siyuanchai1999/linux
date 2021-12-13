@@ -11,10 +11,13 @@
 
 
 #define PAGE_HEADER_MASK (0xffff000000000000)
+
+#define PG_ADDRESS_MASK  (0x000ffffffffff000)
 #define PAGE_TAIL_MASK_4KB (0xfff)
 #define PAGE_TAIL_MASK_2MB (0x1fffff)
 #define PAGE_TAIL_MASK_1GB (0x3fffffff)
 #define PAGE_TAIL_MASK_512GB (0x7fffffffff)
+
 
 #define PAGE_SHIFT_4KB (12)
 #define PAGE_SHIFT_2MB (21)
@@ -43,6 +46,9 @@
 #define PAGE_NUM_TO_ADDR_4KB(x)   (((uint64_t) x) << PAGE_SHIFT_4KB)
 #define PAGE_NUM_TO_ADDR_2MB(x)   (((uint64_t) x) << PAGE_SHIFT_2MB)
 #define PAGE_NUM_TO_ADDR_1GB(x)   (((uint64_t) x) << PAGE_SHIFT_1GB)
+
+#define ENTRY_TO_PROT(x) ((x) & ~PG_ADDRESS_MASK)
+#define ENTRY_TO_ADDR(x) ((x) & PG_ADDRESS_MASK)
 
 #define EARLY_HPT_ENTRIES (512 * 8)
 #define EARLY_HPT_ENTRY_SIZE (8)

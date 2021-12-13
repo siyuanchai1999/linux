@@ -354,6 +354,29 @@ int in_gate_area_no_mm(unsigned long addr)
  * vsyscalls but leave the page not present.  If so, we skip calling
  * this.
  */
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+
+void __init set_vsyscall_pgtable_user_bits(pgd_t *root)
+{
+	int res; 
+
+	ecpt_pmd_t pmd = hpt_peek(
+		(uint64_t) root,
+		VSYSCALL_ADDR
+	);
+
+	ecpt_pgprot_t prot_with_user = __ecpt_pg(ENTRY_TO_PROT((uint64_t) pmd.pmd) | _PAGE_USER);
+
+	res = hpt_update_prot((uint64_t) root, VSYSCALL_ADDR, prot_with_user);
+
+	if (res) {
+		pr_warn("%s: WARN res=%d\n", __func__, res);
+	}
+}	
+
+
+#else 
 void __init set_vsyscall_pgtable_user_bits(pgd_t *root)
 {
 	pgd_t *pgd;
@@ -373,11 +396,17 @@ void __init set_vsyscall_pgtable_user_bits(pgd_t *root)
 	set_pmd(pmd, __pmd(pmd_val(*pmd) | _PAGE_USER));
 }
 
+#endif
 void __init map_vsyscall(void)
 {
 	extern char __vsyscall_page;
 	unsigned long physaddr_vsyscall = __pa_symbol(&__vsyscall_page);
 
+	// pr_debug_verbose("__vsyscall_page at 0x%016llx physaddr_vsyscall=0x%016lx\n", (uint64_t) &__vsyscall_page, physaddr_vsyscall);
+	// pr_debug_verbose("vsyscall_mode=%d\n", vsyscall_mode);
+	
+	pr_info("vsyscall_mode=%d\n", vsyscall_mode);
+	pr_info("__vsyscall_page at 0x%016llx physaddr_vsyscall=0x%016lx\n", (uint64_t) &__vsyscall_page, physaddr_vsyscall);
 	/*
 	 * For full emulation, the page needs to exist for real.  In
 	 * execute-only mode, there is no PTE at all backing the vsyscall
@@ -386,7 +415,7 @@ void __init map_vsyscall(void)
 	if (vsyscall_mode == EMULATE) {
 		__set_fixmap(VSYSCALL_PAGE, physaddr_vsyscall,
 			     PAGE_KERNEL_VVAR);
-		set_vsyscall_pgtable_user_bits(swapper_pg_dir);
+		set_vsyscall_pgtable_user_bits(init_mm.pgd);
 	}
 
 	if (vsyscall_mode == XONLY)

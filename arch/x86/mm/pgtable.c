@@ -650,6 +650,25 @@ void __native_set_fixmap(enum fixed_addresses idx, pte_t pte)
 	fixmaps_set++;
 }
 
+#ifdef CONFIG_X86_64_ECPT
+
+#include <asm/ECPT.h>
+void native_set_fixmap(unsigned /* enum fixed_addresses */ idx,
+		       phys_addr_t phys, pgprot_t flags)
+{	
+	unsigned long address;
+	int res;
+	/* Sanitize 'prot' against any unsupported bits: */
+	pgprot_val(flags) &= __default_kernel_pte_mask;
+	address = __fix_to_virt(idx);
+	
+	
+	pr_info_verbose("address=%016lx phys=%016llx\n" , address, phys);
+	res = hpt_mm_insert(&init_mm, address, phys, __ecpt_pgprot(flags.pgprot), 0);
+
+}
+
+#else 
 void native_set_fixmap(unsigned /* enum fixed_addresses */ idx,
 		       phys_addr_t phys, pgprot_t flags)
 {
@@ -658,6 +677,7 @@ void native_set_fixmap(unsigned /* enum fixed_addresses */ idx,
 
 	__native_set_fixmap(idx, pfn_pte(phys >> PAGE_SHIFT, flags));
 }
+#endif
 
 #ifdef CONFIG_HAVE_ARCH_HUGE_VMAP
 #ifdef CONFIG_X86_5LEVEL

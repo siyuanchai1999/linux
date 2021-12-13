@@ -534,6 +534,8 @@ static uint64_t gen_hash_64(uint64_t vpn, uint64_t size) {
 
 #define HASH_TO_INDEX(h) (h << 3)
 
+
+
 int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr) {
 	uint64_t size;
 	uint64_t hash;
@@ -573,26 +575,30 @@ int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t
 	return 0;
 }
 
-
-int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
+static ecpt_pmd_t * get_hpt_entry(uint64_t cr3, uint64_t vaddr) {
 	uint64_t size, hash;
 	uint32_t vpn;
 
-	ecpt_pmd_t *hpt_base, *pmdp;
-	ecpt_pmd_t entry = __ecpt_pmd(0);
+	ecpt_pmd_t *hpt_base;
 
 
 	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
 	size = GET_HPT_SIZE(cr3);
 	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
-
+	
 	hash = gen_hash_32(vpn, size);
 
-	// hash = gen_hash_64(vpn, size);
+	return &hpt_base[hash];
+}
+
+int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
+	
+	ecpt_pmd_t * pmdp;
+	ecpt_pmd_t entry = __ecpt_pmd(0);
 
 
 	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	pmdp = &hpt_base[hash];
+	pmdp = get_hpt_entry(cr3, vaddr);
 
 
 	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
@@ -609,8 +615,6 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 				return -1;
 			}
 		}
-
-		
 	}
 	
 	/* write and exit with no trouble */
@@ -661,26 +665,58 @@ int hpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr) {
 	return res;
 }
 
-ecpt_pmd_t hpt_mm_peek(struct mm_struct* mm, uint64_t vaddr) {
-	uint64_t size;
-	uint64_t hash;
-	uint64_t cr3;
-	uint32_t vpn;
+ecpt_pmd_t hpt_peek(uint64_t cr3, uint64_t vaddr) {
+	ecpt_pmd_t * pmdp = get_hpt_entry(cr3, vaddr);
+	return *pmdp;
+}
 
-	ecpt_pmd_t *hpt_base;
-	// ecpt_pmd_t *pmdp;
+ecpt_pmd_t hpt_mm_peek(struct mm_struct* mm, uint64_t vaddr) {
+
+	ecpt_pmd_t pmd;
+	uint64_t cr3;
+
+	spin_lock(&init_mm.page_table_lock);
+	cr3 = (uint64_t) mm->pgd;
+	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	pmd = hpt_peek(cr3, vaddr);
+
+	spin_unlock(&init_mm.page_table_lock);
+	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	return pmd;
+}
+
+int hpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot) {
+	ecpt_pmd_t *pmdp;
+	ecpt_pmd_t entry;
+	uint64_t pmd_val;
+
+	pmdp = get_hpt_entry(cr3, vaddr);
+
+	if (!ecpt_pmd_present(*pmdp)) {
+		pr_warn("Cannot update protection for entry that is not present\n");
+		return -1;
+	}
+
+	pmd_val = ENTRY_TO_ADDR(pmdp->pmd) | new_prot.pgprot;
+	entry = __ecpt_pmd(pmd_val);
+
+	set_ecpt_pmd(pmdp, entry);
+
+	return 0;
+}
+
+int hpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot) {
+
+	
+	uint64_t cr3;
+	int res;
+	spin_lock(&init_mm.page_table_lock);
 
 	cr3 = (uint64_t) mm->pgd;
-
-	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
-	size = GET_HPT_SIZE(cr3);
-	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
-
-	hash = gen_hash_32(vpn, size);
-
-	// hash = gen_hash_64(vpn, size);
-
-
 	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	return hpt_base[hash];
+	res = hpt_update_prot(cr3, vaddr, new_prot);
+
+	spin_unlock(&init_mm.page_table_lock);
+	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	return res;
 }

@@ -518,6 +518,8 @@ struct pi_entry {
 #define pr_info(fmt, ...) \
 	printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__)
 
+#define pr_info_verbose(fmt, ...) \
+	printk(KERN_INFO "%s:%s  " pr_fmt(fmt), __FILE__ , __func__, ##__VA_ARGS__)
 /**
  * pr_cont - Continues a previous log message in the same line.
  * @fmt: format string
@@ -568,6 +570,10 @@ struct pi_entry {
  */
 #define pr_debug(fmt, ...)			\
 	dynamic_pr_debug(fmt, ##__VA_ARGS__)
+
+#define pr_debug_verbose(fmt, ...)			\
+	dynamic_pr_debug("%s:%d" fmt, __FILE__ , __LINE__, ##__VA_ARGS__)
+
 #elif defined(DEBUG)
 #define pr_debug(fmt, ...) \
 	printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
