@@ -660,3 +660,27 @@ int hpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr) {
 	
 	return res;
 }
+
+ecpt_pmd_t hpt_mm_peek(struct mm_struct* mm, uint64_t vaddr) {
+	uint64_t size;
+	uint64_t hash;
+	uint64_t cr3;
+	uint32_t vpn;
+
+	ecpt_pmd_t *hpt_base;
+	// ecpt_pmd_t *pmdp;
+
+	cr3 = (uint64_t) mm->pgd;
+
+	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
+	size = GET_HPT_SIZE(cr3);
+	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
+
+	hash = gen_hash_32(vpn, size);
+
+	// hash = gen_hash_64(vpn, size);
+
+
+	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	return hpt_base[hash];
+}

@@ -58,4 +58,4 @@ obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= mem_encrypt_boot.o
 
 obj-$(CONFIG_X86_64_ECPT)	+= ECPT.o
 
-init_$(BITS).o := -DDEBUG
+CFLAGS_init_$(BITS).o := -DDEBUG

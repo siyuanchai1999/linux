@@ -128,6 +128,7 @@ static inline int ecpt_pte_present(ecpt_pte_t a)
 #define __ecpt_pte(x)	native_make_ecpt_pte(x)
 
 // uint64_t gen_hash_32(uint32_t vpn, uint64_t size);
+int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 
 int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
 int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
@@ -135,5 +136,8 @@ int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgp
 int hpt_invalidate(uint64_t cr3, uint64_t vaddr);
 int hpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr);
 
-int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
+ecpt_pmd_t hpt_mm_peek(struct mm_struct* mm, uint64_t vaddr);
+
+
+
 #endif /* _ASM_X86_ECPT_HASH_H */
