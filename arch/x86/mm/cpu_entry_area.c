@@ -31,6 +31,43 @@ noinstr struct cpu_entry_area *get_cpu_entry_area(int cpu)
 }
 EXPORT_SYMBOL(get_cpu_entry_area);
 
+#ifdef CONFIG_X86_64_ECPT
+
+#include <asm/ECPT.h>
+void cea_set_pte(void *cea_vaddr, phys_addr_t pa, pgprot_t flags)
+{
+	unsigned long va = (unsigned long) cea_vaddr;
+	pte_t pte = pfn_pte(0, flags);
+	
+	pr_info_verbose("va=%lx pa=%llx flags=%lx\n", va, pa, flags.pgprot);
+	/*
+	 * The cpu_entry_area is shared between the user and kernel
+	 * page tables.  All of its ptes can safely be global.
+	 * _PAGE_GLOBAL gets reused to help indicate PROT_NONE for
+	 * non-present PTEs, so be careful not to set it in that
+	 * case to avoid confusion.
+	 */
+	
+	
+	if (boot_cpu_has(X86_FEATURE_PGE) &&
+	    (pgprot_val(flags) & _PAGE_PRESENT))
+		pte = pte_set_flags(pte, _PAGE_GLOBAL);
+
+	int ret = hpt_mm_insert(
+		&init_mm,
+		va, 
+		pa,
+		__ecpt_pgprot(pte.pte),
+		1 /*  */
+	);
+
+	if (ret != 0) {
+		pr_warn("WARN: ret=%d\n", ret);
+	}
+
+}
+
+#else 
 void cea_set_pte(void *cea_vaddr, phys_addr_t pa, pgprot_t flags)
 {
 	unsigned long va = (unsigned long) cea_vaddr;
@@ -49,6 +86,8 @@ void cea_set_pte(void *cea_vaddr, phys_addr_t pa, pgprot_t flags)
 
 	set_pte_vaddr(va, pte);
 }
+
+#endif
 
 static void __init
 cea_map_percpu_pages(void *cea_vaddr, void *ptr, int pages, pgprot_t prot)
@@ -125,6 +164,8 @@ static inline void percpu_setup_exception_stacks(unsigned int cpu)
 static void __init setup_cpu_entry_area(unsigned int cpu)
 {
 	struct cpu_entry_area *cea = get_cpu_entry_area(cpu);
+	pr_info_verbose("cpu=%d\n", cpu);
+
 #ifdef CONFIG_X86_64
 	/* On 64-bit systems, we use a read-only fixmap GDT and TSS. */
 	pgprot_t gdt_prot = PAGE_KERNEL_RO;
@@ -145,8 +186,10 @@ static void __init setup_cpu_entry_area(unsigned int cpu)
 	pgprot_t tss_prot = PAGE_KERNEL;
 #endif
 
+	pr_info_verbose("cea->gdt\n");
 	cea_set_pte(&cea->gdt, get_cpu_gdt_paddr(cpu), gdt_prot);
 
+	pr_info_verbose("entry_stack_page\n");
 	cea_map_percpu_pages(&cea->entry_stack_page,
 			     per_cpu_ptr(&entry_stack_storage, cpu), 1,
 			     PAGE_KERNEL);
@@ -179,6 +222,7 @@ static void __init setup_cpu_entry_area(unsigned int cpu)
 	BUILD_BUG_ON(offsetof(struct tss_struct, x86_tss) != 0);
 	BUILD_BUG_ON(sizeof(struct x86_hw_tss) != 0x68);
 
+	pr_info_verbose("tss\n");
 	cea_map_percpu_pages(&cea->tss, &per_cpu(cpu_tss_rw, cpu),
 			     sizeof(struct tss_struct) / PAGE_SIZE, tss_prot);
 
@@ -186,8 +230,9 @@ static void __init setup_cpu_entry_area(unsigned int cpu)
 	per_cpu(cpu_entry_area, cpu) = cea;
 #endif
 
+	pr_info_verbose("stack\n");
 	percpu_setup_exception_stacks(cpu);
-
+	pr_info_verbose("debug_store\n");
 	percpu_setup_debug_store(cpu);
 }
 

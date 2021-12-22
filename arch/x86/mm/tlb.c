@@ -680,6 +680,45 @@ void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
  * - The CPU went so far out to lunch that it may have missed a TLB
  *   flush.
  */
+#ifdef CONFIG_X86_64_ECPT
+
+void initialize_tlbstate_and_flush(void)
+{
+	int i;
+	struct mm_struct *mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	u64 tlb_gen = atomic64_read(&init_mm.context.tlb_gen);
+	unsigned long cr3 = __read_cr3();
+	int cond;
+
+	/* Assert that CR3 already references the right mm. */
+	/* Generate warning when condition is true */
+	WARN_ON((cr3 & CR3_ADDR_MASK) != (__pa(mm->pgd) & CR3_ADDR_MASK));
+	// WARN_ON((cr3 & CR3_ADDR_MASK) != __pa(mm->pgd));
+
+	/*
+	 * Assert that CR4.PCIDE is set if needed.  (CR4.PCIDE initialization
+	 * doesn't work like other CR4 bits because it can only be set from
+	 * long mode.)
+	 */
+	WARN_ON(boot_cpu_has(X86_FEATURE_PCID) &&
+		!(cr4_read_shadow() & X86_CR4_PCIDE));
+
+	/* Force ASID 0 and force a TLB flush. */
+	/* ECPT has no support for PCID right now */
+	write_cr3(build_cr3(mm->pgd, 0));
+
+	/* Reinitialize tlbstate. */
+	this_cpu_write(cpu_tlbstate.last_user_mm_spec, LAST_USER_MM_INIT);
+	this_cpu_write(cpu_tlbstate.loaded_mm_asid, 0);
+	this_cpu_write(cpu_tlbstate.next_asid, 1);
+	this_cpu_write(cpu_tlbstate.ctxs[0].ctx_id, mm->context.ctx_id);
+	this_cpu_write(cpu_tlbstate.ctxs[0].tlb_gen, tlb_gen);
+
+	for (i = 1; i < TLB_NR_DYN_ASIDS; i++)
+		this_cpu_write(cpu_tlbstate.ctxs[i].ctx_id, 0);
+}
+
+#else
 void initialize_tlbstate_and_flush(void)
 {
 	int i;
@@ -709,9 +748,8 @@ void initialize_tlbstate_and_flush(void)
 	this_cpu_write(cpu_tlbstate.ctxs[0].tlb_gen, tlb_gen);
 
 	for (i = 1; i < TLB_NR_DYN_ASIDS; i++)
-		this_cpu_write(cpu_tlbstate.ctxs[i].ctx_id, 0);
-}
 
+#endif
 /*
  * flush_tlb_func()'s memory ordering requirement is that any
  * TLB fills that happen after we flush the TLB are ordered after we
