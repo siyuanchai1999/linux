@@ -889,9 +889,7 @@ void __init initmem_init(void)
 
 void __init paging_init(void)
 {	
-	DEBUG_STR("before sparse_init\n");
 	sparse_init();
-	DEBUG_STR("after sparse_init\n");
 	/*
 	 * clear the default setting with node 0
 	 * note: don't use nodes_clear here, that is really clearing when
@@ -901,7 +899,6 @@ void __init paging_init(void)
 	node_clear_state(0, N_MEMORY);
 	node_clear_state(0, N_NORMAL_MEMORY);
 
-	DEBUG_STR("after clear state\n");
 	zone_sizes_init();
 }
 
@@ -1704,17 +1701,71 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 		struct vmem_altmap *altmap)
 {	
 	uint64_t addr, next;
-	pr_debug("%s: start: %lx end: %lx node: %x altmap: %lx\n",
+	uint64_t pmd_val;
+	int res;
+	void *p;
+	pmd_t pmd;
+
+	pr_info("%s: start: %lx end: %lx node: %x altmap: %lx\n",
 		 	__func__,
 			start,
 			end,
 			node,
 			(unsigned long)altmap		
 	);
+
 	for (addr = start; addr < end; addr = next) {
 		next = pmd_addr_end(addr, end);
-
 		
+		pmd_val = hpt_mm_peek(&init_mm, addr).pmd;
+		pmd = __pmd(pmd_val);
+		if (pmd_none(pmd)) {
+			
+
+			p = vmemmap_alloc_block_buf(PMD_SIZE, node, altmap);
+			if (p) {
+
+				res = hpt_mm_insert(
+					&init_mm,
+					addr,
+					__pa(p),
+					__ecpt_pgprot(PAGE_KERNEL_LARGE.pgprot),
+					0 /* let's not force insert for now */
+				);
+				
+				if (res) {
+					pr_warn("%s: WARN res=%d addr=0x%llx\n", __func__, res, addr);
+				}
+
+
+				/* check to see if we have contiguous blocks */
+				if (p_end != p || node_start != node) {
+					if (p_start)
+						pr_debug(" [%lx-%lx] PMD -> [%p-%p] on node %d\n",
+						       addr_start, addr_end-1, p_start, p_end-1, node_start);
+					addr_start = addr;
+					node_start = node;
+					p_start = p;
+				}
+
+				addr_end = addr + PMD_SIZE;
+				p_end = p + PMD_SIZE;
+
+				if (!IS_ALIGNED(addr, PMD_SIZE) ||
+				    !IS_ALIGNED(next, PMD_SIZE))
+					vmemmap_use_new_sub_pmd(addr, next);
+
+				continue;
+			} else if (altmap) {
+				return -ENOMEM; /* no fallback */
+			}
+				
+		} else if (pmd_large(__pmd(pmd_val))) {
+			vmemmap_verify((pte_t *) &pmd, node, addr, next);
+			vmemmap_use_sub_pmd(addr, next);
+			continue;
+		}
+
 	}
 
 
