@@ -36,6 +36,22 @@
 #define CREATE_TRACE_POINTS
 #include <asm/trace/exceptions.h>
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
+
+#ifdef CONFIG_DEBUG_BEFORE_CONSOLE
+#include <asm/early_debug.h>
+#else
+
+#undef DEBUG_STR
+#define DEBUG_STR(__x)
+#undef DEBUG_VAR
+#define DEBUG_VAR(__x)
+
+#endif
+
 /*
  * Returns 0 if mmiotrace is disabled, or if the fault is not
  * handled by mmiotrace:
@@ -337,6 +353,7 @@ KERN_ERR
 "******* Disabling USB legacy in the BIOS may also help.\n";
 #endif
 
+
 static int bad_address(void *p)
 {
 	unsigned long dummy;
@@ -344,6 +361,40 @@ static int bad_address(void *p)
 	return get_kernel_nofault(dummy, (unsigned long *)p);
 }
 
+
+#ifdef CONFIG_X86_64_ECPT
+static void dump_pagetable(unsigned long address)
+{
+	void *base;
+	uint64_t cr3;
+	ecpt_pmd_t pmd;
+
+	base = __va(read_cr3_pa());
+	cr3 = (uint64_t)base + read_cr3_prot();
+
+
+	// pgd_t *base = __va(read_cr3_pa());
+	// pgd_t *pgd = base + pgd_index(address);
+	// p4d_t *p4d;
+	// pud_t *pud;
+	// pmd_t *pmd;
+	// pte_t *pte;
+
+	if (bad_address((void *) base))
+		goto bad;
+
+	pr_info("cr3=%llx base=%llx ", cr3, (uint64_t)base);
+	pmd = hpt_peek(cr3, address);
+	pr_cont("PMD %lx ", pmd.pmd);
+out:
+	pr_cont("\n");
+	return;
+bad:
+	pr_info("BAD\n");
+}
+
+
+#else 
 static void dump_pagetable(unsigned long address)
 {
 	pgd_t *base = __va(read_cr3_pa());
@@ -396,6 +447,11 @@ out:
 bad:
 	pr_info("BAD\n");
 }
+
+
+#endif /* CONFIG_X86_64_ECPT */
+
+
 
 #endif /* CONFIG_X86_64 */
 
@@ -509,6 +565,29 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		return;
 
 	if (error_code & X86_PF_INSTR) {
+#ifdef CONFIG_X86_64_ECPT
+		ecpt_pmd_t pmd;
+		uint64_t cr3;
+		pte_t *pte;
+
+		cr3 = ((uint64_t) __va(read_cr3_pa())) | read_cr3_prot();
+
+		pmd = hpt_peek(cr3, address);
+		pte = (pte_t *) &pmd;
+
+
+		if (pte && pte_present(*pte) && !pte_exec(*pte))
+			pr_crit("kernel tried to execute NX-protected page - exploit attempt? (uid: %d)\n",
+				from_kuid(&init_user_ns, current_uid()));
+
+		/* TODO: this warning might needs extra care to generate */
+		if (pte && pte_present(*pte) && pte_exec(*pte) &&
+				(pte_flags(*pte) & _PAGE_USER) &&
+				(__read_cr4() & X86_CR4_SMEP))
+			pr_crit("unable to execute userspace code (SMEP?) (uid: %d)\n",
+				from_kuid(&init_user_ns, current_uid()));
+		
+#else 
 		unsigned int level;
 		pgd_t *pgd;
 		pte_t *pte;
@@ -526,6 +605,9 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 				(__read_cr4() & X86_CR4_SMEP))
 			pr_crit("unable to execute userspace code (SMEP?) (uid: %d)\n",
 				from_kuid(&init_user_ns, current_uid()));
+
+#endif
+	
 	}
 
 	if (address < PAGE_SIZE && !user_mode(regs))
@@ -1003,6 +1085,90 @@ static int spurious_kernel_fault_check(unsigned long error_code, pte_t *pte)
  * See Intel Developer's Manual Vol 3 Section 4.10.4.3, bullet 3
  * (Optional Invalidation).
  */
+#ifdef CONFIG_X86_64_ECPT
+
+static noinline int
+spurious_kernel_fault(unsigned long error_code, unsigned long address)
+{
+	// pgd_t *pgd;
+	// p4d_t *p4d;
+	// pud_t *pud;
+	// pmd_t *pmd;
+	// pte_t *pte;
+	// int ret;
+
+	ecpt_pmd_t pmd;
+	int ret;
+	/*
+	 * Only writes to RO or instruction fetches from NX may cause
+	 * spurious faults.
+	 *
+	 * These could be from user or supervisor accesses but the TLB
+	 * is only lazily flushed after a kernel mapping protection
+	 * change, so user accesses are not expected to cause spurious
+	 * faults.
+	 */
+	if (error_code != (X86_PF_WRITE | X86_PF_PROT) &&
+	    error_code != (X86_PF_INSTR | X86_PF_PROT))
+		return 0;
+
+
+	pmd = hpt_mm_peek(&init_mm, address);
+
+	if (!ecpt_pmd_present(pmd)) {
+		return 0;
+	}
+
+	ret = spurious_kernel_fault_check(error_code, (pte_t *) &pmd);
+
+	return ret;
+	// pgd	 = init_mm.pgd + pgd_index(address);
+	// if (!pgd_present(*pgd))
+	// 	return 0;
+
+	// p4d = p4d_offset(pgd, address);
+	// if (!p4d_present(*p4d))
+	// 	return 0;
+
+	// if (p4d_large(*p4d))
+	// 	return spurious_kernel_fault_check(error_code, (pte_t *) p4d);
+
+	// pud = pud_offset(p4d, address);
+	// if (!pud_present(*pud))
+	// 	return 0;
+
+	// if (pud_large(*pud))
+	// 	return spurious_kernel_fault_check(error_code, (pte_t *) pud);
+
+	// pmd = pmd_offset(pud, address);
+	// if (!pmd_present(*pmd))
+	// 	return 0;
+
+	// if (pmd_large(*pmd))
+	// 	return spurious_kernel_fault_check(error_code, (pte_t *) pmd);
+
+	// pte = pte_offset_kernel(pmd, address);
+	// if (!pte_present(*pte))
+	// 	return 0;
+
+	// ret = spurious_kernel_fault_check(error_code, pte);
+	// if (!ret)
+	// 	return 0;
+
+	// /*
+	//  * Make sure we have permissions in PMD.
+	//  * If not, then there's a bug in the page tables:
+	//  */
+	// ret = spurious_kernel_fault_check(error_code, (pte_t *) pmd);
+	// WARN_ONCE(!ret, "PMD has incorrect permission bits\n");
+
+	// return ret;
+}
+NOKPROBE_SYMBOL(spurious_kernel_fault);
+
+
+#else 
+
 static noinline int
 spurious_kernel_fault(unsigned long error_code, unsigned long address)
 {
@@ -1069,6 +1235,10 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 	return ret;
 }
 NOKPROBE_SYMBOL(spurious_kernel_fault);
+#endif
+
+
+
 
 int show_unhandled_signals = 1;
 
@@ -1193,6 +1363,8 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 		return;
 
 	/* kprobes don't want to hook the spurious faults: */
+
+	/* TODO: kprobes is not turned on for simplicity of debugging */
 	if (WARN_ON_ONCE(kprobe_page_fault(regs, X86_TRAP_PF)))
 		return;
 
@@ -1480,8 +1652,13 @@ handle_page_fault(struct pt_regs *regs, unsigned long error_code,
 
 	/* Was the fault on kernel-controlled part of the address space? */
 	if (unlikely(fault_in_kernel_space(address))) {
+		DEBUG_STR("do_kern_addr_fault ");
+		DEBUG_VAR(address);	
 		do_kern_addr_fault(regs, error_code, address);
 	} else {
+		DEBUG_STR("do_user_addr_fault\n");
+		DEBUG_VAR(address);	
+		
 		do_user_addr_fault(regs, error_code, address);
 		/*
 		 * User address page fault handling might have reenabled

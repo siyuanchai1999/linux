@@ -255,6 +255,11 @@ static inline unsigned long read_cr3_pa(void)
 	return __read_cr3() & CR3_ADDR_MASK;
 }
 
+static inline unsigned long read_cr3_prot(void)
+{
+	return __read_cr3() & ~CR3_ADDR_MASK;
+}
+
 static inline unsigned long native_read_cr3_pa(void)
 {
 	return __native_read_cr3() & CR3_ADDR_MASK;

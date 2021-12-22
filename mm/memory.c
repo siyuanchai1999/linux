@@ -83,6 +83,10 @@
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
 #include "pgalloc-track.h"
 #include "internal.h"
 
@@ -4605,6 +4609,40 @@ unlock:
  * The mmap_lock may have been released depending on flags and our
  * return value.  See filemap_fault() and __lock_page_or_retry().
  */
+
+#ifndef CONFIG_X86_64_ECPT
+static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
+		unsigned long address, unsigned int flags)
+{
+	struct vm_fault vmf = {
+		.vma = vma,
+		.address = address & PAGE_MASK,
+		.flags = flags,
+		.pgoff = linear_page_index(vma, address),
+		.gfp_mask = __get_fault_gfp_mask(vma),
+	};
+	unsigned int dirty = flags & FAULT_FLAG_WRITE;
+	struct mm_struct *mm = vma->vm_mm;
+	vm_fault_t ret;
+	pmd_t pmd;
+
+	pr_info_verbose("WARN: address=%lx\n", address);
+	
+	pmd = __pmd(hpt_mm_peek(mm, address).pmd);
+	vmf.orig_pmd = pmd;
+	vmf.pmd = &pmd;
+
+	if (pmd_none(pmd)) {
+		ret = create_huge_pmd(&vmf);
+		if (!(ret & VM_FAULT_FALLBACK))
+			return ret;
+	}
+
+	return 0;
+}
+
+#else 
+
 static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 		unsigned long address, unsigned int flags)
 {
@@ -4620,6 +4658,8 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	pgd_t *pgd;
 	p4d_t *p4d;
 	vm_fault_t ret;
+
+	pr_err("ERROR: __handle_mm_fault is being called\n");
 
 	pgd = pgd_offset(mm, address);
 	p4d = p4d_alloc(mm, pgd, address);
@@ -4694,6 +4734,7 @@ retry_pud:
 	return handle_pte_fault(&vmf);
 }
 
+#endif
 /**
  * mm_account_fault - Do page fault accounting
  *

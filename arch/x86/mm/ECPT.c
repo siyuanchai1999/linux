@@ -569,6 +569,9 @@ int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t
 	
 	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
 
+	/* all current entry so far represents 2MB granularity */
+	entry = __ecpt_pmd(entry.pmd | _PAGE_PSE);
+
 	*pmdp = entry;
 	// set_ecpt_pmd(pmdp, entry);
 	
@@ -603,6 +606,9 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 
 	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
 
+	/* all current entry so far represents 2MB granularity */
+	// entry = __ecpt_pmd(entry.pmd | _PAGE_PSE);
+	
 	if (ecpt_pmd_present(*pmdp)) {
 		if (entry.pmd != 0 && entry.pmd != pmdp->pmd) {
 			/* we are not invalidate the entry but change the mapping to somewhere else warning! */
@@ -618,7 +624,7 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 	}
 	
 	/* write and exit with no trouble */
-
+	
  	set_ecpt_pmd(pmdp, entry);
 	return 0;
 }
