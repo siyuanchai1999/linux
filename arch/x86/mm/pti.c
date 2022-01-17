@@ -606,12 +606,13 @@ static void pti_set_kernel_image_nonglobal(void)
  * Initialize kernel page table isolation
  */
 void __init pti_init(void)
-{
+{	
+	pr_info_verbose("PTI_ENABLED=%d\n", boot_cpu_has(X86_FEATURE_PTI));
 	if (!boot_cpu_has(X86_FEATURE_PTI))
 		return;
 
 	pr_info("enabled\n");
-
+	
 #ifdef CONFIG_X86_32
 	/*
 	 * We check for X86_FEATURE_PCID here. But the init-code will

@@ -358,7 +358,7 @@ static void __init parse_setup_data(void)
 	pa_data = boot_params.hdr.setup_data;
 	while (pa_data) {
 		u32 data_len, data_type;
-
+		DEBUG_VAR(pa_data);
 		data = early_memremap(pa_data, sizeof(*data));
 		data_len = data->len + sizeof(struct setup_data);
 		data_type = data->type;
@@ -389,6 +389,8 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 
 	pa_data = boot_params.hdr.setup_data;
 	while (pa_data) {
+		DEBUG_VAR(pa_data);
+
 		data = early_memremap(pa_data, sizeof(*data));
 		memblock_reserve(pa_data, sizeof(*data) + data->len);
 
@@ -1090,7 +1092,7 @@ void __init setup_arch(char **cmdline_p)
 
 	init_mem_mapping();
 
-	idt_setup_early_pf();
+	idt_setup_early_pf();	/* fault handler needs to be changed in arch/x86/mm/fault.c */
 
 	/*
 	 * Update mmu_cr4_features (and, indirectly, trampoline_cr4_features)
@@ -1160,7 +1162,6 @@ void __init setup_arch(char **cmdline_p)
 
 	if (!early_xdbc_setup_hardware())
 		early_xdbc_register_console();
-
 	x86_init.paging.pagetable_init();
 
 	kasan_init();
@@ -1176,7 +1177,7 @@ void __init setup_arch(char **cmdline_p)
 	tboot_probe();
 
 	map_vsyscall();
-
+	DEBUG_STR("before generic_apic_probe\n");
 	generic_apic_probe();
 
 	early_quirks();
@@ -1191,7 +1192,7 @@ void __init setup_arch(char **cmdline_p)
 	 * get boot-time SMP configuration:
 	 */
 	get_smp_config();
-
+	DEBUG_STR("before init_apic_mappings\n");
 	/*
 	 * Systems w/o ACPI and mptables might not have it mapped the local
 	 * APIC yet, but prefill_possible_map() might need to access it.
@@ -1203,10 +1204,12 @@ void __init setup_arch(char **cmdline_p)
 	init_cpu_to_node();
 	init_gi_nodes();
 
+	// DEBUG_STR("before io_apic_init_mappings\n");
 	io_apic_init_mappings();
 
 	x86_init.hyper.guest_late_init();
 
+	// DEBUG_STR("before e820__reserve_resources\n");
 	e820__reserve_resources();
 	e820__register_nosave_regions(max_pfn);
 
@@ -1240,8 +1243,9 @@ void __init setup_arch(char **cmdline_p)
 	if (efi_enabled(EFI_BOOT))
 		efi_apply_memmap_quirks();
 #endif
-
+	// DEBUG_STR("before unwind_init\n");
 	unwind_init();
+	pr_info_verbose("x86 setup Done!\n");
 }
 
 #ifdef CONFIG_X86_32

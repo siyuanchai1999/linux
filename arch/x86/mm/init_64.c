@@ -457,6 +457,55 @@ void __init cleanup_highmap(void)
 	}
 }
 
+#ifdef CONFIG_X86_64_ECPT
+/**
+ * @param paddr_start 
+ * @param paddr_end 
+ * @param page_size_mask indicate the page granularity; ignored for now, we only have 2MB pages
+ * @param prot 		
+ * @param init 			use set_{pmd|pte}_safe to avoid flush TLB if init == 1, ignore for now, always flush
+ * @return unsigned 
+ */
+
+static unsigned long __meminit
+__kernel_physical_mapping_init(unsigned long paddr_start,
+			       unsigned long paddr_end,
+			       unsigned long page_size_mask,
+			       pgprot_t prot, bool init)
+{
+
+
+	// bool pgd_changed = false;
+	unsigned long vaddr, vaddr_start, vaddr_end;
+	uint64_t paddr, paddr_last;
+
+	paddr = paddr_start;
+	paddr_last = paddr_end;
+	vaddr = (unsigned long)__va(paddr_start);
+	vaddr_end = (unsigned long)__va(paddr_end);
+	vaddr_start = vaddr;
+
+	for (; vaddr < vaddr_end;) {
+		int res = hpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), 1);
+
+		if (res) {
+			pr_warn("%s: WARN res = %d\n", __func__, res);
+		}
+
+		paddr_last = paddr;
+		vaddr = (vaddr & PMD_MASK) + PMD_SIZE;
+		paddr = (paddr & PMD_MASK) + PMD_SIZE;
+
+	}
+
+	// if (pgd_changed)
+		// sync_global_pgds(vaddr_start, vaddr_end - 1);
+	// DEBUG_VAR(paddr_last);
+	return paddr_last;
+}
+
+#else
+
 /*
  * Create PTE level page table mapping for physical addresses.
  * It returns the last physical address mapped.
@@ -690,7 +739,7 @@ phys_pud_init(pud_t *pud_page, unsigned long paddr, unsigned long paddr_end,
 	update_page_count(PG_LEVEL_1G, pages);
 
 	return paddr_last;
-}
+} 
 
 static unsigned long __meminit
 phys_p4d_init(p4d_t *p4d_page, unsigned long paddr, unsigned long paddr_end,
@@ -743,58 +792,6 @@ phys_p4d_init(p4d_t *p4d_page, unsigned long paddr, unsigned long paddr_end,
 	return paddr_last;
 }
 
-#ifdef CONFIG_X86_64_ECPT
-/**
- * @brief 
- * 
- * 
- * 
- * @param paddr_start 
- * @param paddr_end 
- * @param page_size_mask indicate the page granularity; ignored for now, we only have 2MB pages
- * @param prot 		
- * @param init 			use set_{pmd|pte}_safe to avoid flush TLB if init == 1, ignore for now, always flush
- * @return unsigned 
- */
-
-static unsigned long __meminit
-__kernel_physical_mapping_init(unsigned long paddr_start,
-			       unsigned long paddr_end,
-			       unsigned long page_size_mask,
-			       pgprot_t prot, bool init)
-{
-
-
-	// bool pgd_changed = false;
-	unsigned long vaddr, vaddr_start, vaddr_end;
-	uint64_t paddr, paddr_last;
-
-	paddr = paddr_start;
-	paddr_last = paddr_end;
-	vaddr = (unsigned long)__va(paddr_start);
-	vaddr_end = (unsigned long)__va(paddr_end);
-	vaddr_start = vaddr;
-
-	for (; vaddr < vaddr_end;) {
-		int res = hpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), 1);
-
-		if (res) {
-			pr_warn("%s: WARN res = %d\n", __func__, res);
-		}
-
-		paddr_last = paddr;
-		vaddr = (vaddr & PMD_MASK) + PMD_SIZE;
-		paddr = (paddr & PMD_MASK) + PMD_SIZE;
-
-	}
-
-	// if (pgd_changed)
-		// sync_global_pgds(vaddr_start, vaddr_end - 1);
-	// DEBUG_VAR(paddr_last);
-	return paddr_last;
-}
-
-#else 
 static unsigned long __meminit
 __kernel_physical_mapping_init(unsigned long paddr_start,
 			       unsigned long paddr_end,
@@ -1352,6 +1349,8 @@ static void __init register_page_bootmem_info(void)
 #endif
 }
 
+
+#ifndef CONFIG_X86_64_ECPT
 /*
  * Pre-allocates page-table pages for the vmalloc area in the kernel page-table.
  * Only the level which needs to be synchronized between all page-tables is
@@ -1366,7 +1365,6 @@ static void __init preallocate_vmalloc_pages(void)
 		pgd_t *pgd = pgd_offset_k(addr);
 		p4d_t *p4d;
 		pud_t *pud;
-
 		lvl = "p4d";
 		p4d = p4d_alloc(&init_mm, pgd, addr);
 		if (!p4d)
@@ -1401,6 +1399,8 @@ failed:
 	 */
 	panic("Failed to pre-allocate %s pages for vmalloc area\n", lvl);
 }
+#endif
+
 
 void __init mem_init(void)
 {
@@ -1425,7 +1425,13 @@ void __init mem_init(void)
 	if (get_gate_vma(&init_mm))
 		kclist_add(&kcore_vsyscall, (void *)VSYSCALL_ADDR, PAGE_SIZE, KCORE_USER);
 
+
+#ifdef CONFIG_X86_64_ECPT
+	/* if ecpt is defined no need to preallocate pages */
+#else
 	preallocate_vmalloc_pages();
+#endif
+
 }
 
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
