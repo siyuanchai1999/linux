@@ -15,6 +15,11 @@ typedef unsigned long	ecpt_pudval_t;
 typedef unsigned long	ecpt_pgprotval_t;
 
 
+typedef struct ecpt_entry{
+    uint64_t VPN_tag;
+    uint64_t pte;
+} ecpt_entry_t;
+
 typedef struct { ecpt_pudval_t pud; } ecpt_pud_t;
 typedef struct { ecpt_pmdval_t pmd; } ecpt_pmd_t;
 typedef struct { ecpt_pteval_t pte; } ecpt_pte_t;
@@ -476,6 +481,47 @@ static inline ecpt_pteval_t ecpt_pte_flags(ecpt_pte_t pte)
 	return native_ecpt_pte_val(pte) & PTE_FLAGS_MASK;
 }
 
+
+static inline ecpt_entry_t native_make_ecpt_entry (uint64_t tag, ecpt_pteval_t val)
+{
+	return (ecpt_entry_t) { .VPN_tag = tag,  .pte = val };
+}
+
+
+static inline int ecpt_entry_present(ecpt_entry_t * entry)
+{
+	/*
+	 * Checking for _PAGE_PSE is needed too because
+	 * split_huge_page will temporarily clear the present bit (but
+	 * the _PAGE_PSE flag will remain set at all times while the
+	 * _PAGE_PRESENT bit is clear).
+	 */
+	return entry->pte & _PAGE_PRESENT;
+}
+
+
+/* TODO: concern more about atomicity later */
+static inline void set_ecpt_entry(ecpt_entry_t *entry , ecpt_entry_t e)
+{
+	*entry = e;
+	// WRITE_ONCE(*entry, e);
+}
+
+// static inline ecpt_pteval_t native_ecpt_entry_val(ecpt_entry_t entry)
+// {
+// 	return entry.pte;
+// }
+
+
+// static inline ecpt_pteval_t native_ecpt_entry_tag(ecpt_entry_t entry)
+// {
+// 	return entry.pte;
+// }
+
+// static inline ecpt_pteval_t ecpt_pte_flags(ecpt_pte_t pte)
+// {
+// 	return native_ecpt_pte_val(pte) & PTE_FLAGS_MASK;
+// }
 
 
 

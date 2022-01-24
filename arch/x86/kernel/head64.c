@@ -133,10 +133,10 @@ static bool __head check_la57_support(unsigned long physaddr)
 	return true;
 }
 #else
-static bool __head check_la57_support(unsigned long physaddr)
-{
-	return false;
-}
+// static bool __head check_la57_support(unsigned long physaddr)
+// {
+// 	return false;
+// }
 #endif
 
 
@@ -168,12 +168,13 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	uint64_t i, j;
 	uint64_t vaddr, paddr;
 	uint64_t vaddr_start , paddr_start;
-	uint64_t early_cr3;
 	ecpt_pgprot_t prot;
 	uint64_t VA_offset[4];
 
 	uint64_t fixup_text, fixup_end;
 
+	ecpt_meta_2M * ecpt_desc_ptr;
+	char str[10] = "\n";
 	// unsigned int *next_pgt_ptr;
 
 	// la57 = check_la57_support(physaddr);
@@ -200,17 +201,22 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	/* Include the SME encryption mask in the fixup value */
 	load_delta += sme_get_me_mask();
-
-	/* Fixup the physical addresses in the page table */
-
-	early_cr3 = (uint64_t) fixup_pointer(&early_hpt, physaddr);
 	
+	ecpt_desc_ptr = &ecpt_desc;
+
 	/* require early hpt to be 4K aligned */
-	if (early_cr3 & ~PAGE_MASK)
-		for (;;);
+	// for (way = 0; way < ECPT_2M_WAY; way++) {
+	// 	if (ecpt_desc_ptr->cr[way] & ~PAGE_MASK)
+	// 		for (;;);
+	// }
 
-	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
+	// debug_putstr((const char *) fixup_pointer((void*) &str[0], physaddr));
 
+	__puthex(ecpt_desc.table[0]);
+	__putstr(str);
+	__puthex(ecpt_desc.table[1]);
+	__putstr(str);
+	
 	vaddr_start = __START_KERNEL_map;
 	paddr_start = load_delta;
 	fixup_text = (uint64_t) fixup_pointer(_text, physaddr);
@@ -227,6 +233,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		} else {
 			/* mapping not present for entries outside kernel image */
 			prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC & ~_PAGE_PRESENT);
+			continue;
 		}
 
 		vaddr = vaddr_start + PAGE_NUM_TO_ADDR_2MB(i);
@@ -245,7 +252,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		}
 
 		early_hpt_insert(
-			early_cr3,
+			ecpt_desc_ptr,
 			vaddr,
 			paddr,
 			prot,
@@ -312,7 +319,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
 			early_hpt_insert(
-				early_cr3,		
+				ecpt_desc_ptr,		
 				vaddr,
 				paddr,
 				prot,
@@ -613,12 +620,15 @@ static void __init reset_early_hpt(void)
 	/* paging implementation removes all identity mapping (only saves the last page kernel mapping) */
 	uint64_t VA_offset[4];
 	ecpt_pgprot_t prot;
-	uint64_t vaddr, paddr, early_cr3;
+	uint64_t vaddr, paddr, early_cr3 = 0;
 	uint32_t i, j;
 	int res;
-
-	early_cr3 = (uint64_t) &early_hpt[0];
-	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
+	/**
+	 * TODO: change hpt_insert and early_cr3 here
+	 * 
+	 */
+	// early_cr3 = (uint64_t) &early_hpt[0];
+	// early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
 	prot = __ecpt_pgprot(0);
 	
 	VA_offset [0] = 0;
@@ -652,21 +662,34 @@ static bool __init early_make_hpt(unsigned long address)
 {
 
 	unsigned long physaddr = address - __PAGE_OFFSET;
-	uint64_t early_cr3;
-	int res;
+	uint64_t early_cr3 = 0;
+	int res, way, found = 0;
+	ecpt_meta_2M * ecpt_desc_ptr = &ecpt_desc;
 	// pmdval_t pmd;
 
 	// pmd = (physaddr & PMD_MASK) + early_pmd_flags;
 
 	// return __early_make_pgtable(address, pmd);
 	DEBUG_VAR(address);
-	if (physaddr >= MAXMEM || read_cr3_pa() != __pa_nodebug(early_hpt))
+	if (physaddr >= MAXMEM)
 		return false;
 	
+	for (way = 0 ; way < ECPT_2M_WAY; way++) {
+		if (read_cr3_pa() == GET_HPT_BASE(ecpt_desc_ptr->table[way])) {
+			found = 1;
+			break;
+		}
+	}
+	
+	/* false nofixable because it doesn't correspond to any cr3 we have in ECPT */
+	if (!found) {
+		return false;
+	} 
 
-	early_cr3 = (uint64_t) &early_hpt[0];
-	early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
-
+	/**
+	 * TODO: change hpt_insert and early_cr3 here
+	 * 
+	 */
 	res = hpt_insert(early_cr3,
 	 	address,
 		physaddr,

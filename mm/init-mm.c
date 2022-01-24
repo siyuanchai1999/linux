@@ -34,7 +34,9 @@
 struct mm_struct init_mm = {
 	.mm_rb		= RB_ROOT,
 #ifdef CONFIG_X86_64_ECPT
-	.pgd 		= (pgd_t *) ((uint64_t) early_hpt + EARLY_HPT_CR3_SIZE_VAL),		/* early hpt was defined as 2M at first */
+	// .pgd 		= (pgd_t *) ((uint64_t) early_hpt + EARLY_HPT_CR3_SIZE_VAL),		/* early hpt was defined as 2M at first */
+
+	.pgd		= (pgd_t *) &ecpt_desc,
 #else 
 	.pgd		= swapper_pg_dir,
 #endif

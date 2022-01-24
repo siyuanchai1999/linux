@@ -688,7 +688,7 @@ void initialize_tlbstate_and_flush(void)
 	struct mm_struct *mm = this_cpu_read(cpu_tlbstate.loaded_mm);
 	u64 tlb_gen = atomic64_read(&init_mm.context.tlb_gen);
 	unsigned long cr3 = __read_cr3();
-	int cond;
+	// int cond;
 
 	/* Assert that CR3 already references the right mm. */
 	/* Generate warning when condition is true */

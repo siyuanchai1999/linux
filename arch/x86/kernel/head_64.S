@@ -97,7 +97,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 
 	/* Form the CR3 value being sure to include the CR3 modifier */
 #ifdef CONFIG_X86_64_ECPT
-	addq	$(early_hpt - __START_KERNEL_map), %rax
+	
 #else
     addq	$(early_top_pgt - __START_KERNEL_map), %rax
 #endif
@@ -160,7 +160,24 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 
 	/* Setup early boot stage 4-/5-level pagetables. */
 	#ifdef CONFIG_X86_64_ECPT
-		addq $(EARLY_HPT_CR3_SIZE_VAL), %rax
+
+		/**
+			sequence matter here since write to cr3 will force qemu to translate 
+			in as the ECPT
+		*/
+		movq 	$(early_hpt_1 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL), %rax
+		movq 	%rax, %cr1
+
+		/**
+			Attention Here:
+				The regular movq instruction can only have immediate source operands that can be represented as 32-bit two’s-complement numbers. 
+				This value is then sign extended to produce the 64-bit value for the destination. The movabsq instruction can have an arbitrary 64-bit immediate value as its source operand and can only have a register as a destination.
+
+			https://stackoverflow.com/questions/62771323/why-we-cant-move-a-64-bit-immediate-value-to-memory
+		*/
+
+		movabsq 	$(CR3_TRANSITION_BIT), %rax
+		addq 	$(early_hpt_0 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL), %rax
 	#endif
 
 	addq	phys_base(%rip), %rax
@@ -449,6 +466,10 @@ SYM_CODE_END(vc_no_ghcb)
 #define SYM_DATA_START_PAGE_ALIGNED(name)			\
 	SYM_START(name, SYM_L_GLOBAL, .balign PAGE_SIZE)
 
+
+#define SYM_DATA_START_QUAD_ALIGNED(name)			\
+	SYM_START(name, SYM_L_GLOBAL, .balign 16)
+
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 /*
  * Each PGD needs to be 8k long and 8k aligned.  We do not
@@ -500,9 +521,20 @@ SYM_DATA(early_recursion_flag, .long 0)
 
 #ifdef CONFIG_X86_64_ECPT
 
-    SYM_DATA_START_PAGE_ALIGNED(early_hpt)
-        .fill	EARLY_HPT_ENTRIES, 8, 0
-    SYM_DATA_END(early_hpt)
+
+	SYM_DATA_START_PAGE_ALIGNED(early_hpt_0)
+        .fill	EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_QUAD_CNT, 8, 0
+    SYM_DATA_END(early_hpt_0)
+
+	SYM_DATA_START_PAGE_ALIGNED(early_hpt_1)
+        .fill	EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_QUAD_CNT, 8, 0
+    SYM_DATA_END(early_hpt_1)
+
+	SYM_START(ecpt_desc, SYM_L_GLOBAL, .balign 16)
+		.quad early_hpt_0 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL
+		.quad early_hpt_1 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL
+	SYM_DATA_END(ecpt_desc)
+
 #endif
 
 

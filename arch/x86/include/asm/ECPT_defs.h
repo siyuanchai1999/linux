@@ -4,7 +4,7 @@
 #define HPT_SIZE_MASK (0xfff)      	/* 16 * cr3[0:11] for number of entries */
 #define HPT_SIZE_HIDDEN_BITS (4)    
 #define HPT_NUM_ENTRIES_TO_CR3(size) (((uint64_t) size ) >> HPT_SIZE_HIDDEN_BITS)
-#define HPT_BASE_MASK (~(HPT_SIZE_MASK))
+#define HPT_BASE_MASK (0x000ffffffffff000UL)
 #define GET_HPT_SIZE(cr3) ((((uint64_t) cr3) & HPT_SIZE_MASK ) << HPT_SIZE_HIDDEN_BITS)
 #define GET_HPT_BASE(cr3) (((uint64_t) cr3) & HPT_BASE_MASK )
 
@@ -12,7 +12,7 @@
 
 #define PAGE_HEADER_MASK (0xffff000000000000)
 
-#define PG_ADDRESS_MASK  (0x000ffffffffff000)
+#define PG_ADDRESS_MASK  (0x000ffffffffff000LL)
 #define PAGE_TAIL_MASK_4KB (0xfff)
 #define PAGE_TAIL_MASK_2MB (0x1fffff)
 #define PAGE_TAIL_MASK_1GB (0x3fffffff)
@@ -30,9 +30,9 @@
 #define PAGE_SIZE_1GB (1UL << PAGE_SHIFT_1GB)
 #define PAGE_SIZE_512GB (1UL << PAGE_SHIFT_512GB)
 
-#define ADDR_REMOVE_OFFSET_4KB(x)   ((x) & ~PAGE_TAIL_MASK_4KB)
-#define ADDR_REMOVE_OFFSET_2MB(x)   ((x) & ~PAGE_TAIL_MASK_2MB)
-#define ADDR_REMOVE_OFFSET_1GB(x)   ((x) & ~PAGE_TAIL_MASK_1GB)
+#define ADDR_REMOVE_OFFSET_4KB(x)   (((x) & ~PAGE_TAIL_MASK_4KB) & PG_ADDRESS_MASK)
+#define ADDR_REMOVE_OFFSET_2MB(x)   (((x) & ~PAGE_TAIL_MASK_2MB) & PG_ADDRESS_MASK)
+#define ADDR_REMOVE_OFFSET_1GB(x)   (((x) & ~PAGE_TAIL_MASK_1GB) & PG_ADDRESS_MASK)
 
 #define ADDR_TO_OFFSET_4KB(x)   ((x) & PAGE_TAIL_MASK_4KB)
 #define ADDR_TO_OFFSET_2MB(x)   ((x) & PAGE_TAIL_MASK_2MB)
@@ -51,13 +51,17 @@
 #define ENTRY_TO_ADDR(x) ((x) & PG_ADDRESS_MASK)
 
 #define EARLY_HPT_ENTRIES (512 * 8)
-#define EARLY_HPT_ENTRY_SIZE (8)
+#define EARLY_HPT_ENTRY_SIZE (16)
+#define EARLY_HPT_ENTRY_QUAD_CNT (EARLY_HPT_ENTRY_SIZE / 8)
 #define EARLY_HPT_SIZE (EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_SIZE)
 #define EARLY_HPT_OFFSET_MASK (EARLY_HPT_ENTRIES - 1)         /* the trailing 12 */
 
 // #define HPT_SIZE_MASK (0xfff)      /* 16 * cr3[0:11] for number of entries */
 // #define HPT_SIZE_HIDDEN_BITS (4)   
 #define EARLY_HPT_CR3_SIZE_VAL (EARLY_HPT_ENTRIES >> HPT_SIZE_HIDDEN_BITS)
+
+#define CR3_TRANSITION_SHIFT (52)
+#define CR3_TRANSITION_BIT (0x0010000000000000ULL)
 
 
 #endif /* _ASM_X86_ECPT_DEFS_H */

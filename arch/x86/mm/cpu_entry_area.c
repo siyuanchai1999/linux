@@ -37,6 +37,7 @@ EXPORT_SYMBOL(get_cpu_entry_area);
 void cea_set_pte(void *cea_vaddr, phys_addr_t pa, pgprot_t flags)
 {
 	unsigned long va = (unsigned long) cea_vaddr;
+	int ret;
 	pte_t pte = pfn_pte(0, flags);
 	
 	pr_info_verbose("va=%lx pa=%llx flags=%lx\n", va, pa, flags.pgprot);
@@ -53,7 +54,7 @@ void cea_set_pte(void *cea_vaddr, phys_addr_t pa, pgprot_t flags)
 	    (pgprot_val(flags) & _PAGE_PRESENT))
 		pte = pte_set_flags(pte, _PAGE_GLOBAL);
 
-	int ret = hpt_mm_insert(
+	ret = hpt_mm_insert(
 		&init_mm,
 		va, 
 		pa,
@@ -164,7 +165,7 @@ static inline void percpu_setup_exception_stacks(unsigned int cpu)
 static void __init setup_cpu_entry_area(unsigned int cpu)
 {
 	struct cpu_entry_area *cea = get_cpu_entry_area(cpu);
-	pr_info_verbose("cpu=%d\n", cpu);
+	
 
 #ifdef CONFIG_X86_64
 	/* On 64-bit systems, we use a read-only fixmap GDT and TSS. */
@@ -185,7 +186,7 @@ static void __init setup_cpu_entry_area(unsigned int cpu)
 		PAGE_KERNEL_RO : PAGE_KERNEL;
 	pgprot_t tss_prot = PAGE_KERNEL;
 #endif
-
+	pr_info_verbose("cpu=%d\n", cpu);
 	pr_info_verbose("cea->gdt\n");
 	cea_set_pte(&cea->gdt, get_cpu_gdt_paddr(cpu), gdt_prot);
 

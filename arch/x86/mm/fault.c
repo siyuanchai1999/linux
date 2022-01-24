@@ -383,12 +383,16 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address((void *) base))
 		goto bad;
 
+	/**
+	 * TODO: change hpt_peek and cr3 call here
+	 * 
+	 */
 	pr_info("cr3=%llx base=%llx ", cr3, (uint64_t)base);
 	pmd = hpt_peek(cr3, address);
 	pr_cont("PMD %lx ", pmd.pmd);
-out:
-	pr_cont("\n");
-	return;
+// out:
+// 	pr_cont("\n");
+// 	return;
 bad:
 	pr_info("BAD\n");
 }

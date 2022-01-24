@@ -213,33 +213,27 @@ static uint64_t gen_hash_32(uint32_t vpn, uint64_t size) {
     return hash;
 }
 
-unsigned int
-early_xcrc32 (const unsigned char *buf, int len, unsigned int init,  uint64_t kernel_start, uint64_t physaddr)
-{
-  unsigned int crc = init;
-  const unsigned int * fixup_crc32_table = (const unsigned int *) ((void *) crc32_table - (void *)kernel_start + (void *)physaddr);
+// unsigned int
+// early_xcrc32 (const unsigned char *buf, int len, unsigned int init,  uint64_t kernel_start, uint64_t physaddr)
+// {
+//   unsigned int crc = init;
+//   const unsigned int * fixup_crc32_table = (const unsigned int *) ((void *) crc32_table - (void *)kernel_start + (void *)physaddr);
   
-  while (len--)
-    {
-      crc = (crc << 8) ^ fixup_crc32_table[((crc >> 24) ^ *buf) & 255];
-      buf++;
-    }
-  return crc;
-}
+//   while (len--)
+//     {
+//       crc = (crc << 8) ^ fixup_crc32_table[((crc >> 24) ^ *buf) & 255];
+//       buf++;
+//     }
+//   return crc;
+// }
 
-static uint64_t early_gen_hash_32(uint32_t vpn, uint64_t size, uint64_t kernel_start, uint64_t physaddr) {
-    uint64_t hash = early_xcrc32((const unsigned char * ) &vpn, 4, 0xffffffff, kernel_start, physaddr);
+// static uint64_t early_gen_hash_32(uint32_t vpn, uint64_t size, uint64_t kernel_start, uint64_t physaddr) {
+//     uint64_t hash = early_xcrc32((const unsigned char * ) &vpn, 4, 0xffffffff, kernel_start, physaddr);
 	
-	hash = hash % size;
-    // if (hash > size) {
-    //     /* should not be */
-    //     // printf("Hash value %lu, size %lu\n", hash, size);
-    //     // assert(1 == 0 && "Hash value is larger than index\n");
-	// 	panic("Hash value is larger than index\n");
-    // }
+// 	hash = hash % size;
 
-    return hash;
-}
+//     return hash;
+// }
 
 static uint64_t crc64_table[256] = {
 0x0000000000000000UL,
@@ -500,82 +494,166 @@ static uint64_t crc64_table[256] = {
 0x9afce626ce85b507UL
 };
 
-uint64_t crc64_be(uint64_t crc, const void* p, uint64_t len) {
+
+#define puthex_tabtabln(num) { \
+		debug_putstr(tab); \
+		debug_putstr(tab); \
+		debug_puthex(num); \
+		debug_putstr(line_break); \
+	}
+
+uint64_t crc64_be(uint64_t crc, const void* p, uint64_t len, uint64_t * table) {
   uint64_t i, t;
 
   const unsigned char* _p = (const unsigned char*) (p);
 
   for (i = 0; i < len; i++) {
     t = ((crc >> 56) ^ (*_p++)) & 0xFF;
-    crc = crc64_table[t] ^ (crc << 8);
+    crc = table[t] ^ (crc << 8);
   }
   return (crc);
 }
 
-static uint32_t crc64_hash(uint64_t vpn) {
-	// return crc32_be(0, (const unsigned char * ) &addr, 4); /* hash uint32 so length is 4 bytes */
-	return crc64_be(0xffffffff, (const unsigned char * ) &vpn, 5);
-    
-}
 
 static uint64_t gen_hash_64(uint64_t vpn, uint64_t size) {
-    uint64_t hash = crc64_hash(vpn);
+    uint64_t hash = crc64_be(0xffffffff,
+					&vpn,
+					5, /* at most we need five of them */ 
+					crc64_table
+	);
     hash = hash % size;
-    // if (hash > size) {
-    //     /* should not be */
-    //     // printf("Hash value %lu, size %lu\n", hash, size);
-    //     // assert(1 == 0 && "Hash value is larger than index\n");
-	// 	panic("Hash value is larger than index\n");
-    // }
 
     return hash;
 }
 
+static uint64_t early_gen_hash_64(uint64_t vpn, uint64_t size, uint64_t kernel_start, uint64_t physaddr) {
+	uint64_t hash;
+	uint64_t * fixup_crc64_table = (uint64_t *) ((void *) crc64_table - (void *)kernel_start + (void *)physaddr);
 
-#define HASH_TO_INDEX(h) (h << 3)
+	hash = crc64_be(0xffffffff,
+					&vpn,
+					5, /* at most we need five of them */ 
+					fixup_crc64_table
+	);
+
+	hash = hash % size;
+    return hash;
+}
 
 
+/**
+ * @brief 
+ * 
+ * @param ecpt  pointer has not been fixed up, but cr values should be fixed up
+ * @param vaddr 
+ * @param paddr 
+ * @param prot 
+ * @param kernel_start 
+ * @param physaddr 
+ * @return int 
+ */
 
-int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr) {
+static void * fixup_pointer(void *ptr, uint64_t kernel_start, uint64_t physaddr)
+{
+	return (void * )((uint64_t) ptr - kernel_start + physaddr);
+} 
+
+#define puthexln(num) { \
+		debug_puthex(num); \
+		debug_putstr(line_break); \
+	}
+
+#define puthex_tabln(num) { \
+		debug_putstr(tab); \
+		debug_puthex(num); \
+		debug_putstr(line_break); \
+	}
+
+int early_hpt_insert(
+	ecpt_meta_2M * ecpt,
+	uint64_t vaddr, 
+	uint64_t paddr, 
+	ecpt_pgprot_t prot, 
+	uint64_t kernel_start, 
+	uint64_t physaddr
+) {
+
 	uint64_t size;
 	uint64_t hash;
-	uint32_t vpn;
+	uint64_t vpn;
+	uint64_t cr;
 
-	ecpt_pmd_t *hpt_base;
-	ecpt_pmd_t *pmdp;
+	ecpt_meta_2M * ecpt_fixed;
+	ecpt_entry_t * ecpt_base;
+	ecpt_entry_t * entry_ptr;
 
-	ecpt_pmd_t entry = __ecpt_pmd(0);
+	ecpt_entry_t entry, temp;
+	static uint16_t way = 0;
+	uint16_t tries = 0;
 
+	char tab[2] = "\t";
+	char line_break[2] = "\n";
 
-	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
-	size = GET_HPT_SIZE(cr3);
-	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
+	ecpt_fixed = (ecpt_meta_2M *) fixup_pointer(ecpt, kernel_start, physaddr);
 
-	hash = early_gen_hash_32(vpn, size, kernel_start, physaddr);
+	way += 1;
+	way = way % ECPT_2M_WAY;
+	// get_random_bytes(&way, 2);
+	// way = way % ECPT_2M_WAY;
+	
 
-	// hash = gen_hash_64(vpn, size);
+	vpn = ADDR_TO_PAGE_NUM_2MB(vaddr);
 
+	entry.pte = ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot);
+	entry.VPN_tag = vpn;
 
-	// pmdp = hpt_base + (hash << 3);
-
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	pmdp = &hpt_base[hash];
-
-	if (ecpt_pmd_present(*pmdp)) {
-		/* already present */
-		/* warning */
-		return -1;
+	if (!(entry.pte & _PAGE_PRESENT)) {
+		return 0;
 	}
-	
-	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
 
-	/* all current entry so far represents 2MB granularity */
-	entry = __ecpt_pmd(entry.pmd | _PAGE_PSE);
+	puthexln(vaddr);
 
-	*pmdp = entry;
-	// set_ecpt_pmd(pmdp, entry);
-	
-	return 0;
+	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
+		puthex_tabln(way);
+		cr = ecpt_fixed->table[way];
+
+		size = GET_HPT_SIZE(cr);
+		puthex_tabln(vpn);
+		hash = early_gen_hash_64(vpn, size, kernel_start, physaddr);
+		puthex_tabln(hash);
+		ecpt_base = (ecpt_entry_t *) GET_HPT_BASE(cr);
+		entry_ptr = &ecpt_base[hash];
+		
+		if (!ecpt_entry_present(entry_ptr)) {
+			/* can insert here */
+						
+			set_ecpt_entry(entry_ptr, entry);
+			puthex_tabln(entry_ptr->pte);
+			return 0;
+		} else {
+			/* swap and insert again */
+
+			temp = *entry_ptr;
+			set_ecpt_entry(entry_ptr, entry);
+			entry = temp;
+		}	
+		
+		way += 1;
+		way = way % ECPT_2M_WAY;
+	// 	do
+	// 	{
+	// 		way += 1;
+	// way = way % ECPT_2M_WAY;
+	// 	} while (way == new_way);
+		
+		// way = new_way;
+
+	}
+
+	debug_putstr(line_break);
+
+	return -1;
+
 }
 
 static ecpt_pmd_t * get_hpt_entry(uint64_t cr3, uint64_t vaddr) {
