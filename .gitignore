@@ -161,3 +161,15 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
+
+
+# local debug files
+vmlinux.S
+*.log
+compressed_vmlinux.bin.S
+compressed_vmlinux.S
+data
+ramdisk.img
+ECPT.S
+head_64_disas.S
+compile_road_map.md
