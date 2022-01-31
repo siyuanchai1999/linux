@@ -16,6 +16,7 @@ qemu_args=(
 	"$qemu"
 	"-kernel" "arch/x86/boot/bzImage" 
 	"-m" "2048M"
+	"-display" "none"
 	"-initrd" "ramdisk.img"
 	"-serial" "stdio"
 	"-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 apic=verbose"

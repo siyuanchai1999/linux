@@ -161,13 +161,45 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	/* Setup early boot stage 4-/5-level pagetables. */
 	#ifdef CONFIG_X86_64_ECPT
 
+		
+		/* ECPT_WAY_TO_CR_SEQ defined in ECPT_defs.h
+			ECPT_WAY_TO_CR_SEQ 3,1,5,6,7
+			load 	ecpt_desc[1] -> cr1
+					ecpt_desc[2] -> cr5
+				 	...
+					ecpt_desc[ECPT_TOTAL_WAY - 1] -> cr
+			and then ecpt_desc[0] -> cr3 because it will flush the TLB
+		
+ 		*/
+
+		.macro load_ecpt_desc
+
+			j=0
+			.irp i, ECPT_WAY_TO_CR_SEQ
+				.if j < ECPT_TOTAL_WAY
+					.if j > 0
+						movq 	(%rcx), %rax    /* load ecpt[j] -> rax*/
+						movq 	%rax, %cr\i		
+						add  	$8, %rcx
+					.endif
+					j=j+1
+				.endif
+			.endr
+		.endm 
+
+
 		/**
 			sequence matter here since write to cr3 will force qemu to translate 
 			in as the ECPT
 		*/
-		movq 	$(early_hpt_1 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL), %rax
-		movq 	%rax, %cr1
 
+		/* get the physical address of ecpt_desc*/
+		movq 	$(ecpt_desc - __START_KERNEL_map), %rcx
+		add  	$8, %rcx
+		load_ecpt_desc
+
+		
+		movq $(ecpt_desc - __START_KERNEL_map), %rcx
 		/**
 			Attention Here:
 				The regular movq instruction can only have immediate source operands that can be represented as 32-bit two’s-complement numbers. 
@@ -177,7 +209,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 		*/
 
 		movabsq 	$(CR3_TRANSITION_BIT), %rax
-		addq 	$(early_hpt_0 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL), %rax
+		addq 		(%rcx), %rax
 	#endif
 
 	addq	phys_base(%rip), %rax
@@ -521,18 +553,58 @@ SYM_DATA(early_recursion_flag, .long 0)
 
 #ifdef CONFIG_X86_64_ECPT
 
+#define DECLARE_LOOP(func) \
+    .macro loop_##func count=0  ; \
+        i=0     ;               \
+        .rept count ;           \
+            func %(i) ;         \
+            i=i+1       ;       \
+        .endr           ;       \
+    .endm
 
-	SYM_DATA_START_PAGE_ALIGNED(early_hpt_0)
-        .fill	EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_QUAD_CNT, 8, 0
-    SYM_DATA_END(early_hpt_0)
+/**
 
-	SYM_DATA_START_PAGE_ALIGNED(early_hpt_1)
-        .fill	EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_QUAD_CNT, 8, 0
-    SYM_DATA_END(early_hpt_1)
+    helpful doc: https://stackoverflow.com/questions/47185750/how-can-i-concatenate-a-label-not-in-a-macro-definition-in-gas-assembler
+                https://web.mit.edu/rhel-doc/3/rhel-as-en-3/macro.html
+*/
+
+
+.altmacro
+
+    .macro DEF_ECPT cnt=0
+
+        SYM_DATA_START_PAGE_ALIGNED(ecpt_table_\cnt)
+            .fill	EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_QUAD_CNT, 8, 0
+        SYM_DATA_END(ecpt_table_\cnt) 
+
+    .endm
+
+/*
+
+    .macro loop_DEF_ECPT count=3
+        i=0
+        .rept count
+            DEF_ECPT %(i)
+            i=i+1
+        .endr
+    .endm
+
+*/
+
+    /* declare loop_DEF_ECPT which calls DEF_ECPT for n times and pass i into ECPT */
+    DECLARE_LOOP(DEF_ECPT)
+
+    loop_DEF_ECPT ECPT_TOTAL_WAY
+
+    .macro fill_ecpt_desc cnt=0
+        .quad ecpt_table_\cnt - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL
+    .endm
+
+    /* declare loop_fill_ecpt_desc which calls fill_ecpt_desc for n times and pass value of i into fill_ecpt_desc */
+    DECLARE_LOOP(fill_ecpt_desc)
 
 	SYM_START(ecpt_desc, SYM_L_GLOBAL, .balign 16)
-		.quad early_hpt_0 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL
-		.quad early_hpt_1 - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL
+		loop_fill_ecpt_desc ECPT_TOTAL_WAY
 	SYM_DATA_END(ecpt_desc)
 
 #endif

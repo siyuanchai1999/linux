@@ -15,6 +15,9 @@
 
 #endif
 
+
+uint32_t way_to_crN[ECPT_MAX_WAY]= {ECPT_WAY_TO_CR_SEQ};
+
 /* crc32.c
    Copyright (C) 2009-2021 Free Software Foundation, Inc.
 
@@ -570,7 +573,7 @@ static void * fixup_pointer(void *ptr, uint64_t kernel_start, uint64_t physaddr)
 	}
 
 int early_hpt_insert(
-	ecpt_meta_2M * ecpt,
+	ECPT_desc_t * ecpt,
 	uint64_t vaddr, 
 	uint64_t paddr, 
 	ecpt_pgprot_t prot, 
@@ -583,7 +586,7 @@ int early_hpt_insert(
 	uint64_t vpn;
 	uint64_t cr;
 
-	ecpt_meta_2M * ecpt_fixed;
+	ECPT_desc_t * ecpt_fixed;
 	ecpt_entry_t * ecpt_base;
 	ecpt_entry_t * entry_ptr;
 
@@ -594,8 +597,9 @@ int early_hpt_insert(
 	char tab[2] = "\t";
 	char line_break[2] = "\n";
 
-	ecpt_fixed = (ecpt_meta_2M *) fixup_pointer(ecpt, kernel_start, physaddr);
+	ecpt_fixed = (ECPT_desc_t *) fixup_pointer(ecpt, kernel_start, physaddr);
 
+	/* this function always run with two 2MB */
 	way += 1;
 	way = way % ECPT_2M_WAY;
 	// get_random_bytes(&way, 2);
@@ -615,7 +619,7 @@ int early_hpt_insert(
 
 	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
 		puthex_tabln(way);
-		cr = ecpt_fixed->table[way];
+		cr = ecpt_fixed->table[ECPT_4K_WAY + way];
 
 		size = GET_HPT_SIZE(cr);
 		puthex_tabln(vpn);

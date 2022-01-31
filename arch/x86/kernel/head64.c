@@ -173,7 +173,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	uint64_t fixup_text, fixup_end;
 
-	ecpt_meta_2M * ecpt_desc_ptr;
+	ECPT_desc_t * ecpt_desc_ptr;
 	char str[10] = "\n";
 	// unsigned int *next_pgt_ptr;
 
@@ -217,6 +217,9 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	__puthex(ecpt_desc.table[1]);
 	__putstr(str);
 	
+	__puthex(sizeof(ECPT_desc_t));
+	__putstr(str);
+
 	vaddr_start = __START_KERNEL_map;
 	paddr_start = load_delta;
 	fixup_text = (uint64_t) fixup_pointer(_text, physaddr);
@@ -664,7 +667,7 @@ static bool __init early_make_hpt(unsigned long address)
 	unsigned long physaddr = address - __PAGE_OFFSET;
 	uint64_t early_cr3 = 0;
 	int res, way, found = 0;
-	ecpt_meta_2M * ecpt_desc_ptr = &ecpt_desc;
+	ECPT_desc_t * ecpt_desc_ptr = &ecpt_desc;
 	// pmdval_t pmd;
 
 	// pmd = (physaddr & PMD_MASK) + early_pmd_flags;

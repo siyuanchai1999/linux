@@ -75,22 +75,26 @@ static inline int ecpt_pte_present(ecpt_pte_t a)
 #define ecpt_pte_val(x)	native_ecpt_pte_val(x)
 #define __ecpt_pte(x)	native_make_ecpt_pte(x)
 
-#define ECPT_4K_WAY 0
-#define ECPT_2M_WAY 2
-#define ECPT_1G_WAY 0
+
 
 #define ECPT_INSERT_MAX_TRIES 128
 
-typedef struct ecpt_meta_2M_ {
-	uint64_t table[ECPT_2M_WAY];
-}	ecpt_meta_2M;
+// typedef struct ecpt_meta_2M_ {
+// 	uint64_t table_4K[ECPT_4K_WAY];
+// 	uint64_t table[ECPT_2M_WAY];
+// }	ecpt_meta_2M;
 
+typedef struct ECPT_desc {
+	uint64_t table[ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY];
+} ECPT_desc_t;
 
-extern ecpt_meta_2M ecpt_desc;
+extern uint32_t way_to_crN[ECPT_MAX_WAY];
+
+extern ECPT_desc_t ecpt_desc;
 
 // uint64_t gen_hash_32(uint32_t vpn, uint64_t size);
 // int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
-int early_hpt_insert(ecpt_meta_2M * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
+int early_hpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 
 int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
 int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
