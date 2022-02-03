@@ -361,14 +361,14 @@ void __init set_vsyscall_pgtable_user_bits(pgd_t *root)
 {
 	int res; 
 
-	ecpt_pmd_t pmd = hpt_peek(
+	ecpt_pmd_t pmd = ecpt_peek(
 		(uint64_t) root,
 		VSYSCALL_ADDR
 	);
 
 	ecpt_pgprot_t prot_with_user = __ecpt_pg(ENTRY_TO_PROT((uint64_t) pmd.pmd) | _PAGE_USER);
 
-	res = hpt_update_prot((uint64_t) root, VSYSCALL_ADDR, prot_with_user);
+	res = ecpt_update_prot((uint64_t) root, VSYSCALL_ADDR, prot_with_user);
 
 	if (res) {
 		pr_warn("%s: WARN res=%d\n", __func__, res);

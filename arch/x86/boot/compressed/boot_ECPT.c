@@ -1,7 +1,7 @@
 
-#include <asm/ECPT.h>
+// #include <asm/ECPT.h>
 #include "error.h"
-
+#include "boot_ECPT.h"
 
 /* crc32.c
    Copyright (C) 2009-2021 Free Software Foundation, Inc.

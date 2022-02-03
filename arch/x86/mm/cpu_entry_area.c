@@ -54,7 +54,7 @@ void cea_set_pte(void *cea_vaddr, phys_addr_t pa, pgprot_t flags)
 	    (pgprot_val(flags) & _PAGE_PRESENT))
 		pte = pte_set_flags(pte, _PAGE_GLOBAL);
 
-	ret = hpt_mm_insert(
+	ret = ecpt_mm_insert(
 		&init_mm,
 		va, 
 		pa,

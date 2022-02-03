@@ -41,7 +41,7 @@ int kernel_ident_mapping_init(struct x86_mapping_info *info, uint64_t cr3,
 		// }
         // set_hpt_pgd_entry(pgd, __pgd(__pa(pstart) | info->kernpg_flag));
 
-		int res = hpt_insert(cr3, addr, addr, __ecpt_pgprot(info->kernpg_flag), 1);
+		int res = ecpt_insert(cr3, addr, addr, __ecpt_pgprot(info->kernpg_flag), 1);
 
 		if (res) {
 			// panic("error from hpt_inerst!\n");

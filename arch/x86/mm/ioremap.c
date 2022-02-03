@@ -913,10 +913,10 @@ void __init __early_set_fixmap(enum fixed_addresses idx,
 
 	if (pgprot_val(flags)) {
 		// pr_info("%s: addr = %lx phys = %llx\n", __func__, addr,(uint64_t) phys);
-		res = hpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 1);
+		res = ecpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 1);
 	} else {
 		/* if flags == 0, we have to clear the entry with overrride */
-		res = hpt_invalidate(early_cr3, addr);
+		res = ecpt_invalidate(early_cr3, addr, page_4KB);
 	}
 	
 	if (res) { 

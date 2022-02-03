@@ -388,7 +388,7 @@ static void dump_pagetable(unsigned long address)
 	 * 
 	 */
 	pr_info("cr3=%llx base=%llx ", cr3, (uint64_t)base);
-	pmd = hpt_peek(cr3, address);
+	pmd = ecpt_peek(cr3, address);
 	pr_cont("PMD %lx ", pmd.pmd);
 // out:
 // 	pr_cont("\n");
@@ -576,7 +576,7 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 
 		cr3 = ((uint64_t) __va(read_cr3_pa())) | read_cr3_prot();
 
-		pmd = hpt_peek(cr3, address);
+		pmd = ecpt_peek(cr3, address);
 		pte = (pte_t *) &pmd;
 
 
@@ -1117,7 +1117,7 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 		return 0;
 
 
-	pmd = hpt_mm_peek(&init_mm, address);
+	pmd = ecpt_mm_peek(&init_mm, address);
 
 	if (!ecpt_pmd_present(pmd)) {
 		return 0;

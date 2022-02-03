@@ -543,6 +543,48 @@ static uint64_t early_gen_hash_64(uint64_t vpn, uint64_t size, uint64_t kernel_s
     return hash;
 }
 
+#define puthexln(num) { \
+		debug_puthex(num); \
+		debug_putstr(line_break); \
+	}
+
+#define puthex_tabln(num) { \
+		debug_putstr(tab); \
+		debug_puthex(num); \
+		debug_putstr(line_break); \
+	}
+
+/**
+ * @brief Get a way different from @cur_way
+ * 
+ * @param cur_way 	current way number
+ * @param n_way 	number of ways in this ECPT
+ * @return uint32_t 
+ */
+static uint32_t get_diff_rand(uint32_t cur_way, uint32_t n_way) {
+	
+	uint32_t way = cur_way;
+	char tab[2] = "\t";
+	char line_break[2] = "\n";
+
+
+	if (n_way == 1) return way;
+
+	puthex_tabln(get_random_u32());
+	
+	do
+	{
+		if (rng_is_initialized()) {
+			way = get_random_u32();
+		} else {
+			way += 1;
+		}
+
+		way = way % n_way;
+	} while (way == cur_way);
+	
+	return way;
+}
 
 /**
  * @brief 
@@ -561,18 +603,9 @@ static void * fixup_pointer(void *ptr, uint64_t kernel_start, uint64_t physaddr)
 	return (void * )((uint64_t) ptr - kernel_start + physaddr);
 } 
 
-#define puthexln(num) { \
-		debug_puthex(num); \
-		debug_putstr(line_break); \
-	}
 
-#define puthex_tabln(num) { \
-		debug_putstr(tab); \
-		debug_puthex(num); \
-		debug_putstr(line_break); \
-	}
 
-int early_hpt_insert(
+int early_ecpt_insert(
 	ECPT_desc_t * ecpt,
 	uint64_t vaddr, 
 	uint64_t paddr, 
@@ -632,6 +665,7 @@ int early_hpt_insert(
 			/* can insert here */
 						
 			set_ecpt_entry(entry_ptr, entry);
+			puthex_tabln((uint64_t) entry_ptr);
 			puthex_tabln(entry_ptr->pte);
 			return 0;
 		} else {
@@ -660,151 +694,319 @@ int early_hpt_insert(
 
 }
 
-static ecpt_pmd_t * get_hpt_entry(uint64_t cr3, uint64_t vaddr) {
-	uint64_t size, hash;
-	uint32_t vpn;
-
-	ecpt_pmd_t *hpt_base;
-
-
-	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
-	size = GET_HPT_SIZE(cr3);
-	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
-	
-	hash = gen_hash_32(vpn, size);
-
-	return &hpt_base[hash];
+static Granularity way_to_granularity(uint32_t way) {
+	if (way < ECPT_4K_WAY) {
+		return page_4KB;
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
+		return page_2MB;
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
+		return page_1GB;
+	} else {
+		return unknown;
+	}
 }
 
-int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
-	
-	ecpt_pmd_t * pmdp;
-	ecpt_pmd_t entry = __ecpt_pmd(0);
+static uint64_t way_to_vpn(uint32_t way, uint64_t vaddr) {
+	if (way < ECPT_4K_WAY) {
+		return ADDR_TO_PAGE_NUM_4KB(vaddr); 
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
+		return ADDR_TO_PAGE_NUM_2MB(vaddr); 
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
+		return ADDR_TO_PAGE_NUM_1GB(vaddr); 
+	} else {
+		panic("wrong way!\n");
+		return 0;
+	}
+}
 
 
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	pmdp = get_hpt_entry(cr3, vaddr);
+static ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
+
+	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
+
+	uint32_t w = 0, way_start, way_end;
+
+	ecpt_entry_t * ecpt_base;
+	ecpt_entry_t * entry_ptr = NULL;
+	ecpt_entry_t entry;
+
+	if (gran == page_4KB) 
+	{
+		way_start = 0;
+		way_end = ECPT_4K_WAY;
+		vpn = ADDR_TO_PAGE_NUM_4KB(vaddr); 
+	} 
+	else if (gran == page_2MB) 
+	{
+		way_start = ECPT_4K_WAY;
+		way_end = ECPT_4K_WAY + ECPT_2M_WAY;
+		vpn = ADDR_TO_PAGE_NUM_2MB(vaddr); 
+	} 
+	else if (gran == page_1GB) 
+	{
+		way_start = ECPT_4K_WAY + ECPT_2M_WAY;
+		way_end = ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY;
+		vpn = ADDR_TO_PAGE_NUM_1GB(vaddr); 
+	} 
+	else 
+	{
+		/* unknown granularity */
+		way_start = 0;
+		way_end = ECPT_TOTAL_WAY;
+		vpn = 0;
+	}
 
 
-	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
+	for (w = way_start; w < way_end; w++) {
+		if (gran == unknown) {
+			vpn = way_to_vpn(w, vaddr);
+		}
 
-	/* all current entry so far represents 2MB granularity */
-	// entry = __ecpt_pmd(entry.pmd | _PAGE_PSE);
-	
-	if (ecpt_pmd_present(*pmdp)) {
-		if (entry.pmd != 0 && entry.pmd != pmdp->pmd) {
-			/* we are not invalidate the entry but change the mapping to somewhere else warning! */
-			DEBUG_STR("WARN: hash collision!\n");
-			DEBUG_VAR(vaddr);
-			DEBUG_VAR(entry.pmd);
-			DEBUG_VAR(pmdp->pmd);
-			DEBUG_STR("\n");
-			if (!override) {	
-				return -1;
-			}
+		cr = ecpt->table[w];
+		size = GET_HPT_SIZE(cr);
+		hash = gen_hash_64(vpn, size);
+		DEBUG_VAR(hash);
+		DEBUG_VAR(w);
+		if (hash < rehash_ptr) {
+            /* not supported for resizing now */
+            /* rehash_ptr MBZ right now */
+            panic("no rehash support!\n");
+        } else {
+			/* stay with current hash table */
+            ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE(cr);
+            entry_ptr = &ecpt_base[hash];
+
+		}
+		DEBUG_VAR((uint64_t) entry_ptr);
+        entry = *entry_ptr;
+
+		DEBUG_VAR(entry.VPN_tag);
+		if (entry.VPN_tag == vpn) {
+			
+			DEBUG_VAR((uint64_t) entry_ptr);
+			break;
+		} else {
+			/* not found move on */
+			entry_ptr = NULL;
 		}
 	}
+
+	return entry_ptr;
+}
+
+int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran) {
 	
-	/* write and exit with no trouble */
-	
- 	set_ecpt_pmd(pmdp, entry);
-	return 0;
-}
+	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
 
-int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
-	int res;
+	uint32_t way_start = 0, n_way;
+	static uint32_t way = 0;
 
-	spin_lock(&init_mm.page_table_lock);
+	ecpt_entry_t * ecpt_base;
+	ecpt_entry_t * entry_ptr;
+	ecpt_entry_t entry, temp;
 
-	res = hpt_insert(
-		(uint64_t) mm->pgd,
-		vaddr,
-		paddr,
-		prot,
-		override
-	);
-	spin_unlock(&init_mm.page_table_lock);
+	uint16_t tries = 0;
 
-	return res;
-}
+	char tab[2] = "\t";
+	char line_break[2] = "\n";
 
-int hpt_invalidate(uint64_t cr3, uint64_t vaddr) {
-	// DEBUG_VAR(vaddr);
-	int res = hpt_insert(
-		cr3,
-		vaddr,
-		0,	/* override everything */
-		__ecpt_pgprot(0),
-		1
-	);
-	return res;
-}
+	if (gran == page_4KB) 
+	{
+		way_start = 0;
+		n_way = ECPT_4K_WAY;
 
-int hpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr) {
-	int res;
-	spin_lock(&init_mm.page_table_lock);
+		vpn = ADDR_TO_PAGE_NUM_4KB(vaddr); 
+		entry.pte = ADDR_REMOVE_OFFSET_2MB(paddr);
+	} 
+	else if (gran == page_2MB) 
+	{
+		way_start = ECPT_4K_WAY;
+		n_way = ECPT_2M_WAY;
 
-	res = hpt_invalidate(
-		(uint64_t) mm->pgd,
-		vaddr
-	);
-	spin_unlock(&init_mm.page_table_lock);
-	
-	return res;
-}
+		vpn = ADDR_TO_PAGE_NUM_2MB(vaddr); 
+		entry.pte = ADDR_REMOVE_OFFSET_2MB(paddr);
+	} 
+	else if (gran == page_1GB) 
+	{
+		way_start = ECPT_4K_WAY + ECPT_2M_WAY;
+		n_way = ECPT_1G_WAY;
 
-ecpt_pmd_t hpt_peek(uint64_t cr3, uint64_t vaddr) {
-	ecpt_pmd_t * pmdp = get_hpt_entry(cr3, vaddr);
-	return *pmdp;
-}
-
-ecpt_pmd_t hpt_mm_peek(struct mm_struct* mm, uint64_t vaddr) {
-
-	ecpt_pmd_t pmd;
-	uint64_t cr3;
-
-	spin_lock(&init_mm.page_table_lock);
-	cr3 = (uint64_t) mm->pgd;
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	pmd = hpt_peek(cr3, vaddr);
-
-	spin_unlock(&init_mm.page_table_lock);
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	return pmd;
-}
-
-int hpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot) {
-	ecpt_pmd_t *pmdp;
-	ecpt_pmd_t entry;
-	uint64_t pmd_val;
-
-	pmdp = get_hpt_entry(cr3, vaddr);
-
-	if (!ecpt_pmd_present(*pmdp)) {
-		pr_warn("Cannot update protection for entry that is not present\n");
+		vpn = ADDR_TO_PAGE_NUM_1GB(vaddr); 
+		entry.pte = ADDR_REMOVE_OFFSET_1GB(paddr);
+	} 
+	else 
+	{
+		/* invalid granularity */
 		return -1;
 	}
 
-	pmd_val = ENTRY_TO_ADDR(pmdp->pmd) | new_prot.pgprot;
-	entry = __ecpt_pmd(pmd_val);
+	if (n_way == 0) {
 
-	set_ecpt_pmd(pmdp, entry);
+		/* invalid size */
+		return -2;
+	}
+
+	entry.pte = entry.pte | ecpt_pgprot_val(prot);
+	entry.VPN_tag = vpn;
+
+	way = get_diff_rand(way, n_way);
+	puthexln(vaddr);
+
+	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
+		puthex_tabln(way);
+		
+		cr = ecpt->table[way_start + way];
+
+		size = GET_HPT_SIZE(cr);
+		puthex_tabln(vpn);
+		hash = gen_hash_64(vpn, size);
+		puthex_tabln(hash);
+
+
+		if (hash < rehash_ptr) {
+            /* not supported for resizing now */
+            /* rehash_ptr MBZ right now */
+            panic("no rehash support!\n");
+        } else {
+			/* stay with current hash table */
+            ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE(cr);
+            entry_ptr = &ecpt_base[hash];
+
+		}
+            
+		
+		if (!ecpt_entry_present(entry_ptr)) {
+			/* can insert here */
+						
+			set_ecpt_entry(entry_ptr, entry);
+			puthex_tabln(entry_ptr->pte);
+			return 0;
+		} else {
+			/* swap and insert again */
+
+			temp = *entry_ptr;
+			set_ecpt_entry(entry_ptr, entry);
+			entry = temp;
+		}	
+		
+		way = get_diff_rand(way, n_way);
+
+	}
+
+	/* exceed max number of tries */
+	return -3;
+}
+
+int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
+	int res = 0;
+
+	// spin_lock(&init_mm.page_table_lock);
+
+	// res = hpt_insert(
+	// 	(uint64_t) mm->pgd,
+	// 	vaddr,
+	// 	paddr,
+	// 	prot,
+	// 	override
+	// );
+	// spin_unlock(&init_mm.page_table_lock);
+
+	return res;
+}
+
+int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
+	
+
+	
+	ecpt_entry_t * entry = NULL;
+
+	DEBUG_VAR(vaddr);
+	entry = get_hpt_entry(ecpt_desc, vaddr, g);
+	
+	if (entry == NULL) {
+		/* no such entry */
+		return -1;
+	}
+	
+	entry->pte = 0;
+
+	/**
+	 * TODO: if PTE clustering is supported we don't clear VPN_tag
+	 */
+	entry->VPN_tag = 0;
+
+	DEBUG_STR("\n");
 
 	return 0;
 }
 
-int hpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot) {
+int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr) {
+	int res = 0;
+	// spin_lock(&init_mm.page_table_lock);
+
+	// res = hpt_invalidate(
+	// 	(uint64_t) mm->pgd,
+	// 	vaddr
+	// );
+	// spin_unlock(&init_mm.page_table_lock);
+	
+	return res;
+}
+
+ecpt_pmd_t ecpt_peek(uint64_t cr3, uint64_t vaddr) {
+	// ecpt_pmd_t * pmdp = get_hpt_entry(cr3, vaddr);
+	// return *pmdp;
+	return native_make_ecpt_pmd(0);
+}
+
+ecpt_pmd_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr) {
+
+	ecpt_pmd_t pmd;
+	// uint64_t cr3;
+
+	// spin_lock(&init_mm.page_table_lock);
+	// cr3 = (uint64_t) mm->pgd;
+	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	// pmd = hpt_peek(cr3, vaddr);
+
+	// spin_unlock(&init_mm.page_table_lock);
+	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	return pmd;
+}
+
+int ecpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot) {
+	// ecpt_pmd_t *pmdp;
+	// ecpt_pmd_t entry;
+	// uint64_t pmd_val;
+
+	// pmdp = get_hpt_entry(cr3, vaddr);
+
+	// if (!ecpt_pmd_present(*pmdp)) {
+	// 	pr_warn("Cannot update protection for entry that is not present\n");
+	// 	return -1;
+	// }
+
+	// pmd_val = ENTRY_TO_ADDR(pmdp->pmd) | new_prot.pgprot;
+	// entry = __ecpt_pmd(pmd_val);
+
+	// set_ecpt_pmd(pmdp, entry);
+
+	return 0;
+}
+
+int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot) {
 
 	
-	uint64_t cr3;
-	int res;
-	spin_lock(&init_mm.page_table_lock);
+	// uint64_t cr3;
+	// int res;
+	// spin_lock(&init_mm.page_table_lock);
 
-	cr3 = (uint64_t) mm->pgd;
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	res = hpt_update_prot(cr3, vaddr, new_prot);
+	// cr3 = (uint64_t) mm->pgd;
+	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	// res = hpt_update_prot(cr3, vaddr, new_prot);
 
-	spin_unlock(&init_mm.page_table_lock);
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	return res;
+	// spin_unlock(&init_mm.page_table_lock);
+	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	// return res;
+	return 0;
 }

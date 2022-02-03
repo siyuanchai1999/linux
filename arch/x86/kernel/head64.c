@@ -254,7 +254,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 			}
 		}
 
-		early_hpt_insert(
+		early_ecpt_insert(
 			ecpt_desc_ptr,
 			vaddr,
 			paddr,
@@ -321,7 +321,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		paddr = PAGE_NUM_TO_ADDR_2MB(i) + physaddr;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
-			early_hpt_insert(
+			early_ecpt_insert(
 				ecpt_desc_ptr,		
 				vaddr,
 				paddr,
@@ -623,13 +623,12 @@ static void __init reset_early_hpt(void)
 	/* paging implementation removes all identity mapping (only saves the last page kernel mapping) */
 	uint64_t VA_offset[4];
 	ecpt_pgprot_t prot;
-	uint64_t vaddr, paddr, early_cr3 = 0;
+	uint64_t vaddr, paddr;
 	uint32_t i, j;
 	int res;
-	/**
-	 * TODO: change hpt_insert and early_cr3 here
-	 * 
-	 */
+
+	ECPT_desc_t * ecpt_desc_ptr = &ecpt_desc;
+	
 	// early_cr3 = (uint64_t) &early_hpt[0];
 	// early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
 	prot = __ecpt_pgprot(0);
@@ -647,7 +646,11 @@ static void __init reset_early_hpt(void)
 		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __PHYSICAL_START;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
-			res = hpt_invalidate(early_cr3, vaddr);
+			res = ecpt_invalidate(
+						ecpt_desc_ptr,
+						vaddr, 
+						page_2MB /* at this stage we only have 2MB */
+			);
 			if (res) {
 				/* this is before early console ready so let's use the rudimentary print */
 				DEBUG_STR("WARNING!\n");
@@ -665,7 +668,6 @@ static bool __init early_make_hpt(unsigned long address)
 {
 
 	unsigned long physaddr = address - __PAGE_OFFSET;
-	uint64_t early_cr3 = 0;
 	int res, way, found = 0;
 	ECPT_desc_t * ecpt_desc_ptr = &ecpt_desc;
 	// pmdval_t pmd;
@@ -693,11 +695,11 @@ static bool __init early_make_hpt(unsigned long address)
 	 * TODO: change hpt_insert and early_cr3 here
 	 * 
 	 */
-	res = hpt_insert(early_cr3,
+	res = ecpt_insert(ecpt_desc_ptr,
 	 	address,
 		physaddr,
 		__ecpt_pgprot(early_pmd_flags),
-		0 /* not override */
+		page_2MB
 	);
 	
 	if (res) {

@@ -486,7 +486,7 @@ __kernel_physical_mapping_init(unsigned long paddr_start,
 	vaddr_start = vaddr;
 
 	for (; vaddr < vaddr_end;) {
-		int res = hpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), 1);
+		int res = ecpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), 1);
 
 		if (res) {
 			pr_warn("%s: WARN res = %d\n", __func__, res);
@@ -1649,7 +1649,7 @@ static int __meminitdata node_start;
 	for (addr = start; addr < end; addr = next) {
 		next = pmd_addr_end(addr, end);
 		
-		pmd_val = hpt_mm_peek(&init_mm, addr).pmd;
+		pmd_val = ecpt_mm_peek(&init_mm, addr).pmd;
 		pmd = __pmd(pmd_val);
 		if (pmd_none(pmd)) {
 			
@@ -1657,7 +1657,7 @@ static int __meminitdata node_start;
 			p = vmemmap_alloc_block_buf(PMD_SIZE, node, altmap);
 			if (p) {
 
-				res = hpt_mm_insert(
+				res = ecpt_mm_insert(
 					&init_mm,
 					addr,
 					__pa(p),

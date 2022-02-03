@@ -35,7 +35,13 @@
 /* Use the static base for this part of the boot process */
 #undef __PAGE_OFFSET
 #define __PAGE_OFFSET __PAGE_OFFSET_BASE
-#include "../../mm/ident_map.c"
+
+#ifdef CONFIG_X86_64_ECPT
+	#include "boot_ECPT.h"
+#else
+	#include "../../mm/ident_map.c"
+#endif
+
 
 #define _SETUP
 #include <asm/setup.h>	/* For COMMAND_LINE_SIZE */
@@ -91,6 +97,72 @@ phys_addr_t physical_mask = (1ULL << __PHYSICAL_MASK_SHIFT) - 1;
  */
 static struct x86_mapping_info mapping_info;
 
+
+
+#define PAGE_SIZE_TO_PAGE_NUM_MASK(x) (~((x) - 1))
+
+static int kernel_ident_mapping_init_boot(struct x86_mapping_info *info, uint64_t cr3,
+			      unsigned long pstart, unsigned long pend)
+{
+	unsigned long addr = pstart + info->offset;
+	unsigned long end = pend + info->offset;
+	// unsigned long next;
+	// int result;
+
+	/* Set the default pagetable flags if not supplied */
+	if (!info->kernpg_flag)
+		info->kernpg_flag = _KERNPG_TABLE;
+
+	/* Filter out unsupported __PAGE_KERNEL_* bits: */
+	info->kernpg_flag &= __default_kernel_pte_mask;
+
+    addr &= PAGE_SIZE_TO_PAGE_NUM_MASK(info->hpt_page_size);
+
+	for (; addr < end; addr += info->hpt_page_size) {
+        // uint64_t hash = gen_hash_32(addr, info->hpt_size);
+
+		// pgd_t *pgd = pgd_page + HASH_TO_INDEX(hash);
+					
+
+		// if (pgd_present(*pgd)) {
+		// 	/* already setup good to go */
+		// 	continue;
+		// }
+        // set_hpt_pgd_entry(pgd, __pgd(__pa(pstart) | info->kernpg_flag));
+
+		int res = hpt_insert(cr3, addr, addr, __ecpt_pgprot(info->kernpg_flag), 1);
+
+		if (res) {
+			// panic("error from hpt_inerst!\n");
+			// error("Error: hpt_inerst failed!\n");
+			return res;
+		}
+
+        pstart += info->hpt_page_size;
+
+		// p4d = (p4d_t *)info->alloc_pgt_page(info->context);
+		// if (!p4d)
+		// 	return -ENOMEM;
+		// result = ident_p4d_init(info, p4d, addr, next);
+		// if (result)
+		// 	return result;
+		// if (pgtable_l5_enabled()) {
+		// 	set_pgd(pgd, __pgd(__pa(p4d) | info->kernpg_flag));
+		// } else {
+		// 	/*
+		// 	 * With p4d folded, pgd is equal to p4d.
+		// 	 * The pgd entry has to point to the pud page table in this case.
+		// 	 */
+		// 	pud_t *pud = pud_offset(p4d, 0);
+		// 	set_pgd(pgd, __pgd(__pa(pud) | info->kernpg_flag));
+		// }
+	}
+
+	return 0;
+}
+
+
+
 /*
  * Adds the specified range to the identity mappings.
  */
@@ -105,9 +177,9 @@ static void add_identity_map(unsigned long start, unsigned long end)
 		return;
 
 	/* Build the mapping. */
-	ret = kernel_ident_mapping_init(&mapping_info, cur_cr3, start, end);
+	ret = kernel_ident_mapping_init_boot(&mapping_info, cur_cr3, start, end);
 	if (ret)
-		error("Error: kernel_ident_mapping_init() failed\n");
+		error("Error: kernel_ident_mapping_init_boot() failed\n");
 }
 
 /* Locates and clears a region for a new top level page table. */

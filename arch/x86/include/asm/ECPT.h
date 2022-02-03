@@ -88,25 +88,35 @@ typedef struct ECPT_desc {
 	uint64_t table[ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY];
 } ECPT_desc_t;
 
+typedef enum {
+	page_4KB,
+	page_2MB,
+	page_1GB,
+	unknown
+} Granularity ; 
+// enum Granularity {}; 
+
 extern uint32_t way_to_crN[ECPT_MAX_WAY];
 
 extern ECPT_desc_t ecpt_desc;
 
+
+
 // uint64_t gen_hash_32(uint32_t vpn, uint64_t size);
-// int early_hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
-int early_hpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
+// int early_ecpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
+int early_ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 
-int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
-int hpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
+int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran);
+int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
 
-int hpt_invalidate(uint64_t cr3, uint64_t vaddr);
-int hpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr);
+int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity gran);
+int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr);
 
-ecpt_pmd_t hpt_peek(uint64_t cr3, uint64_t vaddr);
-ecpt_pmd_t hpt_mm_peek(struct mm_struct* mm, uint64_t vaddr);
+ecpt_pmd_t ecpt_peek(uint64_t cr3, uint64_t vaddr);
+ecpt_pmd_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr);
 
-int hpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot);
-int hpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot);
+int ecpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot);
+int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot);
 
 
 #endif /* _ASM_X86_ECPT_HASH_H */
