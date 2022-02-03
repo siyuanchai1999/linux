@@ -670,38 +670,36 @@ static bool __init early_make_hpt(unsigned long address)
 	unsigned long physaddr = address - __PAGE_OFFSET;
 	int res, way, found = 0;
 	ECPT_desc_t * ecpt_desc_ptr = &ecpt_desc;
-	// pmdval_t pmd;
 
-	// pmd = (physaddr & PMD_MASK) + early_pmd_flags;
-
-	// return __early_make_pgtable(address, pmd);
 	DEBUG_VAR(address);
 	if (physaddr >= MAXMEM)
 		return false;
 	
-	for (way = 0 ; way < ECPT_2M_WAY; way++) {
-		if (read_cr3_pa() == GET_HPT_BASE(ecpt_desc_ptr->table[way])) {
+	for (way = 0 ; way < ECPT_TOTAL_WAY; way++) {
+		if (GET_HPT_BASE(read_cr3()) == 
+			GET_HPT_BASE(__pa_nodebug(ecpt_desc_ptr->table[way]))
+		) {
 			found = 1;
 			break;
 		}
 	}
 	
+
+	DEBUG_VAR(found);
 	/* false nofixable because it doesn't correspond to any cr3 we have in ECPT */
 	if (!found) {
 		return false;
 	} 
 
-	/**
-	 * TODO: change hpt_insert and early_cr3 here
-	 * 
-	 */
 	res = ecpt_insert(ecpt_desc_ptr,
 	 	address,
 		physaddr,
 		__ecpt_pgprot(early_pmd_flags),
-		page_2MB
+		page_2MB	/* early PF hanlder only makes page at 2M granularity */
 	);
 	
+	DEBUG_VAR(res);
+
 	if (res) {
 		/* this is can come before early console ready so let's use the rudimentary print */
 		DEBUG_STR("WARNING!\n");

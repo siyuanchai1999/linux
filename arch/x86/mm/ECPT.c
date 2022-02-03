@@ -570,7 +570,7 @@ static uint32_t get_diff_rand(uint32_t cur_way, uint32_t n_way) {
 
 	if (n_way == 1) return way;
 
-	puthex_tabln(get_random_u32());
+	DEBUG_VAR(get_random_u32());
 	
 	do
 	{
@@ -853,7 +853,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	entry.VPN_tag = vpn;
 
 	way = get_diff_rand(way, n_way);
-	puthexln(vaddr);
+	DEBUG_VAR(vaddr);
 
 	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
 		puthex_tabln(way);
