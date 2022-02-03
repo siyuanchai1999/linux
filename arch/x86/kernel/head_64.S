@@ -179,6 +179,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 				.if j < ECPT_TOTAL_WAY
 					.if j > 0
 						movq 	(%rcx), %rax    /* load ecpt[j] -> rax*/
+                        subq    $(__START_KERNEL_map), %rax         /* substract __START_KERNEL_map because the data structure stores the virtual address*/
 						movq 	%rax, %cr\i		
 						add  	$8, %rcx
 					.endif
@@ -210,6 +211,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 
 		movabsq 	$(CR3_TRANSITION_BIT), %rax
 		addq 		(%rcx), %rax
+        subq        $(__START_KERNEL_map), %rax
 	#endif
 
 	addq	phys_base(%rip), %rax
@@ -597,7 +599,7 @@ SYM_DATA(early_recursion_flag, .long 0)
     loop_DEF_ECPT ECPT_TOTAL_WAY
 
     .macro fill_ecpt_desc cnt=0
-        .quad ecpt_table_\cnt - __START_KERNEL_map + EARLY_HPT_CR3_SIZE_VAL
+        .quad ecpt_table_\cnt + EARLY_HPT_CR3_SIZE_VAL
     .endm
 
     /* declare loop_fill_ecpt_desc which calls fill_ecpt_desc for n times and pass value of i into fill_ecpt_desc */

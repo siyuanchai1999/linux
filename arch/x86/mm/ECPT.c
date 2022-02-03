@@ -654,6 +654,9 @@ int early_ecpt_insert(
 		puthex_tabln(way);
 		cr = ecpt_fixed->table[ECPT_4K_WAY + way];
 
+		/* fixup cr here, because it is the virtual address to ecpt table */
+		cr = (uint64_t) fixup_pointer((void *) cr, kernel_start, physaddr);
+		
 		size = GET_HPT_SIZE(cr);
 		puthex_tabln(vpn);
 		hash = early_gen_hash_64(vpn, size, kernel_start, physaddr);
