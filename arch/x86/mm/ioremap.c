@@ -807,6 +807,8 @@ void __init *early_memremap_decrypted_wp(resource_size_t phys_addr,
 
 static pte_t bm_pte[PAGE_SIZE/sizeof(pte_t)] __page_aligned_bss;
 
+
+#ifndef CONFIG_X86_64_ECPT
 static inline pmd_t * __init early_ioremap_pmd(unsigned long addr)
 {
 	/* Don't assume we're using swapper_pg_dir at this point */
@@ -818,6 +820,7 @@ static inline pmd_t * __init early_ioremap_pmd(unsigned long addr)
 
 	return pmd;
 }
+#endif
 
 static inline pte_t * __init early_ioremap_pte(unsigned long addr)
 {
@@ -831,7 +834,10 @@ bool __init is_early_ioremap_ptep(pte_t *ptep)
 
 void __init early_ioremap_init(void)
 {
+
+#ifndef CONFIG_X86_64_ECPT
 	pmd_t *pmd = NULL;
+#endif
 
 #ifdef CONFIG_X86_64
 	BUILD_BUG_ON((fix_to_virt(0) + PAGE_SIZE) & ((1 << PMD_SHIFT) - 1));
@@ -846,6 +852,8 @@ void __init early_ioremap_init(void)
 	 * In this init function, it hooks up the pmd level entry with the pte level pgtable, but real mapping was established in  
 	 * __early_ioremap
 	 * 
+	 * 
+	 * No need for ECPT or other hash page table implementation
 	 * */
 
 #else 
@@ -860,12 +868,8 @@ void __init early_ioremap_init(void)
 	pmd = early_ioremap_pmd(fix_to_virt(FIX_BTMAP_BEGIN));
 	memset(bm_pte, 0, sizeof(bm_pte));
 	pmd_populate_kernel(&init_mm, pmd, bm_pte);
-#endif
 
-
-	
-
-	/*
+		/*
 	 * The boot-ioremap range spans multiple pmds, for which
 	 * we are not prepared:
 	 */
@@ -886,6 +890,9 @@ void __init early_ioremap_init(void)
 		printk(KERN_WARNING "FIX_BTMAP_BEGIN:     %d\n",
 		       FIX_BTMAP_BEGIN);
 	}
+
+#endif
+
 }
 
 #ifdef CONFIG_X86_64_ECPT
