@@ -59,7 +59,7 @@ void cea_set_pte(void *cea_vaddr, phys_addr_t pa, pgprot_t flags)
 		va, 
 		pa,
 		__ecpt_pgprot(pte.pte),
-		1 /*  */
+		page_4KB
 	);
 
 	if (ret != 0) {

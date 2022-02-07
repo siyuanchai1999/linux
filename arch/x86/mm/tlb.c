@@ -682,17 +682,20 @@ void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
  */
 #ifdef CONFIG_X86_64_ECPT
 
+#include <asm/ECPT.h>
 void initialize_tlbstate_and_flush(void)
 {
 	int i;
 	struct mm_struct *mm = this_cpu_read(cpu_tlbstate.loaded_mm);
 	u64 tlb_gen = atomic64_read(&init_mm.context.tlb_gen);
 	unsigned long cr3 = __read_cr3();
+	ECPT_desc_t * desc;
 	// int cond;
 
 	/* Assert that CR3 already references the right mm. */
 	/* Generate warning when condition is true */
-	WARN_ON((cr3 & CR3_ADDR_MASK) != (__pa(mm->pgd) & CR3_ADDR_MASK));
+	desc = (ECPT_desc_t *) mm->map_desc;
+	WARN_ON((cr3 & PG_ADDRESS_MASK) != (__pa(desc->table[0]) & PG_ADDRESS_MASK));
 	// WARN_ON((cr3 & CR3_ADDR_MASK) != __pa(mm->pgd));
 
 	/*
@@ -705,7 +708,8 @@ void initialize_tlbstate_and_flush(void)
 
 	/* Force ASID 0 and force a TLB flush. */
 	/* ECPT has no support for PCID right now */
-	write_cr3(build_cr3(mm->pgd, 0));
+	// write_cr3(build_cr3(mm->pgd, 0));
+	load_ECPT_desc(mm->map_desc);
 
 	/* Reinitialize tlbstate. */
 	this_cpu_write(cpu_tlbstate.last_user_mm_spec, LAST_USER_MM_INIT);
