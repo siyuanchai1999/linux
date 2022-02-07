@@ -1178,7 +1178,7 @@ void __init setup_arch(char **cmdline_p)
 	tboot_probe();
 
 	map_vsyscall();
-	DEBUG_STR("before generic_apic_probe\n");
+	pr_info_verbose("before generic_apic_probe\n");
 	generic_apic_probe();
 
 	early_quirks();
@@ -1193,7 +1193,7 @@ void __init setup_arch(char **cmdline_p)
 	 * get boot-time SMP configuration:
 	 */
 	get_smp_config();
-	DEBUG_STR("before init_apic_mappings\n");
+	pr_info_verbose("before init_apic_mappings\n");
 	/*
 	 * Systems w/o ACPI and mptables might not have it mapped the local
 	 * APIC yet, but prefill_possible_map() might need to access it.

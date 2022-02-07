@@ -580,6 +580,13 @@ int __meminit vmemmap_populate_basepages(unsigned long start, unsigned long end,
 	pmd_t *pmd;
 	pte_t *pte;
 
+	/**
+	 * TODO: change vmemmap_populate_basepages into ECPT version
+	 * 
+	 */
+	BUG_ON(1);
+
+
 	for (; addr < end; addr += PAGE_SIZE) {
 		pgd = vmemmap_pgd_populate(addr, node);
 		if (!pgd)

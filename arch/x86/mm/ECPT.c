@@ -695,6 +695,7 @@ int early_ecpt_insert(
 
 }
 
+/*
 static Granularity way_to_granularity(uint32_t way) {
 	if (way < ECPT_4K_WAY) {
 		return page_4KB;
@@ -706,6 +707,7 @@ static Granularity way_to_granularity(uint32_t way) {
 		return unknown;
 	}
 }
+*/
 
 static uint64_t way_to_vpn(uint32_t way, uint64_t vaddr) {
 	if (way < ECPT_4K_WAY) {
@@ -848,6 +850,10 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	}
 
 	entry.pte = entry.pte | ecpt_pgprot_val(prot);
+	if (gran == page_2MB || gran == page_1GB) {
+		entry.pte = entry.pte | _PAGE_PSE;
+	}
+
 	entry.VPN_tag = vpn;
 
 	way = get_diff_rand(way, n_way);
@@ -879,7 +885,8 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		
 		if (!ecpt_entry_present(entry_ptr)) {
 			/* can insert here */
-			pr_info_verbose("hash=%llx way=%d entry_ptr=%llx\n", hash, way,(uint64_t) entry_ptr);
+			pr_info_verbose("hash=%llx way=%d entry_ptr=%llx pte=%llx\n", 
+					hash, way, (uint64_t) entry_ptr, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
 			// DEBUG_VAR((uint64_t) entry_ptr);
 			// puthex_tabln((uint64_t) entry_ptr);
@@ -1038,72 +1045,78 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	return 0;
 }
 
-int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr) {
+int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr, Granularity gran) {
 	int res = 0;
-	// spin_lock(&init_mm.page_table_lock);
+	spin_lock(&init_mm.page_table_lock);
 
-	// res = hpt_invalidate(
-	// 	(uint64_t) mm->pgd,
-	// 	vaddr
-	// );
-	// spin_unlock(&init_mm.page_table_lock);
+	res = ecpt_invalidate(
+		(ECPT_desc_t *) mm->map_desc,
+		vaddr,
+		gran
+	);
+	spin_unlock(&init_mm.page_table_lock);
 	
 	return res;
 }
 
-ecpt_pmd_t ecpt_peek(uint64_t cr3, uint64_t vaddr) {
-	// ecpt_pmd_t * pmdp = get_hpt_entry(cr3, vaddr);
-	// return *pmdp;
-	return native_make_ecpt_pmd(0);
+ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
+	ecpt_entry_t empty = {.VPN_tag = 0, .pte = 0};
+	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, vaddr, gran);
+
+	if (entry_p == NULL) {
+		pr_warn("WARN: vaddr=%llx gran=%d doesn't exist", vaddr, gran);
+
+		return empty;
+	}
+
+	return *entry_p;
 }
 
-ecpt_pmd_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr) {
+ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity gran) {
 
-	ecpt_pmd_t pmd = {0};
-	// uint64_t cr3;
+	ecpt_entry_t entry;
+	spin_lock(&init_mm.page_table_lock);
 
-	// spin_lock(&init_mm.page_table_lock);
-	// cr3 = (uint64_t) mm->pgd;
-	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	// pmd = hpt_peek(cr3, vaddr);
+	entry = ecpt_peek(
+		(ECPT_desc_t *) mm->map_desc,
+		vaddr,
+		gran
+	);
 
-	// spin_unlock(&init_mm.page_table_lock);
-	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	return pmd;
+	spin_unlock(&init_mm.page_table_lock);
+
+	return entry;
 }
 
-int ecpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot) {
-	// ecpt_pmd_t *pmdp;
-	// ecpt_pmd_t entry;
-	// uint64_t pmd_val;
+int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran) {
 
-	// pmdp = get_hpt_entry(cr3, vaddr);
+	uint64_t pte_val;
+	ecpt_entry_t * entry_p;
 
-	// if (!ecpt_pmd_present(*pmdp)) {
-	// 	pr_warn("Cannot update protection for entry that is not present\n");
-	// 	return -1;
-	// }
+	entry_p = get_hpt_entry(ecpt, vaddr, gran);
 
-	// pmd_val = ENTRY_TO_ADDR(pmdp->pmd) | new_prot.pgprot;
-	// entry = __ecpt_pmd(pmd_val);
+	if (!ecpt_entry_present(entry_p)) {
+		pr_warn("Cannot update protection for entry that is not present\n");
+		return -1;
+	}
 
-	// set_ecpt_pmd(pmdp, entry);
+	pte_val = ENTRY_TO_ADDR(entry_p->pte) | new_prot.pgprot;
+
+	entry_p->pte = pte_val;
 
 	return 0;
 }
 
-int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot) {
+int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran) {
 
-	
-	// uint64_t cr3;
-	// int res;
-	// spin_lock(&init_mm.page_table_lock);
+	int res;
+	spin_lock(&init_mm.page_table_lock);
 
 	// cr3 = (uint64_t) mm->pgd;
 	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	// res = hpt_update_prot(cr3, vaddr, new_prot);
+	res = ecpt_update_prot((ECPT_desc_t *) mm->map_desc, vaddr, new_prot, gran);
 
-	// spin_unlock(&init_mm.page_table_lock);
+	spin_unlock(&init_mm.page_table_lock);
 	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
 	// return res;
 	return 0;

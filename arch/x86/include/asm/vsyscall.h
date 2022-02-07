@@ -7,7 +7,12 @@
 
 #ifdef CONFIG_X86_VSYSCALL_EMULATION
 extern void map_vsyscall(void);
+#ifdef CONFIG_X86_64_ECPT
+extern void set_vsyscall_pgtable_user_bits(void *root);
+#else
 extern void set_vsyscall_pgtable_user_bits(pgd_t *root);
+#endif
+
 
 /*
  * Called on instruction fetch fault in vsyscall page.

@@ -121,13 +121,13 @@ int ecpt_mm_insert_range(
 
 
 int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity gran);
-int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr);
+int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr, Granularity gran);
 
-ecpt_pmd_t ecpt_peek(uint64_t cr3, uint64_t vaddr);
-ecpt_pmd_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr);
+ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran);
+ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity gran);
 
-int ecpt_update_prot(uint64_t cr3, uint64_t vaddr, ecpt_pgprot_t new_prot);
-int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot);
+int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);
+int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);
 
 
 #endif /* _ASM_X86_ECPT_HASH_H */

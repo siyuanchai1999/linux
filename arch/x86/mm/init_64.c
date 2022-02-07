@@ -1641,49 +1641,41 @@ static int __meminitdata node_start;
  * @return int   return non zero value if things are wrong
  */
 #ifdef CONFIG_X86_64_ECPT
-	int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
-		struct vmem_altmap *altmap)
-{	
-	uint64_t addr, next;
-	uint64_t pmd_val;
-	int res;
-	void *p;
-	pmd_t pmd;
 
-	pr_info("%s: start: %lx end: %lx node: %x altmap: %lx\n",
-		 	__func__,
-			start,
-			end,
-			node,
-			(unsigned long)altmap		
-	);
+static int __meminit vmemmap_populate_hugepages(unsigned long start,
+		unsigned long end, int node, struct vmem_altmap *altmap)
+{
+	unsigned long addr;
+	unsigned long next;
+
+	pmd_t pmd;
+	uint64_t pmd_val;
+	void *p;
+	int res;
 
 	for (addr = start; addr < end; addr = next) {
 		next = pmd_addr_end(addr, end);
-		
-		pmd_val = ecpt_mm_peek(&init_mm, addr).pmd;
+
+		pr_info_verbose("addr=%lx start=%lx", addr, start);
+		pmd_val = ecpt_mm_peek(&init_mm, addr, unknown).pte;
+
 		pmd = __pmd(pmd_val);
 		if (pmd_none(pmd)) {
 			
-
 			p = vmemmap_alloc_block_buf(PMD_SIZE, node, altmap);
 			if (p) {
-				/**
-				 * TODO: fix granularity
-				 * 
-				 */
+
 				res = ecpt_mm_insert(
 					&init_mm,
 					addr,
 					__pa(p),
 					__ecpt_pgprot(PAGE_KERNEL_LARGE.pgprot),
-					0 /* let's not force insert for now */
+					page_2MB
 				);
-				
-				if (res) {
-					pr_warn("%s: WARN res=%d addr=0x%llx\n", __func__, res, addr);
-				}
 
+				if (res) {
+					pr_warn("%s: WARN res=%d addr=0x%lx\n", __func__, res, addr);
+				}
 
 				/* check to see if we have contiguous blocks */
 				if (p_end != p || node_start != node) {
@@ -1695,6 +1687,7 @@ static int __meminitdata node_start;
 					p_start = p;
 				}
 
+				/* two globals here */
 				addr_end = addr + PMD_SIZE;
 				p_end = p + PMD_SIZE;
 
@@ -1703,21 +1696,20 @@ static int __meminitdata node_start;
 					vmemmap_use_new_sub_pmd(addr, next);
 
 				continue;
-			} else if (altmap) {
+			} else if (altmap)
 				return -ENOMEM; /* no fallback */
-			}
-				
-		} else if (pmd_large(__pmd(pmd_val))) {
+		} else if (pmd_large(pmd)) {
 			vmemmap_verify((pte_t *) &pmd, node, addr, next);
 			vmemmap_use_sub_pmd(addr, next);
 			continue;
 		}
 
+		if (vmemmap_populate_basepages(addr, next, node, NULL))
+			return -ENOMEM;
 	}
-
-
 	return 0;
 }
+
 #else
 
 static int __meminit vmemmap_populate_hugepages(unsigned long start,
@@ -1795,20 +1787,20 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 	}
 	return 0;
 }
+#endif
 
 int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 		struct vmem_altmap *altmap)
 {
 	int err;
 
-	pr_info("%s: start: %lx end: %lx node: %x altmap: %lx\n",
-		 	__func__,
+	pr_info_verbose("start: %lx end: %lx node: %x altmap: %lx thresh: %lx\n",
 			start,
 			end,
 			node,
-			(unsigned long)altmap		
+			(unsigned long)altmap,
+			PAGES_PER_SECTION * sizeof(struct page)
 	);
-	pr_info("%s: thresh: %lx", __func__, PAGES_PER_SECTION * sizeof(struct page));
 
 	VM_BUG_ON(!IS_ALIGNED(start, PAGE_SIZE));
 	VM_BUG_ON(!IS_ALIGNED(end, PAGE_SIZE));
@@ -1827,7 +1819,7 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 		sync_global_pgds(start, end - 1);
 	return err;
 }
-#endif
+
 
 
 

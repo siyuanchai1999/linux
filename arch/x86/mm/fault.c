@@ -365,12 +365,12 @@ static int bad_address(void *p)
 #ifdef CONFIG_X86_64_ECPT
 static void dump_pagetable(unsigned long address)
 {
-	void *base;
-	uint64_t cr3;
-	ecpt_pmd_t pmd;
-
-	base = __va(read_cr3_pa());
-	cr3 = (uint64_t)base + read_cr3_prot();
+	// void *base;
+	// uint64_t cr3;
+	// ecpt_pmd_t pmd;
+	ecpt_entry_t entry;
+	// base = __va(read_cr3_pa());
+	// cr3 = (uint64_t)base + read_cr3_prot();
 
 
 	// pgd_t *base = __va(read_cr3_pa());
@@ -380,16 +380,16 @@ static void dump_pagetable(unsigned long address)
 	// pmd_t *pmd;
 	// pte_t *pte;
 
-	if (bad_address((void *) base))
+	if (bad_address((void *) current->mm))
 		goto bad;
 
 	/**
 	 * TODO: change hpt_peek and cr3 call here
 	 * 
 	 */
-	pr_info("cr3=%llx base=%llx ", cr3, (uint64_t)base);
-	pmd = ecpt_peek(cr3, address);
-	pr_cont("PMD %lx ", pmd.pmd);
+	// pr_info("base=%llx ", cr3, (uint64_t)base);
+	entry = ecpt_mm_peek(current->mm, address, unknown);
+	pr_info("entry.pte= %llx ", entry.pte);
 // out:
 // 	pr_cont("\n");
 // 	return;
@@ -570,14 +570,14 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 
 	if (error_code & X86_PF_INSTR) {
 #ifdef CONFIG_X86_64_ECPT
-		ecpt_pmd_t pmd;
-		uint64_t cr3;
+		ecpt_entry_t e;
+		// uint64_t cr3;
 		pte_t *pte;
 
-		cr3 = ((uint64_t) __va(read_cr3_pa())) | read_cr3_prot();
+		// cr3 = ((uint64_t) __va(read_cr3_pa())) | read_cr3_prot();
 
-		pmd = ecpt_peek(cr3, address);
-		pte = (pte_t *) &pmd;
+		e = ecpt_mm_peek(current->mm, address, unknown);
+		pte = (pte_t *) &e.pte;
 
 
 		if (pte && pte_present(*pte) && !pte_exec(*pte))
@@ -1101,7 +1101,8 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 	// pte_t *pte;
 	// int ret;
 
-	ecpt_pmd_t pmd;
+	// ecpt_pmd_t pmd;
+	ecpt_entry_t e;
 	int ret;
 	/*
 	 * Only writes to RO or instruction fetches from NX may cause
@@ -1117,13 +1118,13 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 		return 0;
 
 
-	pmd = ecpt_mm_peek(&init_mm, address);
+	e = ecpt_mm_peek(&init_mm, address, unknown);
 
-	if (!ecpt_pmd_present(pmd)) {
+	if (!ecpt_entry_present(&e)) {
 		return 0;
 	}
 
-	ret = spurious_kernel_fault_check(error_code, (pte_t *) &pmd);
+	ret = spurious_kernel_fault_check(error_code, (pte_t *) &e.pte);
 
 	return ret;
 	// pgd	 = init_mm.pgd + pgd_index(address);

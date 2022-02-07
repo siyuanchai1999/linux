@@ -357,18 +357,25 @@ int in_gate_area_no_mm(unsigned long addr)
 #ifdef CONFIG_X86_64_ECPT
 #include <asm/ECPT.h>
 
-void __init set_vsyscall_pgtable_user_bits(pgd_t *root)
+void __init set_vsyscall_pgtable_user_bits(void *desc)
 {
 	int res; 
+	ecpt_pgprot_t prot_with_user;
 
-	ecpt_pmd_t pmd = ecpt_peek(
-		(uint64_t) root,
-		VSYSCALL_ADDR
+	ecpt_entry_t entry = ecpt_peek(
+		(ECPT_desc_t *) desc,
+		VSYSCALL_ADDR,
+		page_4KB /* this should be 4KB since it is from the fixmap */
 	);
 
-	ecpt_pgprot_t prot_with_user = __ecpt_pg(ENTRY_TO_PROT((uint64_t) pmd.pmd) | _PAGE_USER);
+	if (entry.VPN_tag == 0) {
+		pr_warn("%s: WARN empty lookup on %lx\n", __func__, VSYSCALL_ADDR);
+		return;
+	}
 
-	res = ecpt_update_prot((uint64_t) root, VSYSCALL_ADDR, prot_with_user);
+	prot_with_user = __ecpt_pg(ENTRY_TO_PROT(entry.pte) | _PAGE_USER);
+
+	res = ecpt_update_prot((ECPT_desc_t *) desc, VSYSCALL_ADDR, prot_with_user, page_4KB);
 
 	if (res) {
 		pr_warn("%s: WARN res=%d\n", __func__, res);
@@ -415,7 +422,13 @@ void __init map_vsyscall(void)
 	if (vsyscall_mode == EMULATE) {
 		__set_fixmap(VSYSCALL_PAGE, physaddr_vsyscall,
 			     PAGE_KERNEL_VVAR);
-		set_vsyscall_pgtable_user_bits(init_mm.pgd);
+
+#ifdef CONFIG_X86_64_ECPT
+	set_vsyscall_pgtable_user_bits(init_mm.map_desc);
+#else
+	set_vsyscall_pgtable_user_bits(init_mm.pgd);
+#endif
+	
 	}
 
 	if (vsyscall_mode == XONLY)
