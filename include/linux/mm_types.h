@@ -418,6 +418,8 @@ struct mm_struct {
 #endif
 		unsigned long task_size;	/* size of task vm space */
 		unsigned long highest_vm_end;	/* highest vma end address */
+
+		void * map_desc;
 		pgd_t * pgd;
 
 #ifdef CONFIG_MEMBARRIER

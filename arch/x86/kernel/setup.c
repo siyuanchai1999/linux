@@ -388,8 +388,9 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 	u64 pa_data;
 
 	pa_data = boot_params.hdr.setup_data;
+	pr_info_verbose("pa_data=%llx\n", pa_data);
 	while (pa_data) {
-		DEBUG_VAR(pa_data);
+		pr_info_verbose("pa_data=%llx\n", pa_data);
 
 		data = early_memremap(pa_data, sizeof(*data));
 		memblock_reserve(pa_data, sizeof(*data) + data->len);
@@ -1024,7 +1025,7 @@ void __init setup_arch(char **cmdline_p)
 
 	high_memory = (void *)__va(max_pfn * PAGE_SIZE - 1) + 1;
 #endif
-
+	pr_info_verbose("before find_smp_config\n");
 	/*
 	 * Find and reserve possible boot-time SMP configuration:
 	 */

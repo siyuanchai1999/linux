@@ -564,13 +564,11 @@ static uint64_t early_gen_hash_64(uint64_t vpn, uint64_t size, uint64_t kernel_s
 static uint32_t get_diff_rand(uint32_t cur_way, uint32_t n_way) {
 	
 	uint32_t way = cur_way;
-	char tab[2] = "\t";
-	char line_break[2] = "\n";
 
 
 	if (n_way == 1) return way;
 
-	DEBUG_VAR(get_random_u32());
+	// DEBUG_VAR(rng_is_initialized());
 	
 	do
 	{
@@ -661,7 +659,7 @@ int early_ecpt_insert(
 		puthex_tabln(vpn);
 		hash = early_gen_hash_64(vpn, size, kernel_start, physaddr);
 		puthex_tabln(hash);
-		ecpt_base = (ecpt_entry_t *) GET_HPT_BASE(cr);
+		ecpt_base = (ecpt_entry_t *) GET_HPT_BASE_VIRT(cr);
 		entry_ptr = &ecpt_base[hash];
 		
 		if (!ecpt_entry_present(entry_ptr)) {
@@ -768,25 +766,26 @@ static ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granular
 		cr = ecpt->table[w];
 		size = GET_HPT_SIZE(cr);
 		hash = gen_hash_64(vpn, size);
-		DEBUG_VAR(hash);
-		DEBUG_VAR(w);
+		
+		// DEBUG_VAR(hash);
+		// DEBUG_VAR(w);
+
 		if (hash < rehash_ptr) {
             /* not supported for resizing now */
             /* rehash_ptr MBZ right now */
             panic("no rehash support!\n");
         } else {
 			/* stay with current hash table */
-            ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE(cr);
+            ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
             entry_ptr = &ecpt_base[hash];
 
 		}
-		DEBUG_VAR((uint64_t) entry_ptr);
         entry = *entry_ptr;
 
-		DEBUG_VAR(entry.VPN_tag);
+		// DEBUG_VAR(entry.VPN_tag);
 		if (entry.VPN_tag == vpn) {
 			
-			DEBUG_VAR((uint64_t) entry_ptr);
+			// DEBUG_VAR((uint64_t) entry_ptr);
 			break;
 		} else {
 			/* not found move on */
@@ -810,8 +809,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 
 	uint16_t tries = 0;
 
-	char tab[2] = "\t";
-	char line_break[2] = "\n";
+	pr_info_verbose("vaddr=%llx paddr=%llx prot=%lx gran=%d\n", vaddr, paddr, prot.pgprot, gran);
 
 	if (gran == page_4KB) 
 	{
@@ -853,17 +851,17 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	entry.VPN_tag = vpn;
 
 	way = get_diff_rand(way, n_way);
-	DEBUG_VAR(vaddr);
+	// DEBUG_VAR(vaddr);
 
 	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
-		puthex_tabln(way);
+		// puthex_tabln(way);
 		
 		cr = ecpt->table[way_start + way];
-
+		// DEBUG_VAR(cr);
 		size = GET_HPT_SIZE(cr);
-		puthex_tabln(vpn);
+		// puthex_tabln(vpn);
 		hash = gen_hash_64(vpn, size);
-		puthex_tabln(hash);
+		// puthex_tabln(hash);
 
 
 		if (hash < rehash_ptr) {
@@ -872,7 +870,8 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
             panic("no rehash support!\n");
         } else {
 			/* stay with current hash table */
-            ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE(cr);
+            ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
+			// DEBUG_VAR((uint64_t)ecpt_base);
             entry_ptr = &ecpt_base[hash];
 
 		}
@@ -880,13 +879,14 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		
 		if (!ecpt_entry_present(entry_ptr)) {
 			/* can insert here */
-						
+			pr_info_verbose("hash=%llx way=%d entry_ptr=%llx\n", hash, way,(uint64_t) entry_ptr);
 			set_ecpt_entry(entry_ptr, entry);
-			puthex_tabln(entry_ptr->pte);
+			// DEBUG_VAR((uint64_t) entry_ptr);
+			// puthex_tabln((uint64_t) entry_ptr);
 			return 0;
 		} else {
 			/* swap and insert again */
-
+			pr_info_verbose("collision!\n");
 			temp = *entry_ptr;
 			set_ecpt_entry(entry_ptr, entry);
 			entry = temp;
@@ -900,19 +900,114 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	return -3;
 }
 
-int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
+int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran) {
 	int res = 0;
 
-	// spin_lock(&init_mm.page_table_lock);
+	spin_lock(&init_mm.page_table_lock);
 
-	// res = hpt_insert(
-	// 	(uint64_t) mm->pgd,
-	// 	vaddr,
-	// 	paddr,
-	// 	prot,
-	// 	override
-	// );
-	// spin_unlock(&init_mm.page_table_lock);
+	res = ecpt_insert(
+		(ECPT_desc_t *) mm->map_desc,
+		vaddr,
+		paddr,
+		prot,
+		gran
+	);
+	spin_unlock(&init_mm.page_table_lock);
+
+	return res;
+}
+
+/**
+ * @brief code borrowed from https://github.com/sgh185/nautilus/blob/carat-cake-artifact/src/aspace/paging/paging.c
+ * 
+ * @param mm 
+ * @param vaddr 
+ * @param vaddr_end 
+ * @param paddr 
+ * @param paddr_end 
+ * @param prot 
+ * @return int 
+ */
+
+int ecpt_mm_insert_range(
+	struct mm_struct* mm, 
+	uint64_t vaddr, 
+	uint64_t vaddr_end,
+	uint64_t paddr, 
+	uint64_t paddr_end,
+	ecpt_pgprot_t prot
+) {
+	int res = 0;
+
+	Granularity gran = unknown;
+	uint64_t remained = vaddr_end - vaddr;
+	uint64_t page_granularity = 0;
+
+	/**
+	 * when condiction == T,
+	 * 	cond should be the be bad case
+	 */
+	BUG_ON((vaddr_end - vaddr != paddr_end - paddr));
+
+	while (vaddr < vaddr_end) {
+        if (
+            ECPT_1G_WAY && 
+            vaddr % PAGE_SIZE_1GB == 0 && 
+            paddr % PAGE_SIZE_1GB == 0 && 
+            remained >= PAGE_SIZE_1GB
+        ) {
+            gran = page_1GB;
+			page_granularity = PAGE_SIZE_1GB;
+        } 
+        else if (
+            ECPT_2M_WAY && 
+            vaddr % PAGE_SIZE_2MB == 0 && 
+            paddr % PAGE_SIZE_2MB == 0 && 
+            remained >= PAGE_SIZE_2MB 
+        ) {
+            gran = page_2MB;
+			page_granularity = PAGE_SIZE_2MB;
+        } 
+        else if (
+            vaddr % PAGE_SIZE_4KB == 0 && 
+            paddr % PAGE_SIZE_4KB == 0 && 
+            remained >= PAGE_SIZE_4KB 
+        ) {
+            // vaddr % PAGE_SIZE_4KB == 0
+            // must be the case as we require 4KB alignment
+            gran = page_4KB;
+			page_granularity = PAGE_SIZE_4KB;
+        } else {
+            pr_err(" doesnot meet drill requirement at vaddr=0x%llx and paddr=0x%llx\n", vaddr, paddr);
+            return -1;
+        }
+
+		spin_lock(&init_mm.page_table_lock);
+
+        res = ecpt_insert(
+			(ECPT_desc_t *) mm->map_desc,
+			vaddr,
+			paddr,
+			prot,
+			gran
+		);
+
+		spin_unlock(&init_mm.page_table_lock);
+
+        if (res < 0) {
+            pr_err("Failed to drill at virtual address=%llx"
+                    " physical adress %llx"
+                    " and ret code of %d"
+                    " page_granularity = %llx\n",
+                    vaddr, paddr, res, page_granularity
+            );
+            return res;
+        }
+
+        vaddr += page_granularity;
+        paddr += page_granularity;
+        remained -= page_granularity;
+    }
 
 	return res;
 }
@@ -938,7 +1033,7 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	 */
 	entry->VPN_tag = 0;
 
-	DEBUG_STR("\n");
+	// DEBUG_STR("\n");
 
 	return 0;
 }
@@ -964,7 +1059,7 @@ ecpt_pmd_t ecpt_peek(uint64_t cr3, uint64_t vaddr) {
 
 ecpt_pmd_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr) {
 
-	ecpt_pmd_t pmd;
+	ecpt_pmd_t pmd = {0};
 	// uint64_t cr3;
 
 	// spin_lock(&init_mm.page_table_lock);
@@ -1013,3 +1108,82 @@ int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_
 	// return res;
 	return 0;
 }
+
+
+/* Why memory clobber here */
+
+/**
+ * @brief  ## concatenates symbol together e.g. native_write_cr##N -> native_write_cr1
+ * 			# turns input into string tokens e.g. "mov %0,%%cr"#N -> "mov %0,%%cr" "1" -> "mov %0,%%cr1"
+ * 
+ */
+#define DEFINE_native_write_crN(N) \
+static inline void native_write_cr##N(unsigned long val) {\
+	asm volatile("mov %0,%%cr"#N: : "r" (val) : "memory"); \
+}
+
+DEFINE_native_write_crN(1)
+DEFINE_native_write_crN(5)
+DEFINE_native_write_crN(6)
+DEFINE_native_write_crN(7)
+DEFINE_native_write_crN(9)
+DEFINE_native_write_crN(10)
+DEFINE_native_write_crN(11)
+DEFINE_native_write_crN(12)
+
+#define DEFINE_load_crN(N) \
+	static inline void load_cr##N(uint64_t cr) \
+{ \
+	native_write_cr##N(__sme_pa(cr)); \
+}
+
+
+DEFINE_load_crN(1)
+DEFINE_load_crN(5)
+DEFINE_load_crN(6)
+DEFINE_load_crN(7)
+DEFINE_load_crN(9)
+DEFINE_load_crN(10)
+DEFINE_load_crN(11)
+DEFINE_load_crN(12)
+
+static inline void load_cr3_ECPT(uint64_t cr)
+{
+	write_cr3(__sme_pa(cr) | CR3_TRANSITION_BIT);
+}
+
+typedef void(*load_cr_func)(uint64_t);
+
+static load_cr_func load_funcs[9] = {
+	&load_cr3_ECPT,
+	&load_cr1,
+	&load_cr5,
+	&load_cr6,
+	&load_cr7,
+	&load_cr9,
+	&load_cr10,
+	&load_cr11,
+	&load_cr12
+};
+
+/**
+ * @brief load ECPT desc tables -> corresponding control registers
+ * 
+ * @param ecpt 
+ */
+void load_ECPT_desc(ECPT_desc_t * ecpt) {
+	uint16_t i;
+	load_cr_func f;
+	BUG_ON(ECPT_TOTAL_WAY > 9);
+
+
+	/* load ecpt table -> control registers */
+	for (i = 1; i < ECPT_TOTAL_WAY; i++) {
+		f = load_funcs[i];
+		(*f)(ecpt->table[i]);
+	}
+
+	/* load cr3 in the end because it it will flush TLB */
+	f = load_funcs[0];
+	(*f)(ecpt->table[0]);
+} 

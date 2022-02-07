@@ -784,9 +784,14 @@ void __init init_mem_mapping(void)
 	early_ioremap_page_table_range_init();
 #endif
 	
-	
+#ifdef CONFIG_X86_64_ECPT
+	load_ECPT_desc((ECPT_desc_t *) init_mm.map_desc);
+	__flush_tlb_all();
+#else
 	load_cr3(init_mm.pgd);
 	__flush_tlb_all();
+#endif 
+	
 
 	x86_init.hyper.init_mem_mapping();
 

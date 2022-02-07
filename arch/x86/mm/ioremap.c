@@ -900,7 +900,7 @@ void __init __early_set_fixmap(enum fixed_addresses idx,
 			       phys_addr_t phys, pgprot_t flags)
 {
 	unsigned long addr = __fix_to_virt(idx);
-	uint64_t early_cr3 = 0;
+	ECPT_desc_t * desc = &ecpt_desc;
 	int res;
 
 	// DEBUG_VAR(addr);
@@ -919,11 +919,13 @@ void __init __early_set_fixmap(enum fixed_addresses idx,
 	// early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
 
 	if (pgprot_val(flags)) {
-		// pr_info("%s: addr = %lx phys = %llx\n", __func__, addr,(uint64_t) phys);
-		res = ecpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 1);
+		pr_info_verbose("addr = %lx phys = %llx\n", addr,(uint64_t) phys);
+		// res = ecpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 1);
+		/* 4KB */
+		res = ecpt_insert(desc, addr, phys,  __ecpt_pgprot(flags.pgprot), page_4KB );
 	} else {
 		/* if flags == 0, we have to clear the entry with overrride */
-		res = ecpt_invalidate(early_cr3, addr, page_4KB);
+		res = ecpt_invalidate(desc, addr, page_4KB);
 	}
 	
 	if (res) { 

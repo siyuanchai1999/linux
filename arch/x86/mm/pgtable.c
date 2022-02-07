@@ -664,7 +664,7 @@ void native_set_fixmap(unsigned /* enum fixed_addresses */ idx,
 	
 	
 	pr_info_verbose("address=%016lx phys=%016llx\n" , address, phys);
-	res = ecpt_mm_insert(&init_mm, address, phys, __ecpt_pgprot(flags.pgprot), 0);
+	res = ecpt_mm_insert(&init_mm, address, phys, __ecpt_pgprot(flags.pgprot), page_4KB);
 
 }
 

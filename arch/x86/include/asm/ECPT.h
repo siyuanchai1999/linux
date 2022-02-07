@@ -102,12 +102,23 @@ extern ECPT_desc_t ecpt_desc;
 
 
 
+void load_ECPT_desc(ECPT_desc_t * ecpt);
+
 // uint64_t gen_hash_32(uint32_t vpn, uint64_t size);
 // int early_ecpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 int early_ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 
 int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran);
-int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override);
+int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran);
+int ecpt_mm_insert_range(
+	struct mm_struct* mm, 
+	uint64_t vaddr, 
+	uint64_t vaddr_end,
+	uint64_t paddr, 
+	uint64_t paddr_end,
+	ecpt_pgprot_t prot
+);
+
 
 int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity gran);
 int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr);

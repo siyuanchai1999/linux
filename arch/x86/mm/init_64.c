@@ -478,25 +478,37 @@ __kernel_physical_mapping_init(unsigned long paddr_start,
 	// bool pgd_changed = false;
 	unsigned long vaddr, vaddr_start, vaddr_end;
 	uint64_t paddr, paddr_last;
+	int res;
 
+	pr_info_verbose("paddr=%lx paddr_end=%lx\n", paddr_start, paddr_end);
+	
 	paddr = paddr_start;
 	paddr_last = paddr_end;
 	vaddr = (unsigned long)__va(paddr_start);
 	vaddr_end = (unsigned long)__va(paddr_end);
 	vaddr_start = vaddr;
 
-	for (; vaddr < vaddr_end;) {
-		int res = ecpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), 1);
+	pr_info_verbose("vaddr=%lx vaddr_end=%lx\n", vaddr, vaddr_end);
+	
 
-		if (res) {
-			pr_warn("%s: WARN res = %d\n", __func__, res);
-		}
+	res = ecpt_mm_insert_range(&init_mm, vaddr, vaddr_end, paddr, paddr_end,  __ecpt_pgprot(prot.pgprot));
 
-		paddr_last = paddr;
-		vaddr = (vaddr & PMD_MASK) + PMD_SIZE;
-		paddr = (paddr & PMD_MASK) + PMD_SIZE;
-
+	if (res) {
+		pr_warn("%s: WARN res = %d\n", __func__, res);
 	}
+
+	// for (; vaddr < vaddr_end;) {
+	// 	int res = ecpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), page_2MB);
+
+	// 	if (res) {
+	// 		pr_warn("%s: WARN res = %d\n", __func__, res);
+	// 	}
+
+	// 	paddr_last = paddr;
+	// 	vaddr = (vaddr & PMD_MASK) + PMD_SIZE;
+	// 	paddr = (paddr & PMD_MASK) + PMD_SIZE;
+
+	// }
 
 	// if (pgd_changed)
 		// sync_global_pgds(vaddr_start, vaddr_end - 1);
@@ -1656,7 +1668,10 @@ static int __meminitdata node_start;
 
 			p = vmemmap_alloc_block_buf(PMD_SIZE, node, altmap);
 			if (p) {
-
+				/**
+				 * TODO: fix granularity
+				 * 
+				 */
 				res = ecpt_mm_insert(
 					&init_mm,
 					addr,

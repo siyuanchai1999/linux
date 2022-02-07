@@ -9,6 +9,17 @@
 #define GET_HPT_BASE(cr3) (((uint64_t) cr3) & HPT_BASE_MASK )
 
 
+/* we should use GET_HPT_BASE_VIRT after kernel transitions to virtual address space */
+#define HPT_BASE_MASK_VIRT (0xfffffffffffff000UL)
+#define GET_HPT_BASE_VIRT(cr3) (((uint64_t) cr3) & HPT_BASE_MASK_VIRT )
+/**
+ * @brief cr in virtual
+ * 		virtual address + hpt_size
+ * 	cr in physical
+ * 		physical address + hpt_size + ecpt_enabled_bit (for cr3)
+ * 		 
+ * 
+ */
 
 #define PAGE_HEADER_MASK (0xffff000000000000)
 
