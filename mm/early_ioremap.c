@@ -108,7 +108,7 @@ __early_ioremap(resource_size_t phys_addr, unsigned long size, pgprot_t prot)
 
 	WARN_ON(system_state >= SYSTEM_RUNNING);
 
-	pr_info_verbose("phys_addr=%llx size=%lx\n", phys_addr, size);
+	// pr_info_verbose("phys_addr=%llx size=%lx\n", phys_addr, size);
 
 	slot = -1;
 	for (i = 0; i < FIX_BTMAPS_SLOTS; i++) {

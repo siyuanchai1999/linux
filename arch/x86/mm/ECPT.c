@@ -811,7 +811,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 
 	uint16_t tries = 0;
 
-	pr_info_verbose("vaddr=%llx paddr=%llx prot=%lx gran=%d\n", vaddr, paddr, prot.pgprot, gran);
+	// pr_info_verbose("vaddr=%llx paddr=%llx prot=%lx gran=%d\n", vaddr, paddr, prot.pgprot, gran);
 
 	if (gran == page_4KB) 
 	{
@@ -819,7 +819,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		n_way = ECPT_4K_WAY;
 
 		vpn = ADDR_TO_PAGE_NUM_4KB(vaddr); 
-		entry.pte = ADDR_REMOVE_OFFSET_2MB(paddr);
+		entry.pte = ADDR_REMOVE_OFFSET_4KB(paddr);
 	} 
 	else if (gran == page_2MB) 
 	{
@@ -885,11 +885,10 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		
 		if (!ecpt_entry_present(entry_ptr)) {
 			/* can insert here */
-			pr_info_verbose("hash=%llx way=%d entry_ptr=%llx pte=%llx\n", 
-					hash, way, (uint64_t) entry_ptr, entry.pte);
+			// pr_info_verbose("hash=%llx way=%d entry_ptr=%llx pte=%llx\n", 
+					// hash, way, (uint64_t) entry_ptr, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
-			// DEBUG_VAR((uint64_t) entry_ptr);
-			// puthex_tabln((uint64_t) entry_ptr);
+
 			return 0;
 		} else {
 			/* swap and insert again */
@@ -1025,7 +1024,7 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	
 	ecpt_entry_t * entry = NULL;
 
-	DEBUG_VAR(vaddr);
+	// DEBUG_VAR(vaddr);
 	entry = get_hpt_entry(ecpt_desc, vaddr, g);
 	
 	if (entry == NULL) {
