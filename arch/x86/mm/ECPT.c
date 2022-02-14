@@ -722,8 +722,20 @@ static uint64_t way_to_vpn(uint32_t way, uint64_t vaddr) {
 	}
 }
 
+static uint64_t way_to_gran(uint32_t way) {
+	if (way < ECPT_4K_WAY) {
+		return page_4KB; 
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
+		return page_2MB; 
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
+		return page_1GB; 
+	} else {
+		BUG();
+		return 0;
+	}
+}
 
-static ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
+ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g) {
 
 	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
 
@@ -732,6 +744,7 @@ static ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granular
 	ecpt_entry_t * ecpt_base;
 	ecpt_entry_t * entry_ptr = NULL;
 	ecpt_entry_t entry;
+	Granularity gran = *g;
 
 	if (gran == page_4KB) 
 	{
@@ -788,6 +801,7 @@ static ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granular
 		if (entry.VPN_tag == vpn) {
 			
 			// DEBUG_VAR((uint64_t) entry_ptr);
+			*g = way_to_gran(w);
 			break;
 		} else {
 			/* not found move on */
@@ -1025,7 +1039,7 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	ecpt_entry_t * entry = NULL;
 
 	// DEBUG_VAR(vaddr);
-	entry = get_hpt_entry(ecpt_desc, vaddr, g);
+	entry = get_hpt_entry(ecpt_desc, vaddr, &g);
 	
 	if (entry == NULL) {
 		/* no such entry */
@@ -1060,7 +1074,7 @@ int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr, Granularity gran) {
 
 ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
 	ecpt_entry_t empty = {.VPN_tag = 0, .pte = 0};
-	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, vaddr, gran);
+	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, vaddr, &gran);
 
 	if (entry_p == NULL) {
 		pr_warn("WARN: vaddr=%llx gran=%d doesn't exist", vaddr, gran);
@@ -1092,7 +1106,12 @@ int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot,
 	uint64_t pte_val;
 	ecpt_entry_t * entry_p;
 
-	entry_p = get_hpt_entry(ecpt, vaddr, gran);
+	entry_p = get_hpt_entry(ecpt, vaddr, &gran);
+
+	if (entry_p == NULL) {
+		WARN(1, KERN_WARNING "entry_p == NULL\n");
+		return -1;
+	}
 
 	if (!ecpt_entry_present(entry_p)) {
 		pr_warn("Cannot update protection for entry that is not present\n");

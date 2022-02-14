@@ -32,12 +32,22 @@
 
 #include "../mm_internal.h"
 
+#ifdef CONFIG_X86_64_ECPT
+
+#include "asm/ECPT.h"
+
+#endif
+
+
 /*
  * The current flushing context - we pass it instead of 5 arguments:
  */
 struct cpa_data {
 	unsigned long	*vaddr;
 	pgd_t		*pgd;
+#ifdef CONFIG_X86_64_ECPT
+	void * map_desc;
+#endif	
 	pgprot_t	mask_set;
 	pgprot_t	mask_clr;
 	unsigned long	numpages;
@@ -576,6 +586,97 @@ static inline pgprot_t static_protections(pgprot_t prot, unsigned long start,
 	return __pgprot(pgprot_val(prot) & ~forbidden);
 }
 
+#ifdef CONFIG_X86_64_ECPT
+pte_t *__lookup_address(void * desc, unsigned long address,
+			     unsigned int *level) {
+	ECPT_desc_t * ecpt = (ECPT_desc_t *) desc;
+
+	Granularity g = unknown;
+	/* Use get_hpt_entry here to get the pointer to real data 
+		because the function requires a pte pointer to be returned
+	
+	*/
+	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, address, &g);
+
+	if (entry_p == NULL) {
+		WARN(1, KERN_WARNING "empty pointer returned from get_hpt_entry\n");
+		return NULL;
+	}
+
+	if (g == page_4KB) 
+	{
+		*level = PG_LEVEL_4K;
+	} 
+	else if (g == page_2MB) 
+	{
+		*level = PG_LEVEL_2M;
+	} 
+	else if (g == page_1GB) 
+	{
+		*level = PG_LEVEL_1G;
+	} 
+	else 
+	{	
+		WARN(1, KERN_WARNING "unkown granularity after get_hpt_entry\n");
+		/* unknown granularity */
+		*level = PG_LEVEL_NONE;
+	}
+
+
+	return (pte_t *) &entry_p->pte;
+}
+
+/*
+ * Lookup the page table entry for a virtual address. Return a pointer
+ * to the entry and the level of the mapping.
+ *
+ * Note: We return pud and pmd either when the entry is marked large
+ * or when the present bit is not set. Otherwise we would return a
+ * pointer to a nonexisting mapping.
+ */
+pte_t *lookup_address(unsigned long address, unsigned int *level)
+{
+	return __lookup_address(init_mm.map_desc, address, level);
+}
+EXPORT_SYMBOL_GPL(lookup_address);
+
+/*
+ * Lookup the page table entry for a virtual address in a given mm. Return a
+ * pointer to the entry and the level of the mapping.
+ */
+pte_t *lookup_address_in_mm(struct mm_struct *mm, unsigned long address,
+			    unsigned int *level)
+{
+	return __lookup_address(mm->map_desc, address, level);
+}
+EXPORT_SYMBOL_GPL(lookup_address_in_mm);
+
+// static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
+// 				  unsigned int *level)
+// {
+// 	if (cpa->map_desc)
+// 		return __lookup_address(cpa->map_desc,
+// 					       address, level);
+
+// 	return lookup_address(address, level);
+// }
+
+static pte_t _lookup_address_cpa_val(struct cpa_data *cpa, unsigned long address,
+				  unsigned int *level)
+{	
+	pte_t * ptep;
+	if (cpa->map_desc){
+		ptep = __lookup_address(cpa->map_desc,
+					       address, level);
+	} else {
+		ptep = lookup_address(address, level);
+	}
+	return *ptep; 
+
+}
+
+
+#else 
 /*
  * Lookup the page table entry for a virtual address in a specific pgd.
  * Return a pointer to the entry and the level of the mapping.
@@ -656,6 +757,12 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	return lookup_address(address, level);
 }
 
+#endif
+
+
+
+
+
 /*
  * Lookup the PMD entry for a virtual address. Return a pointer to the entry
  * or NULL if not present.
@@ -726,6 +833,8 @@ phys_addr_t slow_virt_to_phys(void *__virt_addr)
 }
 EXPORT_SYMBOL_GPL(slow_virt_to_phys);
 
+
+#ifndef CONFIG_X86_64_ECPT
 /*
  * Set the new pmd in all the pgds we know about:
  */
@@ -752,6 +861,7 @@ static void __set_pmd_pte(pte_t *kpte, unsigned long address, pte_t pte)
 	}
 #endif
 }
+#endif /* !CONFIG_X86_64_ECPT */
 
 static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 {
@@ -770,6 +880,394 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 	return prot;
 }
 
+#ifdef CONFIG_X86_64_ECPT
+
+static Granularity PG_LEVEL_TO_Granularity(enum pg_level l) {
+	switch (l) {
+	case PG_LEVEL_4K:
+		return page_4KB;	
+		break;
+	case PG_LEVEL_2M:
+		return page_2MB;	
+		break;
+	case PG_LEVEL_1G:
+		return page_1GB;
+		break;
+	default:
+		return -1;
+	}
+}
+
+static int __should_split_large_page(pte_t kpte, unsigned long address,
+				     struct cpa_data *cpa, enum pg_level curlevel)
+{
+	unsigned long numpages, pmask, psize, lpaddr, pfn, old_pfn;
+	pgprot_t old_prot, new_prot, req_prot, chk_prot;
+	pte_t new_pte, tmp;
+	enum pg_level level;
+	
+	void * desc;
+	int res;
+
+	/*
+	 * Check for races, another CPU might have split this page
+	 * up already:
+	 * 
+	 * 	ECPT/hash page table uses different way to check races
+	 * 	changes to page table data structure should be done through API
+	 */
+	tmp = _lookup_address_cpa_val(cpa, address, &level);
+	if (level != curlevel)
+		return 1;
+
+	switch (level) {
+	case PG_LEVEL_2M:
+		/* conversion here is a bit awkward but minimal chnages compared to previous x86 version */
+		old_prot = pmd_pgprot(*(pmd_t *) &kpte);
+		old_pfn = pmd_pfn(*(pmd_t *) &kpte);
+		cpa_inc_2m_checked();
+		break;
+	case PG_LEVEL_1G:
+		old_prot = pud_pgprot(*(pud_t *) &kpte);
+		old_pfn = pud_pfn(*(pud_t *) &kpte);
+		cpa_inc_1g_checked();
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	psize = page_level_size(level);
+	pmask = page_level_mask(level);
+
+	/*
+	 * Calculate the number of pages, which fit into this large
+	 * page starting at address:
+	 */
+	lpaddr = (address + psize) & pmask;
+	numpages = (lpaddr - address) >> PAGE_SHIFT;
+	if (numpages < cpa->numpages)
+		cpa->numpages = numpages;
+
+	/*
+	 * We are safe now. Check whether the new pgprot is the same:
+	 * Convert protection attributes to 4k-format, as cpa->mask* are set
+	 * up accordingly.
+	 */
+
+	/* Clear PSE (aka _PAGE_PAT) and move PAT bit to correct position */
+	req_prot = pgprot_large_2_4k(old_prot);
+
+	pgprot_val(req_prot) &= ~pgprot_val(cpa->mask_clr);
+	pgprot_val(req_prot) |= pgprot_val(cpa->mask_set);
+
+	/*
+	 * req_prot is in format of 4k pages. It must be converted to large
+	 * page format: the caching mode includes the PAT bit located at
+	 * different bit positions in the two formats.
+	 */
+	req_prot = pgprot_4k_2_large(req_prot);
+	req_prot = pgprot_clear_protnone_bits(req_prot);
+	if (pgprot_val(req_prot) & _PAGE_PRESENT)
+		pgprot_val(req_prot) |= _PAGE_PSE;
+
+	/*
+	 * old_pfn points to the large page base pfn. So we need to add the
+	 * offset of the virtual address:
+	 */
+	pfn = old_pfn + ((address & (psize - 1)) >> PAGE_SHIFT);
+	cpa->pfn = pfn;
+
+	/*
+	 * Calculate the large page base address and the number of 4K pages
+	 * in the large page
+	 */
+	lpaddr = address & pmask;
+	numpages = psize >> PAGE_SHIFT;
+
+	/*
+	 * Sanity check that the existing mapping is correct versus the static
+	 * protections. static_protections() guards against !PRESENT, so no
+	 * extra conditional required here.
+	 */
+	chk_prot = static_protections(old_prot, lpaddr, old_pfn, numpages,
+				      psize, CPA_CONFLICT);
+
+	if (WARN_ON_ONCE(pgprot_val(chk_prot) != pgprot_val(old_prot))) {
+		/*
+		 * Split the large page and tell the split code to
+		 * enforce static protections.
+		 */
+		cpa->force_static_prot = 1;
+		return 1;
+	}
+
+	/*
+	 * Optimization: If the requested pgprot is the same as the current
+	 * pgprot, then the large page can be preserved and no updates are
+	 * required independent of alignment and length of the requested
+	 * range. The above already established that the current pgprot is
+	 * correct, which in consequence makes the requested pgprot correct
+	 * as well if it is the same. The static protection scan below will
+	 * not come to a different conclusion.
+	 */
+
+	pr_info_verbose("old_prot=%lx req_prot=%lx\n",pgprot_val(old_prot), pgprot_val(req_prot) );
+	if (pgprot_val(req_prot) == pgprot_val(old_prot)) {
+		cpa_inc_lp_sameprot(level);
+		return 0;
+	}
+
+	/*
+	 * If the requested range does not cover the full page, split it up
+	 */
+	// pr_info_verbose("address=%lx lpaddr=%lx\n",address, lpaddr );
+	// pr_info_verbose("cpa->numpages=%lx numpages=%lx\n",cpa->numpages, numpages );
+	if (address != lpaddr || cpa->numpages != numpages)
+		return 1;
+
+	/*
+	 * Check whether the requested pgprot is conflicting with a static
+	 * protection requirement in the large page.
+	 */
+	new_prot = static_protections(req_prot, lpaddr, old_pfn, numpages,
+				      psize, CPA_DETECT);
+
+	/*
+	 * If there is a conflict, split the large page.
+	 *
+	 * There used to be a 4k wise evaluation trying really hard to
+	 * preserve the large pages, but experimentation has shown, that this
+	 * does not help at all. There might be corner cases which would
+	 * preserve one large page occasionally, but it's really not worth the
+	 * extra code and cycles for the common case.
+	 */
+	if (pgprot_val(req_prot) != pgprot_val(new_prot))
+		return 1;
+
+	/* All checks passed. Update the large page mapping. */
+	new_pte = pfn_pte(old_pfn, new_prot);
+	
+	// __set_pmd_pte(&kpte, address, new_pte); 
+	desc = cpa->map_desc ? cpa->map_desc : init_mm.map_desc;
+	res = ecpt_update_prot((ECPT_desc_t *)desc, 
+			address, 
+			__ecpt_pgprot(new_prot.pgprot),
+			PG_LEVEL_TO_Granularity(level)
+	);
+
+	cpa->flags |= CPA_FLUSHTLB;
+	cpa_inc_lp_preserved(level);
+	return 0;
+}
+
+static int should_split_large_page(pte_t kpte, unsigned long address,
+				   struct cpa_data *cpa, enum pg_level curlevel)
+{
+	int do_split;
+
+	if (cpa->force_split)
+		return 1;
+
+	spin_lock(&pgd_lock);
+	do_split = __should_split_large_page(kpte, address, cpa, curlevel);
+	spin_unlock(&pgd_lock);
+
+	return do_split;
+}
+
+static void split_set_pte(struct cpa_data *cpa, unsigned long pfn,
+			  pgprot_t ref_prot, unsigned long address,
+			  unsigned long size, Granularity gran_tosplit)
+{
+	unsigned int npg = PFN_DOWN(size);
+	pgprot_t prot;
+
+	int res;
+	void * desc = cpa->map_desc ? cpa->map_desc : init_mm.map_desc;
+	/*
+	 * If should_split_large_page() discovered an inconsistent mapping,
+	 * remove the invalid protection in the split mapping.
+	 */
+	if (!cpa->force_static_prot)
+		goto set;
+
+	/* Hand in lpsize = 0 to enforce the protection mechanism */
+	prot = static_protections(ref_prot, address, pfn, npg, 0, CPA_PROTECT);
+
+	if (pgprot_val(prot) == pgprot_val(ref_prot))
+		goto set;
+
+	/*
+	 * If this is splitting a PMD, fix it up. PUD splits cannot be
+	 * fixed trivially as that would require to rescan the newly
+	 * installed PMD mappings after returning from split_large_page()
+	 * so an eventual further split can allocate the necessary PTE
+	 * pages. Warn for now and revisit it in case this actually
+	 * happens.
+	 */
+	if (size == PAGE_SIZE){
+		ref_prot = prot;
+	} else {
+		pr_warn_once("CPA: Cannot fixup static protections for PUD split\n");
+	}
+		
+set:
+	res = ecpt_insert((ECPT_desc_t *) desc,
+		address,				/* VADDR */
+		pfn << PAGE_SHIFT,	/* PADDR */
+		__ecpt_pgprot(ref_prot.pgprot),
+		gran_tosplit
+	);
+	if (res) {
+		WARN(1, KERN_WARNING "res =%d\n", res);
+	}
+}
+
+static int
+__split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
+		    enum pg_level curlevel)
+{
+	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
+	// pte_t *pbase = (pte_t *)page_address(base);
+	unsigned int i, level;
+	pgprot_t ref_prot;
+	pte_t tmp;
+	int res;
+	void * desc = cpa->map_desc ? cpa->map_desc : init_mm.map_desc;
+	Granularity gran_tosplit;
+	spin_lock(&pgd_lock);
+	/*
+	 * Check for races, another CPU might have split this page
+	 * up already:
+	 * 
+	 * 	ECPT/hash page table uses different way to check races
+	 * 	changes to page table data structure should be done through API
+	 */
+	tmp = _lookup_address_cpa_val(cpa, address, &level);
+	if (level != curlevel){
+		spin_unlock(&pgd_lock);
+		return 1;
+	}
+
+	// paravirt_alloc_pte(&init_mm, page_to_pfn(base));
+
+	switch (level) {
+	case PG_LEVEL_2M:
+		ref_prot = pmd_pgprot(*(pmd_t *)kpte);
+		/*
+		 * Clear PSE (aka _PAGE_PAT) and move
+		 * PAT bit to correct position.
+		 */
+		ref_prot = pgprot_large_2_4k(ref_prot);
+		ref_pfn = pmd_pfn(*(pmd_t *)kpte);
+		lpaddr = address & PMD_MASK;
+		lpinc = PAGE_SIZE;
+		gran_tosplit = page_4KB;
+		break;
+
+	case PG_LEVEL_1G:
+		ref_prot = pud_pgprot(*(pud_t *)kpte);
+		ref_pfn = pud_pfn(*(pud_t *)kpte);
+		pfninc = PMD_PAGE_SIZE >> PAGE_SHIFT;
+		lpaddr = address & PUD_MASK;
+		lpinc = PMD_SIZE;
+		gran_tosplit = page_2MB;
+		/*
+		 * Clear the PSE flags if the PRESENT flag is not set
+		 * otherwise pmd_present/pmd_huge will return true
+		 * even on a non present pmd.
+		 */
+		if (!(pgprot_val(ref_prot) & _PAGE_PRESENT))
+			pgprot_val(ref_prot) &= ~_PAGE_PSE;
+		break;
+
+	default:
+		spin_unlock(&pgd_lock);
+		return 1;
+	}
+
+	ref_prot = pgprot_clear_protnone_bits(ref_prot);
+
+	/*
+	 * Get the target pfn from the original entry:
+	 */
+	pr_info_verbose("ref_prot=%lx\n", ref_prot.pgprot);
+	pfn = ref_pfn;
+	pr_info_verbose("pfn=%lx lpaddr=%lx\n", pfn, lpaddr);
+	for (i = 0; i < PTRS_PER_PTE; i++, pfn += pfninc, lpaddr += lpinc) {
+		split_set_pte(cpa, pfn, ref_prot, lpaddr, lpinc, gran_tosplit);
+	}
+		
+
+	if (virt_addr_valid(address)) {
+		// unsigned long pfn = PFN_DOWN(__pa(address));
+
+		// if (pfn_range_is_mapped(pfn, pfn + 1))
+		// 	split_page_count(level);
+		split_page_count(level);
+	}
+
+	/*
+	 * Install the new, "split up" pagetable.
+	 *
+	 * We use the standard kernel pagetable protections for the new
+	 * pagetable protections, the actual ptes set above control the
+	 * primary protection behavior:
+	 * 
+	 * 	For ECPT/Hash page table, no need to actually "split the page"
+	 *  We invalidate the existed entry and insert new pages with finer granularity
+	 */
+	res = ecpt_invalidate((ECPT_desc_t *) desc, address, PG_LEVEL_TO_Granularity(level));
+
+	WARN(res, KERN_WARNING "res=%d\n",res );
+
+	/*
+	 * Do a global flush tlb after splitting the large page
+	 * and before we do the actual change page attribute in the PTE.
+	 *
+	 * Without this, we violate the TLB application note, that says:
+	 * "The TLBs may contain both ordinary and large-page
+	 *  translations for a 4-KByte range of linear addresses. This
+	 *  may occur if software modifies the paging structures so that
+	 *  the page size used for the address range changes. If the two
+	 *  translations differ with respect to page frame or attributes
+	 *  (e.g., permissions), processor behavior is undefined and may
+	 *  be implementation-specific."
+	 *
+	 * We do this global tlb flush inside the cpa_lock, so that we
+	 * don't allow any other cpu, with stale tlb entries change the
+	 * page attribute in parallel, that also falls into the
+	 * just split large page entry.
+	 */
+	flush_tlb_all();
+	spin_unlock(&pgd_lock);
+
+	return 0;
+}
+
+static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
+			    unsigned long address, enum pg_level curlevel)
+{
+	// struct page *base;
+
+	// if (!debug_pagealloc_enabled())
+	// 	spin_unlock(&cpa_lock);
+
+	/* no need to allcoate pages for ECPT  */
+
+	// base = alloc_pages(GFP_KERNEL, 0);
+	// if (!debug_pagealloc_enabled())
+	// 	spin_lock(&cpa_lock);
+	// if (!base)
+		// return -ENOMEM;
+
+	// if (__split_large_page(cpa, kpte, address, curlevel)) {}
+		// __free_page(base);
+	return __split_large_page(cpa, kpte, address, curlevel);
+	// return 0;
+}
+
+#else
 static int __should_split_large_page(pte_t *kpte, unsigned long address,
 				     struct cpa_data *cpa)
 {
@@ -927,7 +1425,6 @@ static int should_split_large_page(pte_t *kpte, unsigned long address,
 
 	return do_split;
 }
-
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 			  pgprot_t ref_prot, unsigned long address,
 			  unsigned long size)
@@ -1087,6 +1584,13 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 
 	return 0;
 }
+
+#endif
+
+
+
+
+
 
 static bool try_to_free_pte_page(pte_t *pte)
 {
@@ -1514,6 +2018,93 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 	}
 }
 
+#ifdef CONFIG_X86_64_ECPT
+	static int __change_page_attr(struct cpa_data *cpa, int primary)
+{
+	unsigned long address;
+	int do_split, err;
+	unsigned int level;
+	pte_t old_pte;
+	int res;
+
+	address = __cpa_addr(cpa, cpa->curpage);
+repeat:
+	old_pte = _lookup_address_cpa_val(cpa, address, &level);;
+	
+	pr_info_verbose("address=%lx old_pte=%lx level=%d\n", address, old_pte.pte, level);
+
+	if (pte_none(old_pte))
+		return __cpa_process_fault(cpa, address, primary);
+
+	if (level == PG_LEVEL_4K) {
+		pte_t new_pte;
+		pgprot_t new_prot = pte_pgprot(old_pte);
+		unsigned long pfn = pte_pfn(old_pte);
+
+		pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
+		pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
+
+		cpa_inc_4k_install();
+		/* Hand in lpsize = 0 to enforce the protection mechanism */
+		new_prot = static_protections(new_prot, address, pfn, 1, 0,
+					      CPA_PROTECT);
+
+		new_prot = pgprot_clear_protnone_bits(new_prot);
+
+		/*
+		 * We need to keep the pfn from the existing PTE,
+		 * after all we're only going to change it's attributes
+		 * not the memory it points to
+		 */
+		new_pte = pfn_pte(pfn, new_prot);
+		cpa->pfn = pfn;
+		/*
+		 * Do we really change anything ?
+		 */
+		if (pte_val(old_pte) != pte_val(new_pte)) {
+			void * desc = cpa->map_desc;
+			if (!desc) {
+				desc = init_mm.map_desc;
+			} 
+
+			/* must be 4KB here */
+			res = ecpt_update_prot((ECPT_desc_t * )desc, address, __ecpt_pgprot(new_prot.pgprot), page_4KB);
+			
+			WARN(res, KERN_WARNING "res=%d\n", res);
+
+			cpa->flags |= CPA_FLUSHTLB;
+		}
+
+		cpa->numpages = 1;
+		return 0;
+	}
+
+	/*
+	 * Check, whether we can keep the large page intact
+	 * and just change the pte:
+	 */
+	do_split = should_split_large_page(old_pte, address, cpa, level);
+	/*
+	 * When the range fits into the existing large page,
+	 * return. cp->numpages and cpa->tlbflush have been updated in
+	 * try_large_page:
+	 */
+	// pr_info_verbose("do_split=%d\n", do_split);
+	if (do_split <= 0)
+		return do_split;
+
+	/*
+	 * We have to split the large page:
+	 */
+	err = split_large_page(cpa, &old_pte, address, level);
+	// pr_info_verbose("err=%d\n", err);
+	if (!err)
+		goto repeat;
+
+	return err;
+}
+#else 
+
 static int __change_page_attr(struct cpa_data *cpa, int primary)
 {
 	unsigned long address;
@@ -1586,6 +2177,11 @@ repeat:
 
 	return err;
 }
+
+
+#endif
+
+
 
 static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias);
 
