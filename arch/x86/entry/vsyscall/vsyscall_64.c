@@ -361,11 +361,11 @@ void __init set_vsyscall_pgtable_user_bits(void *desc)
 {
 	int res; 
 	ecpt_pgprot_t prot_with_user;
-
+	Granularity g = page_4KB;
 	ecpt_entry_t entry = ecpt_peek(
 		(ECPT_desc_t *) desc,
 		VSYSCALL_ADDR,
-		page_4KB /* this should be 4KB since it is from the fixmap */
+		&g /* this should be 4KB since it is from the fixmap */
 	);
 
 	if (entry.VPN_tag == 0) {

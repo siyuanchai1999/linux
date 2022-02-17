@@ -923,7 +923,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran) {
 	int res = 0;
 
-	spin_lock(&init_mm.page_table_lock);
+	spin_lock(&mm->page_table_lock);
 
 	res = ecpt_insert(
 		(ECPT_desc_t *) mm->map_desc,
@@ -932,8 +932,7 @@ int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pg
 		prot,
 		gran
 	);
-	spin_unlock(&init_mm.page_table_lock);
-
+	spin_unlock(&mm->page_table_lock);
 	return res;
 }
 
@@ -1002,7 +1001,7 @@ int ecpt_mm_insert_range(
             return -1;
         }
 
-		spin_lock(&init_mm.page_table_lock);
+		spin_lock(&mm->page_table_lock);
 
         res = ecpt_insert(
 			(ECPT_desc_t *) mm->map_desc,
@@ -1012,7 +1011,7 @@ int ecpt_mm_insert_range(
 			gran
 		);
 
-		spin_unlock(&init_mm.page_table_lock);
+		spin_unlock(&mm->page_table_lock);
 
         if (res < 0) {
             pr_err("Failed to drill at virtual address=%llx"
@@ -1060,24 +1059,24 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 
 int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr, Granularity gran) {
 	int res = 0;
-	spin_lock(&init_mm.page_table_lock);
+	spin_lock(&mm->page_table_lock);
 
 	res = ecpt_invalidate(
 		(ECPT_desc_t *) mm->map_desc,
 		vaddr,
 		gran
 	);
-	spin_unlock(&init_mm.page_table_lock);
+	spin_unlock(&mm->page_table_lock);
 	
 	return res;
 }
 
-ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
+ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * gran) {
 	ecpt_entry_t empty = {.VPN_tag = 0, .pte = 0};
-	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, vaddr, &gran);
+	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, vaddr, gran);
 
 	if (entry_p == NULL) {
-		pr_warn("WARN: vaddr=%llx gran=%d doesn't exist", vaddr, gran);
+		pr_warn("WARN: vaddr=%llx gran=%d doesn't exist", vaddr, *gran);
 
 		return empty;
 	}
@@ -1085,10 +1084,10 @@ ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
 	return *entry_p;
 }
 
-ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity gran) {
+ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity * gran) {
 
 	ecpt_entry_t entry;
-	spin_lock(&init_mm.page_table_lock);
+	spin_lock(&mm->page_table_lock);
 
 	entry = ecpt_peek(
 		(ECPT_desc_t *) mm->map_desc,
@@ -1096,7 +1095,7 @@ ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity gran
 		gran
 	);
 
-	spin_unlock(&init_mm.page_table_lock);
+	spin_unlock(&mm->page_table_lock);
 
 	return entry;
 }
@@ -1128,13 +1127,13 @@ int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot,
 int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran) {
 
 	int res;
-	spin_lock(&init_mm.page_table_lock);
+	spin_lock(&mm->page_table_lock);
 
 	// cr3 = (uint64_t) mm->pgd;
 	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
 	res = ecpt_update_prot((ECPT_desc_t *) mm->map_desc, vaddr, new_prot, gran);
 
-	spin_unlock(&init_mm.page_table_lock);
+	spin_unlock(&mm->page_table_lock);
 	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
 	// return res;
 	return 0;

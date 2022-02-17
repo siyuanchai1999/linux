@@ -89,10 +89,10 @@ typedef struct ECPT_desc {
 } ECPT_desc_t;
 
 typedef enum {
+	unknown,
 	page_4KB,
 	page_2MB,
-	page_1GB,
-	unknown
+	page_1GB
 } Granularity ; 
 // enum Granularity {}; 
 
@@ -123,8 +123,17 @@ int ecpt_mm_insert_range(
 int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity gran);
 int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr, Granularity gran);
 
-ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran);
-ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity gran);
+/**
+ * @brief 
+ * 
+ * @param ecpt 
+ * @param vaddr 
+ * @param gran if gran == unknown search for all entries, and update gran with real granularity
+ * 				ow. only search in such granularity 
+ * @return ecpt_entry_t 
+ */
+ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * gran);
+ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity * gran);
 
 int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);
 int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);

@@ -369,6 +369,7 @@ static void dump_pagetable(unsigned long address)
 	// uint64_t cr3;
 	// ecpt_pmd_t pmd;
 	ecpt_entry_t entry;
+	Granularity g = unknown;
 	// base = __va(read_cr3_pa());
 	// cr3 = (uint64_t)base + read_cr3_prot();
 
@@ -388,7 +389,7 @@ static void dump_pagetable(unsigned long address)
 	 * 
 	 */
 	// pr_info("base=%llx ", cr3, (uint64_t)base);
-	entry = ecpt_mm_peek(current->mm, address, unknown);
+	entry = ecpt_mm_peek(current->mm, address, &g);
 	pr_info("entry.pte= %llx ", entry.pte);
 // out:
 // 	pr_cont("\n");
@@ -571,12 +572,13 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 	if (error_code & X86_PF_INSTR) {
 #ifdef CONFIG_X86_64_ECPT
 		ecpt_entry_t e;
+		Granularity g = unknown;
 		// uint64_t cr3;
 		pte_t *pte;
 
 		// cr3 = ((uint64_t) __va(read_cr3_pa())) | read_cr3_prot();
 
-		e = ecpt_mm_peek(current->mm, address, unknown);
+		e = ecpt_mm_peek(current->mm, address, &g);
 		pte = (pte_t *) &e.pte;
 
 
@@ -800,7 +802,7 @@ kernelmode_fixup_or_oops(struct pt_regs *regs, unsigned long error_code,
 			 u32 pkey)
 {
 	WARN_ON_ONCE(user_mode(regs));
-
+	pr_info_verbose("address=%lx\n", address);
 	/* Are we prepared to handle this kernel fault? */
 	if (fixup_exception(regs, X86_TRAP_PF, error_code, address)) {
 		/*
@@ -888,6 +890,7 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 {
 	struct task_struct *tsk = current;
 
+	pr_info_verbose("address=%lx\n", address);
 	if (!user_mode(regs)) {
 		kernelmode_fixup_or_oops(regs, error_code, address,
 					 SIGSEGV, si_code, pkey);
@@ -1104,6 +1107,7 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 	// ecpt_pmd_t pmd;
 	ecpt_entry_t e;
 	int ret;
+	Granularity g = unknown;
 	/*
 	 * Only writes to RO or instruction fetches from NX may cause
 	 * spurious faults.
@@ -1118,7 +1122,7 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 		return 0;
 
 
-	e = ecpt_mm_peek(&init_mm, address, unknown);
+	e = ecpt_mm_peek(&init_mm, address, &g);
 
 	if (!ecpt_entry_present(&e)) {
 		return 0;

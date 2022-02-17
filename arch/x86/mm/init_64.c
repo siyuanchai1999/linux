@@ -141,6 +141,71 @@ static int __init nonx32_setup(char *str)
 }
 __setup("noexec32=", nonx32_setup);
 
+#ifdef CONFIG_X86_64_ECPT
+
+static void sync_ECPT_entries(unsigned long start, unsigned long end) 
+{
+	unsigned long addr;
+	unsigned long page_size = 0x1000;
+	
+	pr_info_verbose("start=%lx end=%lx\n", start, end);
+	for (addr = start; addr <= end; addr = ALIGN(addr + 1, page_size)) {
+		Granularity g_ref = unknown;
+
+		ecpt_entry_t ref_entry = ecpt_mm_peek(&init_mm, addr, &g_ref);
+		pte_t ref_pte = __pte(ref_entry.pte);
+		struct page *page;
+
+		pr_info_verbose("addr=%lx ref_pte.pte=%lx\n", addr, ref_pte.pte);
+		spin_lock(&pgd_lock);
+
+		list_for_each_entry(page, &pgd_list, lru) {
+			ecpt_entry_t entry;
+			pte_t pte;
+			struct mm_struct *mm ;
+			Granularity g = g_ref;
+
+
+			/* we don't need pgd_lock since ecpt_mm_** locks on pgd_lock */
+			mm = pgd_page_get_mm(page);
+			entry = ecpt_mm_peek(mm, addr, &g);
+			pte = __pte(entry.pte);
+			pr_info_verbose("pte%lx\n", pte.pte);
+
+			
+			if (!pte_none(ref_pte) && !pte_none(pte))
+				BUG_ON(!pte_same(ref_pte, pte) || ref_entry.VPN_tag != entry.VPN_tag);
+
+			if (pte_none(pte)) {
+				int res = ecpt_mm_insert(
+					mm,
+					addr,
+					ENTRY_TO_ADDR(ref_pte.pte),	/* paddr */
+					__ecpt_pgprot(ENTRY_TO_ADDR(ref_pte.pte)),	/* prot */
+					g_ref
+				);
+
+				WARN_ON(res);
+			}
+
+		}
+
+		if (g_ref == page_4KB) {
+			page_size = 1UL << PAGE_SHIFT_4KB;
+		} else if (g_ref == page_2MB) {
+			page_size = 1UL << PAGE_SHIFT_2MB;
+		} else if (g_ref == page_1GB) {
+			page_size = 1UL << PAGE_SHIFT_1GB;
+		} else {
+			WARN(1, KERN_WARNING "g_ref = %d\n", g_ref);
+		}
+
+		spin_unlock(&pgd_lock);
+	}
+}
+
+#else
+
 static void sync_global_pgds_l5(unsigned long start, unsigned long end)
 {
 	unsigned long addr;
@@ -221,6 +286,9 @@ static void sync_global_pgds_l4(unsigned long start, unsigned long end)
 		spin_unlock(&pgd_lock);
 	}
 }
+#endif
+
+
 
 /*
  * When memory was added make sure all the processes MM have
@@ -228,10 +296,17 @@ static void sync_global_pgds_l4(unsigned long start, unsigned long end)
  */
 static void sync_global_pgds(unsigned long start, unsigned long end)
 {
+#ifdef CONFIG_X86_64_ECPT
+	sync_ECPT_entries(start, end);
+	
+#else
 	if (pgtable_l5_enabled())
 		sync_global_pgds_l5(start, end);
 	else
 		sync_global_pgds_l4(start, end);
+
+#endif
+
 }
 
 /*
@@ -1652,12 +1727,12 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 	uint64_t pmd_val;
 	void *p;
 	int res;
-
+	Granularity g = unknown;
 	for (addr = start; addr < end; addr = next) {
 		next = pmd_addr_end(addr, end);
 
 		pr_info_verbose("addr=%lx start=%lx", addr, start);
-		pmd_val = ecpt_mm_peek(&init_mm, addr, unknown).pte;
+		pmd_val = ecpt_mm_peek(&init_mm, addr, &g).pte;
 
 		pmd = __pmd(pmd_val);
 		if (pmd_none(pmd)) {

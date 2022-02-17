@@ -36,7 +36,7 @@ struct mm_struct init_mm = {
 #ifdef CONFIG_X86_64_ECPT
 	// .pgd 		= (pgd_t *) ((uint64_t) early_hpt + EARLY_HPT_CR3_SIZE_VAL),		/* early hpt was defined as 2M at first */
 	.map_desc	= (void *) &ecpt_desc,
-	.pgd		= (pgd_t *) &ecpt_desc,
+	.pgd		= (pgd_t *) NULL,
 #else 
 	.pgd		= swapper_pg_dir,
 #endif
