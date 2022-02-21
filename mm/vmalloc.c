@@ -286,12 +286,15 @@ static int vmap_range_noflush(unsigned long addr, unsigned long end,
 			phys_addr_t phys_addr, pgprot_t prot,
 			unsigned int max_page_shift)
 {
+	
 	pgd_t *pgd;
 	unsigned long start;
 	unsigned long next;
 	int err;
 	pgtbl_mod_mask mask = 0;
 
+	pr_info_verbose("addr=%lx end=%lx phys_addr=%llx prot=%lx\n",
+					 addr, end, phys_addr, prot.pgprot);
 	might_sleep();
 	BUG_ON(addr >= end);
 
@@ -538,6 +541,55 @@ static int vmap_pages_p4d_range(pgd_t *pgd, unsigned long addr,
 	return 0;
 }
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+
+static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
+		pgprot_t prot, struct page **pages) 
+{
+	unsigned long start = addr;
+
+	int nr = 0;
+	pgtbl_mod_mask mask = 0;
+	int res = 0;
+
+	pr_info_verbose("addr=%lx end=%lx prot=%lx\n",
+					 addr, end, prot.pgprot);
+
+	BUG_ON(addr >= end);
+
+	// pte = pte_alloc_kernel_track(pmd, addr, mask);
+	// if (!pte)
+	// 	return -ENOMEM;
+	do {
+		struct page *page = pages[nr];
+		pr_info_verbose("page at %llx", (uint64_t) page);
+		if (WARN_ON(!page))
+			return -ENOMEM;
+		res = ecpt_mm_insert(
+			&init_mm,
+			addr,
+			page_to_pfn(page) << PAGE_SHIFT,
+			__ecpt_pgprot(prot.pgprot),
+			page_4KB
+		);
+
+		if (WARN_ON(res))
+			return -EBUSY;
+		// set_pte_at(&init_mm, addr, pte, mk_pte(page, prot));
+		nr++;
+	} while (addr += PAGE_SIZE, addr != end);
+	mask |= PGTBL_PTE_MODIFIED;
+
+
+	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
+		arch_sync_kernel_mappings(start, end);
+
+	return 0;
+}
+
+#else 
+
 static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 		pgprot_t prot, struct page **pages)
 {
@@ -547,6 +599,9 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 	int err = 0;
 	int nr = 0;
 	pgtbl_mod_mask mask = 0;
+
+	pr_info_verbose("addr=%lx end=%lx phys_addr=%llx prot=%lx\n",
+					 addr, end, prot.pgprot);
 
 	BUG_ON(addr >= end);
 	pgd = pgd_offset_k(addr);
@@ -565,6 +620,8 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 	return 0;
 }
 
+#endif
+
 /*
  * vmap_pages_range_noflush is similar to vmap_pages_range, but does not
  * flush caches.
@@ -579,6 +636,9 @@ int vmap_pages_range_noflush(unsigned long addr, unsigned long end,
 {
 	unsigned int i, nr = (end - addr) >> PAGE_SHIFT;
 
+	pr_info_verbose("addr=%lx end=%lx prot=%lx page_shift=%x\n",
+					 addr, end, prot.pgprot, page_shift);
+					 
 	WARN_ON(page_shift < PAGE_SHIFT);
 
 	if (!IS_ENABLED(CONFIG_HAVE_ARCH_HUGE_VMALLOC) ||
@@ -2742,7 +2802,7 @@ void *vmap(struct page **pages, unsigned int count,
 	unsigned long size;		/* In bytes */
 
 	might_sleep();
-
+	pr_info_verbose("count=%x\n", count);
 	if (count > totalram_pages())
 		return NULL;
 
