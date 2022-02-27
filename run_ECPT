@@ -2,6 +2,7 @@
 
 POSITIONAL=()
 qemu=~/qemu_ECPT/build/qemu-system-x86_64
+log_name=ecpt.log
 
 # # important comment here: don't replace the semicolon with space. bash system will screw it up.
 # # https://stackoverflow.com/questions/59314359/bash-script-execute-command-with-double-quotes-single-quotes-and-spaces
@@ -46,8 +47,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-printf '%q ' "${qemu_args[@]}" && echo
-"${qemu_args[@]}"
+tee_args+=("tee" "$log_name")
+
+
+# the command printed below can be copied into bash command and run without modification
+printf '%q ' "${qemu_args[@]}" 
+# "|" needs to be %s. with %q it will printed with escape
+printf '%s ' "|" 
+printf '%q ' "${tee_args[@]}"
+echo
+
+"${qemu_args[@]}" | "${tee_args[@]}"
 
 
 #	-kernel arch/x86/boot/bzImage \
