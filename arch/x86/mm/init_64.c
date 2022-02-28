@@ -143,65 +143,39 @@ __setup("noexec32=", nonx32_setup);
 
 #ifdef CONFIG_X86_64_ECPT
 
-static void sync_ECPT_entries(unsigned long start, unsigned long end) 
+static void sync_ECPT_desc(unsigned long start, unsigned long end) 
 {
-	unsigned long addr;
-	unsigned long page_size = 0x1000;
+	uint16_t w = 0;
+
+	ECPT_desc_t * root_ecpt = (ECPT_desc_t *) init_mm.map_desc;
+	ECPT_desc_t * ecpt;
 	
 	pr_info_verbose("start=%lx end=%lx\n", start, end);
-	for (addr = start; addr <= end; addr = ALIGN(addr + 1, page_size)) {
-		Granularity g_ref = unknown;
+	list_for_each_entry(ecpt, &pgd_list, lru) {
+		spinlock_t *pgt_lock;
+		pr_info_verbose("sync with ecpt at%llx\n", (uint64_t) ecpt);
+		/* Right now, we sync all kernel ways, we can optimize this further if we know which
+			way has been changed in init_mm.map_desc->table
+		 */
+		for (; w < ECPT_KERNEL_WAY; w++) {
+			uint64_t way_info = root_ecpt->table[w];
 
-		ecpt_entry_t ref_entry = ecpt_mm_peek(&init_mm, addr, &g_ref);
-		pte_t ref_pte = __pte(ref_entry.pte);
-		struct page *page;
-
-		pr_info_verbose("addr=%lx ref_pte.pte=%lx\n", addr, ref_pte.pte);
-		spin_lock(&pgd_lock);
-
-		list_for_each_entry(page, &pgd_list, lru) {
-			ecpt_entry_t entry;
-			pte_t pte;
-			struct mm_struct *mm ;
-			Granularity g = g_ref;
-
-
-			/* we don't need pgd_lock since ecpt_mm_** locks on pgd_lock */
-			mm = pgd_page_get_mm(page);
-			entry = ecpt_mm_peek(mm, addr, &g);
-			pte = __pte(entry.pte);
-			pr_info_verbose("pte%lx\n", pte.pte);
-
+			pgt_lock = &(ecpt->mm->page_table_lock);
 			
-			if (!pte_none(ref_pte) && !pte_none(pte))
-				BUG_ON(!pte_same(ref_pte, pte) || ref_entry.VPN_tag != entry.VPN_tag);
-
-			if (pte_none(pte)) {
-				int res = ecpt_mm_insert(
-					mm,
-					addr,
-					ENTRY_TO_ADDR(ref_pte.pte),	/* paddr */
-					__ecpt_pgprot(ENTRY_TO_ADDR(ref_pte.pte)),	/* prot */
-					g_ref
-				);
-
-				WARN_ON(res);
+			spin_lock(pgt_lock);
+			
+			if (way_info != 0 && ecpt->table[w] != 0) {
+				BUG_ON(way_info != ecpt->table[w]);
 			}
 
+			if (ecpt->table[w] == 0) {
+				ecpt->table[w] = way_info;
+			}
+			spin_unlock(pgt_lock);
 		}
 
-		if (g_ref == page_4KB) {
-			page_size = 1UL << PAGE_SHIFT_4KB;
-		} else if (g_ref == page_2MB) {
-			page_size = 1UL << PAGE_SHIFT_2MB;
-		} else if (g_ref == page_1GB) {
-			page_size = 1UL << PAGE_SHIFT_1GB;
-		} else {
-			WARN(1, KERN_WARNING "g_ref = %d\n", g_ref);
-		}
-
-		spin_unlock(&pgd_lock);
 	}
+
 }
 
 #else
@@ -294,10 +268,26 @@ static void sync_global_pgds_l4(unsigned long start, unsigned long end)
  * When memory was added make sure all the processes MM have
  * suitable PGD entries in the local PGD level page.
  */
+/**
+ * @brief The goal of this function is to sync kernel mappgings built in init_mm.map_desc or init_mm.pgd
+ * 		with other pgd being tracked. Luckily, the function has only been called in
+ * 		__kernel_physical_mapping_init and vmemmap_populate. These two functions build kernel mappings.
+ * 		
+ * 		For radix tree, this is done by having other pgd[x] has the same value with init_mm.pgd[x] 
+ * 		where x is the corresponding index for the changed pgd. The function will be called when 
+ * 		init_mm.pgd[x] has been changed.
+ * 
+ * 		For ECPT, if changes happen to ecpt->table[x], other ecpt_other->table[x] should have the same value.
+ * 		AkA, other ecpt points to the same page table.
+ * 		Note, x has to be smaller than ECPT_KERNEL_WAY.
+ * @param start 
+ * @param end 
+ */
+
 static void sync_global_pgds(unsigned long start, unsigned long end)
 {
 #ifdef CONFIG_X86_64_ECPT
-	sync_ECPT_entries(start, end);
+	sync_ECPT_desc(start, end);
 	
 #else
 	if (pgtable_l5_enabled())
@@ -550,7 +540,7 @@ __kernel_physical_mapping_init(unsigned long paddr_start,
 {
 
 
-	// bool pgd_changed = false;
+	bool ecpt_table_changed = false;
 	unsigned long vaddr, vaddr_start, vaddr_end;
 	uint64_t paddr, paddr_last;
 	int res;
@@ -572,21 +562,12 @@ __kernel_physical_mapping_init(unsigned long paddr_start,
 		pr_warn("%s: WARN res = %d\n", __func__, res);
 	}
 
-	// for (; vaddr < vaddr_end;) {
-	// 	int res = ecpt_mm_insert(&init_mm, vaddr, paddr, __ecpt_pgprot(prot.pgprot), page_2MB);
-
-	// 	if (res) {
-	// 		pr_warn("%s: WARN res = %d\n", __func__, res);
-	// 	}
-
-	// 	paddr_last = paddr;
-	// 	vaddr = (vaddr & PMD_MASK) + PMD_SIZE;
-	// 	paddr = (paddr & PMD_MASK) + PMD_SIZE;
-
-	// }
-
-	// if (pgd_changed)
-		// sync_global_pgds(vaddr_start, vaddr_end - 1);
+	/**
+	 * TODO:
+	 *		this has to be changed in case init_mm.map_desc->table is changed 
+	 */
+	if (ecpt_table_changed)
+		sync_global_pgds(vaddr_start, vaddr_end - 1);
 	// DEBUG_VAR(paddr_last);
 	return paddr_last;
 }
