@@ -18,6 +18,10 @@
 #include <asm/apic.h>
 #include <asm/perf_event.h>
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
 #include "mm_internal.h"
 
 #ifdef CONFIG_PARAVIRT
@@ -273,6 +277,30 @@ static inline void invalidate_user_asid(u16 asid)
 		  (unsigned long *)this_cpu_ptr(&cpu_tlbstate.user_pcid_flush_mask));
 }
 
+#ifdef CONFIG_X86_64_ECPT
+static void load_new_mm_cr3(ECPT_desc_t *ecpt, u16 new_asid, bool need_flush)
+{
+	unsigned long new_mm_cr3;
+	pr_info_verbose("ecpt at %llx new_asid=%x need_flush=%x\n",
+		(uint64_t) ecpt, new_asid, need_flush
+	);
+	if (need_flush) {
+		invalidate_user_asid(new_asid);
+		// new_mm_cr3 = build_cr3(pgdir, new_asid);
+	} else {
+		// new_mm_cr3 = build_cr3_noflush(pgdir, new_asid);
+	}
+
+	/*
+	 * Caution: many callers of this function expect
+	 * that load_cr3() is serializing and orders TLB
+	 * fills with respect to the mm_cpumask writes.
+	 */
+	load_ECPT_desc(ecpt);
+	// write_cr3(new_mm_cr3);
+}
+
+#else
 static void load_new_mm_cr3(pgd_t *pgdir, u16 new_asid, bool need_flush)
 {
 	unsigned long new_mm_cr3;
@@ -291,6 +319,9 @@ static void load_new_mm_cr3(pgd_t *pgdir, u16 new_asid, bool need_flush)
 	 */
 	write_cr3(new_mm_cr3);
 }
+#endif
+
+
 
 void leave_mm(int cpu)
 {
@@ -624,12 +655,20 @@ void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
 	if (need_flush) {
 		this_cpu_write(cpu_tlbstate.ctxs[new_asid].ctx_id, next->context.ctx_id);
 		this_cpu_write(cpu_tlbstate.ctxs[new_asid].tlb_gen, next_tlb_gen);
-		load_new_mm_cr3(next->pgd, new_asid, true);
+		#ifdef CONFIG_X86_64_ECPT
+			load_new_mm_cr3(next->map_desc, new_asid, true);
+		#else
+			load_new_mm_cr3(next->pgd, new_asid, true);
+		#endif		
 
 		trace_tlb_flush(TLB_FLUSH_ON_TASK_SWITCH, TLB_FLUSH_ALL);
 	} else {
 		/* The new ASID is already up to date. */
-		load_new_mm_cr3(next->pgd, new_asid, false);
+		#ifdef CONFIG_X86_64_ECPT
+			load_new_mm_cr3(next->map_desc, new_asid, true);
+		#else
+			load_new_mm_cr3(next->pgd, new_asid, false);
+		#endif
 
 		trace_tlb_flush(TLB_FLUSH_ON_TASK_SWITCH, 0);
 	}
