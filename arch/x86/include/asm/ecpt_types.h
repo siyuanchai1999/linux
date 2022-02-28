@@ -22,36 +22,27 @@ typedef struct ecpt_entry{
     uint64_t pte;
 } ecpt_entry_t;
 
-#define ECPT_ENTRY_SIZE (sizeof(ecpt_entry_t))
 
-#if ECPT_4K_WAY > 0
+#if ECPT_4K_USER_WAY > 0
 	#define ECPT_4K_PER_WAY_ENTRIES (512 * 8)
 #else
 	#define ECPT_4K_PER_WAY_ENTRIES (0)
 #endif
 
-#if ECPT_2M_WAY > 0
+#if ECPT_2M_USER_WAY > 0
 	#define ECPT_2M_PER_WAY_ENTRIES (512 * 8)
 #else
 	#define ECPT_2M_PER_WAY_ENTRIES (0)
 #endif
 
-#if ECPT_1G_WAY > 0
+#if ECPT_1G_USER_WAY > 0
 	#define ECPT_1G_PER_WAY_ENTRIES (512 * 8)
 #else
 	#define ECPT_1G_PER_WAY_ENTRIES (0)
 #endif
 
 
-#define ECPT_4K_PER_WAY_SIZE (ECPT_4K_PER_WAY_ENTRIES * ECPT_ENTRY_SIZE)
-#define ECPT_4K_PER_WAY_NR_PAGES (ECPT_4K_PER_WAY_SIZE >> PAGE_SHIFT_4KB)
-
-#define ECPT_2M_PER_WAY_SIZE (ECPT_2M_PER_WAY_ENTRIES * ECPT_ENTRY_SIZE)
-#define ECPT_2M_PER_WAY_NR_PAGES (ECPT_2M_PER_WAY_SIZE >> PAGE_SHIFT_4KB)
-
-#define ECPT_1G_PER_WAY_SIZE (ECPT_1G_PER_WAY_ENTRIES * ECPT_ENTRY_SIZE)
-#define ECPT_1G_PER_WAY_NR_PAGES (ECPT_1G_PER_WAY_SIZE >> PAGE_SHIFT_4KB)
-
+#define EPCT_NUM_ENTRY_TO_NR_PAGES(num) ((num * sizeof(ecpt_entry_t)) >> PAGE_SHIFT)
 
 /* eager = 1, allocate such when map_desc_alloc is called, ow. wait until it is needed */
 #define ECPT_4K_WAY_EAGER 1

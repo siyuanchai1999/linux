@@ -815,8 +815,9 @@ static uint64_t way_to_gran(uint32_t way) {
 #define LOG_8(n) (((n) >= 1<<8) ? (8 + LOG_4((n)>>8)) : LOG_4(n))
 #define LOG(n)   (((n) >= 1<<16) ? (16 + LOG_8((n)>>16)) : LOG_8(n))
 
-static uint64_t alloc_way_default(uint32_t nr_pages) {
+static uint64_t alloc_way_default(uint32_t n_entries) {
 	uint64_t addr, cr;
+	uint64_t nr_pages = EPCT_NUM_ENTRY_TO_NR_PAGES (n_entries);
 	uint32_t order = LOG(nr_pages);
 	
 	pr_info_verbose("order=%x\n", order);
@@ -828,25 +829,28 @@ static uint64_t alloc_way_default(uint32_t nr_pages) {
 	
 	WARN(addr & HPT_SIZE_MASK, "addr=%llx not 4K aligned\n", addr);
 
-	cr = addr + HPT_NUM_ENTRIES_TO_CR3(nr_pages);
+	cr = addr + HPT_NUM_ENTRIES_TO_CR3(n_entries);
 	return cr;
 }
 
 static inline uint64_t alloc_4K_way_default(void) {
-	uint64_t cr = alloc_way_default(ECPT_4K_PER_WAY_NR_PAGES);
-	WARN(!cr, "cannot allocate %lx 4K pages\n", ECPT_4K_PER_WAY_NR_PAGES);
+	uint64_t cr = alloc_way_default(ECPT_4K_PER_WAY_ENTRIES);
+	WARN(!cr, "cannot allocate %x entries total size=%lx\n",
+		ECPT_4K_PER_WAY_ENTRIES, ECPT_4K_PER_WAY_ENTRIES * sizeof(ecpt_entry_t));
 	return cr;
 }
 
 static inline uint64_t alloc_2M_way_default(void) {
-	uint64_t cr = alloc_way_default(ECPT_2M_PER_WAY_NR_PAGES);
-	WARN(!cr, "cannot allocate %lx 4K pages\n", ECPT_2M_PER_WAY_NR_PAGES);
+	uint64_t cr = alloc_way_default(ECPT_2M_PER_WAY_ENTRIES);
+	WARN(!cr, "cannot allocate %x entries total size=%lx\n",
+		ECPT_2M_PER_WAY_ENTRIES, ECPT_2M_PER_WAY_ENTRIES * sizeof(ecpt_entry_t));
 	return cr;
 }
 
 static inline uint64_t alloc_1G_way_default(void) {
-	uint64_t cr = alloc_way_default(ECPT_1G_PER_WAY_NR_PAGES);
-	WARN(!cr, "cannot allocate %lx 4K pages\n", ECPT_1G_PER_WAY_NR_PAGES);
+	uint64_t cr = alloc_way_default(ECPT_1G_PER_WAY_ENTRIES);
+	WARN(!cr, "cannot allocate %x entries total size=%lx\n",
+		ECPT_1G_PER_WAY_ENTRIES, ECPT_1G_PER_WAY_ENTRIES * sizeof(ecpt_entry_t));
 	return cr;
 }
 
@@ -981,24 +985,6 @@ void * pgd_alloc(struct mm_struct *mm) {
 }	
 
 
-static void fix_lazy_ECPT(ECPT_desc_t * ecpt, uint32_t way , Granularity gran) {
-	uint64_t (*way_allocator) (void);
-
-	if (gran == page_4KB) {
-		way_allocator = &alloc_4K_way_default;
-	} else if (gran == page_2MB) {
-		way_allocator = &alloc_2M_way_default;
-	} else if (gran == page_1GB) {
-		way_allocator = &alloc_1G_way_default;
-	} else {
-		way_allocator = NULL;
-		WARN(1, "gran=%d\n", gran);
-		return;
-	}
-
-	ecpt->table[way] = way_allocator();
-}	
-
 /**
  * @brief based on vaddr and granularity
  * 	select all possible ways that can contain such entries
@@ -1059,6 +1045,38 @@ static void select_way(
 	}
 
 }
+
+static void fix_lazy_ECPT(ECPT_desc_t * ecpt , Granularity gran) {
+	uint64_t (*way_allocator) (void);
+	uint32_t way_start, way_end, way;
+	uint64_t tmp;
+
+	if (gran == page_4KB) {
+		way_allocator = &alloc_4K_way_default;
+	} else if (gran == page_2MB) {
+		way_allocator = &alloc_2M_way_default;
+	} else if (gran == page_1GB) {
+		way_allocator = &alloc_1G_way_default;
+	} else {
+		way_allocator = NULL;
+		WARN(1, "gran=%d\n", gran);
+		return;
+	}
+
+	select_way(
+		0x1000, /* we only fix up user page table */
+		gran,
+		&way_start,
+		&way_end,
+		&tmp /* place holder */
+	);
+
+	pr_info_verbose("fixup for way_start=%x way_end=%x\n", way_start, way_end);
+	for (way = way_start; way < way_end; way++) {
+		ecpt->table[way] = way_allocator();
+	}
+	
+}	
 
 ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g) {
 
@@ -1245,7 +1263,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		// DEBUG_VAR(cr);
 		size = GET_HPT_SIZE(cr);
 		if (size == 0) {
-			fix_lazy_ECPT(ecpt, way, gran);
+			fix_lazy_ECPT(ecpt, gran);
 			
 			cr = ecpt->table[way_start + way];
 			size = GET_HPT_SIZE(cr);
@@ -1275,8 +1293,8 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		
 		if (!ecpt_entry_present(entry_ptr)) {
 			/* can insert here */
-			// pr_info_verbose("hash=%llx way=%d entry_ptr=%llx pte=%llx\n", 
-					// hash, way, (uint64_t) entry_ptr, entry.pte);
+			pr_info_verbose("hash=%llx way=%d entry_ptr=%llx pte=%llx\n", 
+					hash, way_start + way, (uint64_t) entry_ptr, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
 
 			return 0;
