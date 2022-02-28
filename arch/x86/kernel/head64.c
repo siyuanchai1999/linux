@@ -646,11 +646,10 @@ static void __init reset_early_hpt(void)
 		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __PHYSICAL_START;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
-			res = ecpt_invalidate(
+			res = early_ecpt_invalidate(
 						ecpt_desc_ptr,
-						vaddr, 
-						page_2MB /* at this stage we only have 2MB */
-			);
+						vaddr			
+				);
 			if (res) {
 				/* this is before early console ready so let's use the rudimentary print */
 				DEBUG_STR("WARNING!\n");
@@ -889,6 +888,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 
 	/* Kill off the identity-map trampoline */
 #ifdef CONFIG_X86_64_ECPT
+	
 	reset_early_hpt();
 #else 
 	reset_early_page_tables();
@@ -919,7 +919,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	load_ucode_bsp();
 
 #ifdef CONFIG_X86_64_ECPT
-
+	print_ecpt(&ecpt_desc);
 #else
 	/* set init_top_pgt kernel high mapping*/
 	init_top_pgt[511] = early_top_pgt[511];

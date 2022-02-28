@@ -5,8 +5,10 @@
 // #include <asm/page_64_types.h>
 #include <linux/mm_types.h>
 #include <linux/spinlock.h>
-
+#include <linux/gfp.h>
 #include <linux/random.h>
+#include <asm/pgalloc.h>
+#include <linux/slab.h>
 
 
 #include <asm/ecpt_types.h>
@@ -85,7 +87,9 @@ static inline int ecpt_pte_present(ecpt_pte_t a)
 // }	ecpt_meta_2M;
 
 typedef struct ECPT_desc {
-	uint64_t table[ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY];
+	uint64_t table[ECPT_TOTAL_WAY];
+	struct mm_struct * mm;
+	struct list_head lru; /* call it lru which is the same name as page->lru as it was used by radix */
 } ECPT_desc_t;
 
 typedef enum {
@@ -103,10 +107,12 @@ extern ECPT_desc_t ecpt_desc;
 
 
 void load_ECPT_desc(ECPT_desc_t * ecpt);
-
+// void * map_desc_alloc_default(void);
+ 
 // uint64_t gen_hash_32(uint32_t vpn, uint64_t size);
 // int early_ecpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
 int early_ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
+int early_ecpt_invalidate(ECPT_desc_t * ecpt, uint64_t vaddr);
 
 int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran);
 int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran);
@@ -140,6 +146,7 @@ int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_
 
 ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g);
 
+void print_ecpt(ECPT_desc_t * ecpt);
 
 
 #endif /* _ASM_X86_ECPT_HASH_H */

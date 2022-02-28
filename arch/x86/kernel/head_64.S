@@ -173,13 +173,18 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
  		*/
 
 		.macro load_ecpt_desc
-
+			/* move all ECPT ways (both kernel+user)
+				though users ways are zeroed. 
+			 */
 			j=0
 			.irp i, ECPT_WAY_TO_CR_SEQ
 				.if j < ECPT_TOTAL_WAY
 					.if j > 0
-						movq 	(%rcx), %rax    /* load ecpt[j] -> rax*/
-                        subq    $(__START_KERNEL_map), %rax         /* substract __START_KERNEL_map because the data structure stores the virtual address*/
+						movq 	(%rcx), %rax    					/* load ecpt[j] -> rax*/
+						cmp 	%rax, %rdi							/* compare with zero */
+						jz		1f									/* if zero directly go to move */
+						subq    $(__START_KERNEL_map), %rax         /* substract __START_KERNEL_map because the data structure stores the virtual address*/
+					1:
 						movq 	%rax, %cr\i		
 						add  	$8, %rcx
 					.endif
@@ -197,6 +202,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 		/* get the physical address of ecpt_desc*/
 		movq 	$(ecpt_desc - __START_KERNEL_map), %rcx
 		add  	$8, %rcx
+		movq 	$0, %rdi
 		load_ecpt_desc
 
 		
@@ -595,8 +601,8 @@ SYM_DATA(early_recursion_flag, .long 0)
 
     /* declare loop_DEF_ECPT which calls DEF_ECPT for n times and pass i into ECPT */
     DECLARE_LOOP(DEF_ECPT)
-
-    loop_DEF_ECPT ECPT_TOTAL_WAY
+	/* This is kernel page table, so no allocation for user tables  */
+    loop_DEF_ECPT ECPT_KERNEL_WAY
 
     .macro fill_ecpt_desc cnt=0
         .quad ecpt_table_\cnt + EARLY_HPT_CR3_SIZE_VAL
@@ -606,7 +612,16 @@ SYM_DATA(early_recursion_flag, .long 0)
     DECLARE_LOOP(fill_ecpt_desc)
 
 	SYM_START(ecpt_desc, SYM_L_GLOBAL, .balign 16)
-		loop_fill_ecpt_desc ECPT_TOTAL_WAY
+		loop_fill_ecpt_desc ECPT_KERNEL_WAY
+		
+		/* This is kernel page table, so no allocation for user tables  */
+		.rept ECPT_USER_WAY 
+			.quad 0
+		.endr
+
+		.quad 0		/* struct mm_struct * mm  */
+		.quad 0		/* struct list_head lru.next */
+		.quad 0		/* struct list_head lru.prev */
 	SYM_DATA_END(ecpt_desc)
 
 #endif

@@ -573,6 +573,7 @@ static uint32_t get_diff_rand(uint32_t cur_way, uint32_t n_way) {
 	do
 	{
 		if (rng_is_initialized()) {
+			pr_info_verbose("call get random\n");
 			way = get_random_u32();
 		} else {
 			way += 1;
@@ -628,6 +629,7 @@ int early_ecpt_insert(
 	char tab[2] = "\t";
 	char line_break[2] = "\n";
 
+	if (!ECPT_2M_WAY) return -1;
 	ecpt_fixed = (ECPT_desc_t *) fixup_pointer(ecpt, kernel_start, physaddr);
 
 	/* this function always run with two 2MB */
@@ -695,6 +697,53 @@ int early_ecpt_insert(
 
 }
 
+int early_ecpt_invalidate(ECPT_desc_t * ecpt, uint64_t vaddr) {
+	uint32_t way_start = ECPT_4K_WAY;
+	uint32_t way_end = ECPT_4K_WAY + ECPT_2M_WAY;
+	uint32_t w;
+
+	uint64_t cr, size, hash;
+	uint64_t vpn = ADDR_TO_PAGE_NUM_2MB(vaddr);
+
+	ecpt_entry_t *entry_ptr, *ecpt_base;
+	DEBUG_VAR(vaddr);
+	if (!ECPT_2M_WAY) return -2;
+
+	for (w = way_start; w < way_end; w++) {
+
+
+		cr = ecpt->table[w];
+		size = GET_HPT_SIZE(cr);
+
+		if (size == 0) {
+			/* early tables shoundn't hit here */
+			BUG();
+		}
+
+		hash = gen_hash_64(vpn, size);
+		
+		/* stay with current hash table */
+		ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
+		entry_ptr = &ecpt_base[hash];
+
+		if (entry_ptr->VPN_tag == vpn) {
+			DEBUG_VAR((uint64_t)entry_ptr);
+			break;
+		} else {
+			/* not found move on */
+			entry_ptr = NULL;
+		}
+	}
+
+	if (!entry_ptr) {
+		return -1;
+	}
+	/* clear entry  */
+	memset(entry_ptr, 0, sizeof(*entry_ptr));
+
+	return 0;
+}
+
 /*
 static Granularity way_to_granularity(uint32_t way) {
 	if (way < ECPT_4K_WAY) {
@@ -712,12 +761,24 @@ static Granularity way_to_granularity(uint32_t way) {
 static uint64_t way_to_vpn(uint32_t way, uint64_t vaddr) {
 	if (way < ECPT_4K_WAY) {
 		return ADDR_TO_PAGE_NUM_4KB(vaddr); 
-	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
+	} 
+	else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
 		return ADDR_TO_PAGE_NUM_2MB(vaddr); 
-	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
+	} 
+	else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
 		return ADDR_TO_PAGE_NUM_1GB(vaddr); 
-	} else {
-		panic("wrong way!\n");
+	} 
+	else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY) {
+		return ADDR_TO_PAGE_NUM_4KB(vaddr); 
+	} 
+	else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY) {
+		return ADDR_TO_PAGE_NUM_2MB(vaddr); 
+	} 
+	else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY + ECPT_1G_USER_WAY) {
+		return ADDR_TO_PAGE_NUM_1GB(vaddr); 
+	}
+	else {
+		BUG();
 		return 0;
 	}
 }
@@ -725,14 +786,278 @@ static uint64_t way_to_vpn(uint32_t way, uint64_t vaddr) {
 static uint64_t way_to_gran(uint32_t way) {
 	if (way < ECPT_4K_WAY) {
 		return page_4KB; 
-	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
+	} 
+	else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
 		return page_2MB; 
-	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
+	} 
+	else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
 		return page_1GB; 
-	} else {
+	} 
+	else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY) {
+		return page_4KB; 
+	} 
+	else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY) {
+		return page_2MB;
+	} 
+	else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY + ECPT_1G_USER_WAY) {
+		return page_1GB;
+	}
+	else {
 		BUG();
 		return 0;
 	}
+}
+
+/* LOG helper function, support integer up to 32 bits */
+#define LOG_1(n) (((n) >= 2) ? 1 : 0)
+#define LOG_2(n) (((n) >= 1<<2) ? (2 + LOG_1((n)>>2)) : LOG_1(n))
+#define LOG_4(n) (((n) >= 1<<4) ? (4 + LOG_2((n)>>4)) : LOG_2(n))
+#define LOG_8(n) (((n) >= 1<<8) ? (8 + LOG_4((n)>>8)) : LOG_4(n))
+#define LOG(n)   (((n) >= 1<<16) ? (16 + LOG_8((n)>>16)) : LOG_8(n))
+
+static uint64_t alloc_way_default(uint32_t nr_pages) {
+	uint64_t addr, cr;
+	uint32_t order = LOG(nr_pages);
+	
+	pr_info_verbose("order=%x\n", order);
+	addr = __get_free_pages(GFP_PGTABLE_USER, order);
+
+	if (!addr) {
+		return 0;
+	}
+	
+	WARN(addr & HPT_SIZE_MASK, "addr=%llx not 4K aligned\n", addr);
+
+	cr = addr + HPT_NUM_ENTRIES_TO_CR3(nr_pages);
+	return cr;
+}
+
+static inline uint64_t alloc_4K_way_default(void) {
+	uint64_t cr = alloc_way_default(ECPT_4K_PER_WAY_NR_PAGES);
+	WARN(!cr, "cannot allocate %lx 4K pages\n", ECPT_4K_PER_WAY_NR_PAGES);
+	return cr;
+}
+
+static inline uint64_t alloc_2M_way_default(void) {
+	uint64_t cr = alloc_way_default(ECPT_2M_PER_WAY_NR_PAGES);
+	WARN(!cr, "cannot allocate %lx 4K pages\n", ECPT_2M_PER_WAY_NR_PAGES);
+	return cr;
+}
+
+static inline uint64_t alloc_1G_way_default(void) {
+	uint64_t cr = alloc_way_default(ECPT_1G_PER_WAY_NR_PAGES);
+	WARN(!cr, "cannot allocate %lx 4K pages\n", ECPT_1G_PER_WAY_NR_PAGES);
+	return cr;
+}
+
+/**
+ * @brief 
+ * 	only allocate user ways. kernel ways are copied from init_mm.map_desc
+ * 		or the PTI kernel ways
+ * @return void* The ECPT desc
+ */
+static ECPT_desc_t * map_desc_alloc_default(void) {
+	ECPT_desc_t * desc;
+	uint16_t way = ECPT_KERNEL_WAY;
+	desc = kzalloc(sizeof(ECPT_desc_t), GFP_PGTABLE_USER);
+	
+	WARN(!desc, "cannot allocate ecpt_desc=%lx\n", sizeof(ECPT_desc_t));
+	if (desc == NULL)
+		goto out;
+
+	// mm->map_desc = desc;
+
+	for (; way < ECPT_TOTAL_WAY; way++) {
+		if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY) {
+
+			if (ECPT_4K_WAY_EAGER) {
+				desc->table[way] = alloc_4K_way_default();
+			} else {
+				desc->table[way] = 0;
+			}
+
+		} else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY) {
+			
+			if (ECPT_2M_WAY_EAGER) {
+				desc->table[way] = alloc_2M_way_default();
+			} else {
+				desc->table[way] = 0;
+			}
+				
+		} else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY + ECPT_1G_USER_WAY) {
+			
+			if (ECPT_2M_WAY_EAGER) {
+				desc->table[way] = alloc_1G_way_default();
+			} else {
+				desc->table[way] = 0;
+			}
+		
+		} else {
+			/* should not enter here */
+			BUG();
+		}
+	}
+
+	return desc;
+out:
+	return NULL;
+}
+
+
+/**
+ * @brief copy all kernel entries 
+ * 		Right now, copy all since we don't have user entries yet
+ * 
+ * @param dest 
+ * @param src 
+ */
+static void ecpt_kernel_copy(ECPT_desc_t * dest, ECPT_desc_t * src) {
+	// uint16_t w = 0;
+	WARN(src != &ecpt_desc, 
+			"copy from %llx (not kernel ecpt_desc) to %llx",
+			(uint64_t) src, (uint64_t) dest);
+
+	/* ad hoc cuz we only have kernel mapping entries for now */
+	memcpy(dest->table, src->table, sizeof(uint64_t) * ECPT_KERNEL_WAY);
+
+}
+
+static inline void ecpt_set_mm(ECPT_desc_t * ecpt, struct mm_struct *mm) {
+	ecpt->mm = mm; 
+}
+
+static inline void ecpt_list_add(ECPT_desc_t * ecpt) {
+	list_add(&ecpt->lru, &pgd_list);
+}
+
+static inline void ecpt_list_del(ECPT_desc_t * ecpt) {
+	list_del(&ecpt->lru);
+}
+
+static void ecpt_ctor(struct mm_struct *mm, ECPT_desc_t * new_desc) {
+
+	ecpt_kernel_copy(new_desc, (ECPT_desc_t *) init_mm.map_desc);
+	
+	/* list required to sync kernel mapping updates */
+	if (!SHARED_KERNEL_PMD) {
+		ecpt_set_mm(new_desc, mm);
+		ecpt_list_add(new_desc);
+	}
+}
+
+static void ecpt_dtor(ECPT_desc_t * ecpt)
+{
+	if (SHARED_KERNEL_PMD)
+		return;
+
+	spin_lock(&pgd_lock);
+	ecpt_list_del(ecpt);
+	spin_unlock(&pgd_lock);
+}
+
+/**
+ * TODO: fix name
+ * 
+ * @param mm 
+ * @return void* 
+ */
+void * pgd_alloc(struct mm_struct *mm) {
+	void* desc = map_desc_alloc_default();
+	
+	WARN(!desc, "map_desc_alloc_default fails\n");
+	
+	mm->map_desc = desc;
+
+	/**
+	 * no need to preallocate any PMD or copy kernel PGD entries here
+	 * 	we don't need such preallocation 
+	 */
+	
+	spin_lock(&pgd_lock);
+	ecpt_ctor(mm, desc);
+	spin_unlock(&pgd_lock);
+
+	return desc;
+}	
+
+
+static void fix_lazy_ECPT(ECPT_desc_t * ecpt, uint32_t way , Granularity gran) {
+	uint64_t (*way_allocator) (void);
+
+	if (gran == page_4KB) {
+		way_allocator = &alloc_4K_way_default;
+	} else if (gran == page_2MB) {
+		way_allocator = &alloc_2M_way_default;
+	} else if (gran == page_1GB) {
+		way_allocator = &alloc_1G_way_default;
+	} else {
+		way_allocator = NULL;
+		WARN(1, "gran=%d\n", gran);
+		return;
+	}
+
+	ecpt->table[way] = way_allocator();
+}	
+
+/**
+ * @brief based on vaddr and granularity
+ * 	select all possible ways that can contain such entries
+ */
+
+static void select_way(
+	uint64_t vaddr, Granularity gran, /* input */
+	uint32_t * way_start, uint32_t * way_end, uint64_t * vpn /* output */
+) {
+	uint16_t is_kernel_vaddr = IS_KERNEL_MAP(vaddr);
+
+	if (gran == page_4KB) {	
+		if (is_kernel_vaddr) {
+			*way_start = 0;
+			*way_end = ECPT_4K_WAY;
+		} else {
+			*way_start = ECPT_KERNEL_WAY;
+			*way_end = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY;
+		}
+		
+		*vpn = ADDR_TO_PAGE_NUM_4KB(vaddr); 
+	} 
+	else if (gran == page_2MB) {
+		if (is_kernel_vaddr) {
+			*way_start = ECPT_4K_WAY;
+			*way_end = ECPT_4K_WAY + ECPT_2M_WAY;
+		} else {
+			*way_start = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY;
+			*way_end = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY;
+		}
+
+		*vpn = ADDR_TO_PAGE_NUM_2MB(vaddr); 
+	} 
+	else if (gran == page_1GB) {
+		if (is_kernel_vaddr) {
+			*way_start = ECPT_4K_WAY + ECPT_2M_WAY;
+			*way_end = ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY;
+		} else {
+			*way_start = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY;
+			*way_end = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY + ECPT_1G_USER_WAY;
+		}
+
+		*vpn = ADDR_TO_PAGE_NUM_1GB(vaddr); 
+	} 
+	else if (gran == unknown) {
+		/* unknown granularity */
+		if (is_kernel_vaddr) {
+			*way_start = 0;
+			*way_end = ECPT_KERNEL_WAY;
+		} else {
+			*way_start = ECPT_KERNEL_WAY;
+			*way_end = ECPT_KERNEL_WAY + ECPT_USER_WAY;
+		}
+
+		*vpn = 0;
+	} else {
+		BUG();
+	}
+
 }
 
 ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g) {
@@ -745,32 +1070,65 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 	ecpt_entry_t * entry_ptr = NULL;
 	ecpt_entry_t entry;
 	Granularity gran = *g;
+	/* this m */
+	
+	select_way(
+		vaddr, gran,		/* input */
+		&way_start, &way_end, &vpn	/* output */
+	);
+	
+	// if (gran == page_4KB) 
+	// {	
+	// 	if (is_kernel_vaddr) {
+	// 		way_start = 0;
+	// 		way_end = ECPT_4K_WAY;
+	// 	} else {
+	// 		way_start = ECPT_KERNEL_WAY;
+	// 		way_end = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY;
+	// 	}
+		
+	// 	vpn = ADDR_TO_PAGE_NUM_4KB(vaddr); 
+	// } 
+	// else if (gran == page_2MB) 
+	// {
+	// 	if (is_kernel_vaddr) {
+	// 		way_start = ECPT_4K_WAY;
+	// 		way_end = ECPT_4K_WAY + ECPT_2M_WAY;
+	// 	} else {
+	// 		way_start = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY;
+	// 		way_end = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY;
+	// 	}
 
-	if (gran == page_4KB) 
-	{
-		way_start = 0;
-		way_end = ECPT_4K_WAY;
-		vpn = ADDR_TO_PAGE_NUM_4KB(vaddr); 
-	} 
-	else if (gran == page_2MB) 
-	{
-		way_start = ECPT_4K_WAY;
-		way_end = ECPT_4K_WAY + ECPT_2M_WAY;
-		vpn = ADDR_TO_PAGE_NUM_2MB(vaddr); 
-	} 
-	else if (gran == page_1GB) 
-	{
-		way_start = ECPT_4K_WAY + ECPT_2M_WAY;
-		way_end = ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY;
-		vpn = ADDR_TO_PAGE_NUM_1GB(vaddr); 
-	} 
-	else 
-	{
-		/* unknown granularity */
-		way_start = 0;
-		way_end = ECPT_TOTAL_WAY;
-		vpn = 0;
-	}
+	// 	vpn = ADDR_TO_PAGE_NUM_2MB(vaddr); 
+	// } 
+	// else if (gran == page_1GB) 
+	// {
+	// 	if (is_kernel_vaddr) {
+	// 		way_start = ECPT_4K_WAY + ECPT_2M_WAY;
+	// 		way_end = ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY;
+	// 	} else {
+	// 		way_start = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY;
+	// 		way_end = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY + ECPT_1G_USER_WAY;
+	// 	}
+
+	// 	vpn = ADDR_TO_PAGE_NUM_1GB(vaddr); 
+	// } 
+	// else if (gran == unknown)
+	// {
+	// 	/* unknown granularity */
+	// 	if (is_kernel_vaddr) {
+	// 		way_start = 0;
+	// 		way_end = ECPT_KERNEL_WAY;
+	// 	} else {
+	// 		way_start = ECPT_KERNEL_WAY;
+	// 		way_end = ECPT_KERNEL_WAY + ECPT_USER_WAY;
+	// 	}
+
+	// 	vpn = 0;
+	// } else {
+	// 	BUG();
+	// 	return 0;
+	// }
 
 
 	for (w = way_start; w < way_end; w++) {
@@ -780,6 +1138,12 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 
 		cr = ecpt->table[w];
 		size = GET_HPT_SIZE(cr);
+
+		if (size == 0) {
+			/* way that has not been built becuase of lazy alloc of ECPT */
+			continue;
+		}
+
 		hash = gen_hash_64(vpn, size);
 		
 		// DEBUG_VAR(hash);
@@ -801,7 +1165,7 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 		if (entry.VPN_tag == vpn) {
 			
 			// DEBUG_VAR((uint64_t) entry_ptr);
-			*g = way_to_gran(w);
+			if (gran == unknown) *g = way_to_gran(w);
 			break;
 		} else {
 			/* not found move on */
@@ -816,7 +1180,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	
 	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
 
-	uint32_t way_start = 0, n_way;
+	uint32_t way_start = 0, way_end, n_way;
 	static uint32_t way = 0;
 
 	ecpt_entry_t * ecpt_base;
@@ -825,30 +1189,31 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 
 	uint16_t tries = 0;
 
-	// pr_info_verbose("vaddr=%llx paddr=%llx prot=%lx gran=%d\n", vaddr, paddr, prot.pgprot, gran);
+	pr_info_verbose("ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", (uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
 
+
+	if (gran == unknown) {
+		WARN(1, KERN_WARNING "gran=%d\n", gran);
+		return -1;
+	}
+
+	select_way(
+		vaddr, gran,		/* input */
+		&way_start, &way_end, &vpn	/* output */
+	);
+	n_way = way_end - way_start;
+	
+	/* calculate PPN */
 	if (gran == page_4KB) 
 	{
-		way_start = 0;
-		n_way = ECPT_4K_WAY;
-
-		vpn = ADDR_TO_PAGE_NUM_4KB(vaddr); 
 		entry.pte = ADDR_REMOVE_OFFSET_4KB(paddr);
 	} 
 	else if (gran == page_2MB) 
 	{
-		way_start = ECPT_4K_WAY;
-		n_way = ECPT_2M_WAY;
-
-		vpn = ADDR_TO_PAGE_NUM_2MB(vaddr); 
 		entry.pte = ADDR_REMOVE_OFFSET_2MB(paddr);
 	} 
 	else if (gran == page_1GB) 
 	{
-		way_start = ECPT_4K_WAY + ECPT_2M_WAY;
-		n_way = ECPT_1G_WAY;
-
-		vpn = ADDR_TO_PAGE_NUM_1GB(vaddr); 
 		entry.pte = ADDR_REMOVE_OFFSET_1GB(paddr);
 	} 
 	else 
@@ -879,7 +1244,18 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		cr = ecpt->table[way_start + way];
 		// DEBUG_VAR(cr);
 		size = GET_HPT_SIZE(cr);
-		// puthex_tabln(vpn);
+		if (size == 0) {
+			fix_lazy_ECPT(ecpt, way, gran);
+			
+			cr = ecpt->table[way_start + way];
+			size = GET_HPT_SIZE(cr);
+			
+			if (!size) {
+				pr_info_verbose("gran=%d way = %d\n", gran, way_start + way);
+				BUG_ON(!size);
+			}
+		}
+
 		hash = gen_hash_64(vpn, size);
 		// puthex_tabln(hash);
 
@@ -1204,7 +1580,7 @@ static load_cr_func load_funcs[9] = {
 void load_ECPT_desc(ECPT_desc_t * ecpt) {
 	uint16_t i;
 	load_cr_func f;
-	BUG_ON(ECPT_TOTAL_WAY > 9);
+	BUG_ON(ECPT_TOTAL_WAY > ECPT_MAX_WAY);
 
 
 	/* load ecpt table -> control registers */
@@ -1217,3 +1593,24 @@ void load_ECPT_desc(ECPT_desc_t * ecpt) {
 	f = load_funcs[0];
 	(*f)(ecpt->table[0]);
 } 
+
+void print_ecpt(ECPT_desc_t * ecpt) {
+	uint16_t i ;
+	pr_info("show ECPT at %llx ------------------", (uint64_t) ecpt);
+	pr_info("tables: ");
+	
+	for (i = 0; i < ECPT_TOTAL_WAY; i++) {
+		pr_info("\t%llx -> cr%d \n", ecpt->table[i], way_to_crN[i] );
+	}
+	
+	if (ecpt->mm == &init_mm)
+		pr_info("\tmm = init_mm");
+	else 
+		pr_info("\tmm at %llx \n", (uint64_t) ecpt->mm);
+	
+	pr_info("\t ecpt->lru.next=%llx\n", (uint64_t)ecpt->lru.next);
+	pr_info("\t ecpt->lru.prev=%llx\n", (uint64_t)ecpt->lru.prev);
+	
+	pr_info("End of ECPT at %llx ------------------", (uint64_t) ecpt);
+
+}
