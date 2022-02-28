@@ -702,6 +702,36 @@ int is_vmalloc_or_module_addr(const void *x)
  * return the tail page that corresponds to the base page address, which
  * matches small vmap mappings.
  */
+#ifdef CONFIG_X86_64_ECPT
+struct page *vmalloc_to_page(const void *vmalloc_addr) {
+	unsigned long addr = (unsigned long) vmalloc_addr;
+	struct page *page = NULL;
+	Granularity g = unknown;
+	VIRTUAL_BUG_ON(!is_vmalloc_or_module_addr(vmalloc_addr));
+
+	ecpt_entry_t entry;
+	
+	entry = ecpt_mm_peek(&init_mm, addr, &g);
+	
+	if (entry.pte == 0) {
+		/* no such page */
+		return NULL;
+	}
+
+	if (g == page_4KB) {
+		return pte_page(native_make_pte(entry.pte));
+	} else if (g == page_2MB) {
+		return pmd_page(native_make_pmd(entry.pte)) + ((addr & ~PMD_MASK) >> PAGE_SHIFT);
+	} else if (g == page_1GB) {
+		return pud_page(native_make_pud(entry.pte)) + ((addr & ~PUD_MASK) >> PAGE_SHIFT);
+	} else {
+		/* should not be here */
+		BUG();
+	}
+	return NULL;
+}
+#else 
+
 struct page *vmalloc_to_page(const void *vmalloc_addr)
 {
 	unsigned long addr = (unsigned long) vmalloc_addr;
@@ -757,6 +787,8 @@ struct page *vmalloc_to_page(const void *vmalloc_addr)
 
 	return page;
 }
+
+#endif
 EXPORT_SYMBOL(vmalloc_to_page);
 
 /*
