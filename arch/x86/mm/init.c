@@ -804,11 +804,26 @@ void __init init_mem_mapping(void)
  */
 void __init poking_init(void)
 {
+	
+
+#ifdef CONFIG_X86_64_ECPT
+	int res;
+	struct page * page;
+#else 
 	spinlock_t *ptl;
 	pte_t *ptep;
-
+#endif
 	poking_mm = copy_init_mm();
 	BUG_ON(!poking_mm);
+	
+
+	// pr_info_verbose("poking_mm at %llx\n", (uint64_t) poking_mm);
+	
+	// list_for_each_entry(desc, &pgd_list, lru) {
+	// 	pr_info_verbose("mm at %llx\n", (uint64_t) desc->mm);
+	// 	pr_info_verbose("page->lru.next = %llx\n", (uint64_t)desc->lru.next);
+	// 	pr_info_verbose("page->lru.prev = %llx\n", (uint64_t)desc->lru.prev);
+	// }
 
 	/*
 	 * Randomize the poking address, but make sure that the following page
@@ -816,6 +831,7 @@ void __init poking_init(void)
 	 * and adjust the address if the PMD ends after the first one.
 	 */
 	poking_addr = TASK_UNMAPPED_BASE;
+	pr_info_verbose("poking_addr=%lx TASK_SIZE_LOW=%lx\n", poking_addr, TASK_SIZE_LOW);
 	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE))
 		poking_addr += (kaslr_get_random_long("Poking") & PAGE_MASK) %
 			(TASK_SIZE - TASK_UNMAPPED_BASE - 3 * PAGE_SIZE);
@@ -828,9 +844,32 @@ void __init poking_init(void)
 	 * needed for poking now. Later, poking may be performed in an atomic
 	 * section, which might cause allocation to fail.
 	 */
+#ifdef CONFIG_X86_64_ECPT
+	/* only for purpose to make sure ECPT way has been correctily bulit */
+	page = vmalloc_to_page((const void * )VMALLOC_START);
+	pr_info_verbose("page = %llx\n", 
+		(uint64_t) page);
+	res = ecpt_mm_insert(
+		poking_mm,
+		poking_addr,
+		page_to_pfn(page) << PAGE_SHIFT, 
+		__ecpt_pgprot(pgprot_val(PAGE_KERNEL) & ~_PAGE_GLOBAL),
+		page_4KB
+	);
+	
+	BUG_ON(res);
+	res = ecpt_mm_invalidate(
+		poking_mm,
+		poking_addr,
+		page_4KB
+	);
+	BUG_ON(res);
+#else
 	ptep = get_locked_pte(poking_mm, poking_addr, &ptl);
 	BUG_ON(!ptep);
 	pte_unmap_unlock(ptep, ptl);
+#endif
+
 }
 
 /*

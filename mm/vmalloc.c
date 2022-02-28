@@ -705,12 +705,11 @@ int is_vmalloc_or_module_addr(const void *x)
 #ifdef CONFIG_X86_64_ECPT
 struct page *vmalloc_to_page(const void *vmalloc_addr) {
 	unsigned long addr = (unsigned long) vmalloc_addr;
-	struct page *page = NULL;
 	Granularity g = unknown;
-	VIRTUAL_BUG_ON(!is_vmalloc_or_module_addr(vmalloc_addr));
 
 	ecpt_entry_t entry;
 	
+	VIRTUAL_BUG_ON(!is_vmalloc_or_module_addr(vmalloc_addr));
 	entry = ecpt_mm_peek(&init_mm, addr, &g);
 	
 	if (entry.pte == 0) {
