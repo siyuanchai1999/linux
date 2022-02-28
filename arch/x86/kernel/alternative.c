@@ -30,6 +30,10 @@
 #include <asm/fixmap.h>
 #include <asm/paravirt.h>
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
 int __read_mostly alternatives_patched;
 
 EXPORT_SYMBOL_GPL(alternatives_patched);
@@ -646,12 +650,18 @@ void __init alternative_instructions(void)
 	 * Then patch alternatives, such that those paravirt calls that are in
 	 * alternatives can be overwritten by their immediate fragments.
 	 */
+	pr_info_verbose("__alt_instructions=%llx __alt_instructions_end=%llx\n", 
+		(uint64_t) __alt_instructions, (uint64_t) __alt_instructions_end);
 	apply_alternatives(__alt_instructions, __alt_instructions_end);
 
 #ifdef CONFIG_SMP
 	/* Patch to UP if other cpus not imminent. */
 	if (!noreplace_smp && (num_present_cpus() == 1 || setup_max_cpus <= 1)) {
 		uniproc_patched = true;
+		pr_info_verbose("__smp_locks=%llx __smp_locks_end=%llx\n", 
+			(uint64_t) __smp_locks, (uint64_t) __smp_locks_end);
+		pr_info_verbose("_text=%llx _etext=%llx\n", 
+			(uint64_t) _text, (uint64_t) _etext);
 		alternatives_smp_module_add(NULL, "core kernel",
 					    __smp_locks, __smp_locks_end,
 					    _text, _etext);
@@ -779,10 +789,13 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 	struct page *pages[2] = {NULL};
 	temp_mm_state_t prev;
 	unsigned long flags;
-	pte_t pte, *ptep;
-	spinlock_t *ptl;
 	pgprot_t pgprot;
-
+#ifdef CONFIG_X86_64_ECPT
+	int res;
+#else 
+	spinlock_t *ptl;
+	pte_t pte, *ptep;
+#endif
 	/*
 	 * While boot memory allocator is running we cannot use struct pages as
 	 * they are not yet initialized. There is no way to recover.
@@ -811,6 +824,35 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 	 */
 	pgprot = __pgprot(pgprot_val(PAGE_KERNEL) & ~_PAGE_GLOBAL);
 
+	
+
+
+
+#ifdef CONFIG_X86_64_ECPT
+
+	local_irq_save(flags);
+	res = ecpt_mm_insert(
+		poking_mm,
+		poking_addr,
+		page_to_pfn(pages[0]) << PAGE_SHIFT, 
+		__ecpt_pgprot(pgprot.pgprot),
+		page_4KB
+	);
+
+	WARN(res, "res=%d after ecpt_mm_insert\n",res);
+
+	if (cross_page_boundary) {
+		res = ecpt_mm_insert(
+			poking_mm,
+			poking_addr + PAGE_SIZE,
+			page_to_pfn(pages[1]) << PAGE_SHIFT, 
+			__ecpt_pgprot(pgprot.pgprot),
+			page_4KB
+		);
+		WARN(res, "res=%d after ecpt_mm_insert\n",res);
+	}
+#else
+
 	/*
 	 * The lock is not really needed, but this allows to avoid open-coding.
 	 */
@@ -830,7 +872,7 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 		pte = mk_pte(pages[1], pgprot);
 		set_pte_at(poking_mm, poking_addr + PAGE_SIZE, ptep + 1, pte);
 	}
-
+#endif
 	/*
 	 * Loading the temporary mm behaves as a compiler barrier, which
 	 * guarantees that the PTE will be set at the time memcpy() is done.
@@ -847,9 +889,29 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 	 */
 	barrier();
 
+#ifdef CONFIG_X86_64_ECPT
+	res = ecpt_mm_invalidate(
+		poking_mm,
+		poking_addr,
+		page_4KB
+	);
+
+	WARN(res, "res=%d after ecpt_mm_invalidate\n",res);
+
+	if (cross_page_boundary) {
+		res = ecpt_mm_invalidate(
+			poking_mm,
+			poking_addr,
+			page_4KB
+		);
+		WARN(res, "res=%d after ecpt_mm_invalidate\n",res);
+	}
+#else 
 	pte_clear(poking_mm, poking_addr, ptep);
 	if (cross_page_boundary)
 		pte_clear(poking_mm, poking_addr + PAGE_SIZE, ptep + 1);
+#endif
+	
 
 	/*
 	 * Loading the previous page-table hierarchy requires a serializing
@@ -873,7 +935,9 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 	BUG_ON(memcmp(addr, opcode, len));
 
 	local_irq_restore(flags);
+#ifndef CONFIG_X86_64_ECPT
 	pte_unmap_unlock(ptep, ptl);
+#endif
 	return addr;
 }
 
@@ -896,7 +960,7 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 void *text_poke(void *addr, const void *opcode, size_t len)
 {
 	lockdep_assert_held(&text_mutex);
-
+	pr_info_verbose("addr=%llx opcode[0]=%x\n", (uint64_t) addr, * ((unsigned char *) opcode));
 	return __text_poke(addr, opcode, len);
 }
 
