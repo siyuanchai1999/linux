@@ -622,6 +622,12 @@ SYM_DATA(early_recursion_flag, .long 0)
 		.quad 0		/* struct mm_struct * mm  */
 		.quad 0		/* struct list_head lru.next */
 		.quad 0		/* struct list_head lru.prev */
+
+		/* uint32_t occupied[ECPT_TOTAL_WAY] */
+		.rept ECPT_TOTAL_WAY 
+			.long 0
+		.endr
+
 	SYM_DATA_END(ecpt_desc)
 
 #endif

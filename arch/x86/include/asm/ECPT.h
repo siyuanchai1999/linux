@@ -90,6 +90,7 @@ typedef struct ECPT_desc {
 	uint64_t table[ECPT_TOTAL_WAY];
 	struct mm_struct * mm;
 	struct list_head lru; /* call it lru which is the same name as page->lru as it was used by radix */
+	uint32_t occupied[ECPT_TOTAL_WAY];
 } ECPT_desc_t;
 
 typedef enum {
@@ -144,7 +145,7 @@ ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity * gr
 int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);
 int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);
 
-ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g);
+ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g, uint32_t * way);
 
 void print_ecpt(ECPT_desc_t * ecpt);
 

@@ -590,13 +590,13 @@ static inline pgprot_t static_protections(pgprot_t prot, unsigned long start,
 pte_t *__lookup_address(void * desc, unsigned long address,
 			     unsigned int *level) {
 	ECPT_desc_t * ecpt = (ECPT_desc_t *) desc;
-
+	uint32_t way_temp;
 	Granularity g = unknown;
 	/* Use get_hpt_entry here to get the pointer to real data 
 		because the function requires a pte pointer to be returned
 	
 	*/
-	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, address, &g);
+	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, address, &g, &way_temp);
 
 	if (entry_p == NULL) {
 		WARN(1, KERN_WARNING "empty pointer returned from get_hpt_entry\n");
@@ -1011,7 +1011,7 @@ static int __should_split_large_page(pte_t kpte, unsigned long address,
 	 * not come to a different conclusion.
 	 */
 
-	pr_info_verbose("old_prot=%lx req_prot=%lx\n",pgprot_val(old_prot), pgprot_val(req_prot) );
+	// pr_info_verbose("old_prot=%lx req_prot=%lx\n",pgprot_val(old_prot), pgprot_val(req_prot) );
 	if (pgprot_val(req_prot) == pgprot_val(old_prot)) {
 		cpa_inc_lp_sameprot(level);
 		return 0;
@@ -1191,9 +1191,10 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	/*
 	 * Get the target pfn from the original entry:
 	 */
-	pr_info_verbose("ref_prot=%lx\n", ref_prot.pgprot);
+	// pr_info_verbose("ref_prot=%lx\n", ref_prot.pgprot);
 	pfn = ref_pfn;
-	pr_info_verbose("pfn=%lx lpaddr=%lx\n", pfn, lpaddr);
+	pr_info_verbose("lpaddr=%lx paddr=%lx ref_prot=%lx  gran=%x\n",
+			lpaddr, pfn << PAGE_SHIFT, ref_prot.pgprot, gran_tosplit);
 	for (i = 0; i < PTRS_PER_PTE; i++, pfn += pfninc, lpaddr += lpinc) {
 		split_set_pte(cpa, pfn, ref_prot, lpaddr, lpinc, gran_tosplit);
 	}
@@ -2031,7 +2032,8 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 repeat:
 	old_pte = _lookup_address_cpa_val(cpa, address, &level);;
 	
-	pr_info_verbose("address=%lx old_pte=%lx level=%d\n", address, old_pte.pte, level);
+	pr_info_verbose("address=%lx old_pte=%lx level=%d mask_set=%lx mask_clr=%lx\n", 
+		address, old_pte.pte, level, cpa->mask_set.pgprot, cpa->mask_clr.pgprot);
 
 	if (pte_none(old_pte))
 		return __cpa_process_fault(cpa, address, primary);
@@ -2247,7 +2249,7 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 	unsigned long numpages = cpa->numpages;
 	unsigned long rempages = numpages;
 	int ret = 0;
-
+	// pr_info_verbose("address=%lx old_pte=%lx level=%d\n", cpa->, old_pte.pte, level);
 	while (rempages) {
 		/*
 		 * Store the remaining nr of pages for the large page
