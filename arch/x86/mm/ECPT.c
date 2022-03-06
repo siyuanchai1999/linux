@@ -924,8 +924,8 @@ static void ecpt_kernel_copy(ECPT_desc_t * dest, ECPT_desc_t * src) {
 			(uint64_t) src, (uint64_t) dest);
 
 	/* ad hoc cuz we only have kernel mapping entries for now */
-	memcpy(dest->table, src->table, sizeof(uint64_t) * ECPT_KERNEL_WAY);
-
+	memcpy(dest->table, src->table, sizeof(dest->table[0]) * ECPT_KERNEL_WAY);
+	memcpy(dest->occupied, src->table, sizeof(dest->occupied[0]) * ECPT_KERNEL_WAY);
 }
 
 static inline void ecpt_set_mm(ECPT_desc_t * ecpt, struct mm_struct *mm) {
@@ -1246,15 +1246,20 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 			// pr_info_verbose("hash=%llx way=%d entry_ptr=%llx pte=%llx\n", 
 					// hash, way_start + way, (uint64_t) entry_ptr, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
-
+			ecpt->occupied[way_start + way] += 1;
 			return 0;
 		} else {
 			/* swap and insert again */
 			
 			temp = *entry_ptr;
+			if (temp.VPN_tag == entry.VPN_tag && temp.pte == entry.pte) {
+				/* mapping already established, no need to kick it out */
+				return 0;
+			}
+			pr_info_verbose("kick temp={.vpn=%llx .pte=%llx} entry={.vpn=%llx .pte=%llx} with \n", temp.VPN_tag, temp.pte, entry.VPN_tag, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
 			entry = temp;
-			ecpt->occupied[way_start + way] += 1;
+				
 		}	
 		
 		way = get_diff_rand(way, n_way);
