@@ -822,7 +822,7 @@ static uint64_t alloc_way_default(uint32_t n_entries) {
 	uint64_t nr_pages = EPCT_NUM_ENTRY_TO_NR_PAGES (n_entries);
 	uint32_t order = LOG(nr_pages);
 	
-	pr_info_verbose("order=%x\n", order);
+	// pr_info_verbose("order=%x\n", order);
 	addr = __get_free_pages(GFP_PGTABLE_USER, order);
 
 	if (!addr) {
@@ -871,6 +871,7 @@ static ECPT_desc_t * map_desc_alloc_default(void) {
 	if (desc == NULL)
 		goto out;
 
+	dump_stack();
 	// mm->map_desc = desc;
 
 	for (; way < ECPT_TOTAL_WAY; way++) {
@@ -925,7 +926,7 @@ static void ecpt_kernel_copy(ECPT_desc_t * dest, ECPT_desc_t * src) {
 
 	/* ad hoc cuz we only have kernel mapping entries for now */
 	memcpy(dest->table, src->table, sizeof(dest->table[0]) * ECPT_KERNEL_WAY);
-	memcpy(dest->occupied, src->table, sizeof(dest->occupied[0]) * ECPT_KERNEL_WAY);
+	memcpy(dest->occupied, src->occupied, sizeof(dest->occupied[0]) * ECPT_KERNEL_WAY);
 }
 
 static inline void ecpt_set_mm(ECPT_desc_t * ecpt, struct mm_struct *mm) {
@@ -1256,7 +1257,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 				/* mapping already established, no need to kick it out */
 				return 0;
 			}
-			pr_info_verbose("kick temp={.vpn=%llx .pte=%llx} entry={.vpn=%llx .pte=%llx} with \n", temp.VPN_tag, temp.pte, entry.VPN_tag, entry.pte);
+			pr_info_verbose("kick temp={.vpn=%llx .pte=%llx} with entry={.vpn=%llx .pte=%llx}\n", temp.VPN_tag, temp.pte, entry.VPN_tag, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
 			entry = temp;
 				
