@@ -3248,7 +3248,7 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 	__releases(vmf->ptl)
 {
 	struct vm_area_struct *vma = vmf->vma;
-
+	pr_info_verbose("WARN: NOT implemented!\n");
 	if (userfaultfd_pte_wp(vma, *vmf->pte)) {
 		pte_unmap_unlock(vmf->pte, vmf->ptl);
 		return handle_userfault(vmf, VM_UFFD_WP);
@@ -3722,7 +3722,7 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 	struct page *page;
 	vm_fault_t ret = 0;
 	pte_t entry;
-
+	pr_info_verbose("vmf at %llx\n", (uint64_t) vmf);
 	/* File mapping without ->vm_ops ? */
 	if (vma->vm_flags & VM_SHARED)
 		return VM_FAULT_SIGBUS;
@@ -4271,7 +4271,7 @@ static vm_fault_t do_fault(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	struct mm_struct *vm_mm = vma->vm_mm;
 	vm_fault_t ret;
-
+	pr_info_verbose("vmf at %llx\n", (uint64_t) vmf);
 	/*
 	 * The VMA was not fully populated on mmap() or missing VM_DONTEXPAND
 	 */
@@ -4445,6 +4445,7 @@ static inline vm_fault_t wp_huge_pmd(struct vm_fault *vmf)
 			return handle_userfault(vmf, VM_UFFD_WP);
 		return do_huge_pmd_wp_page(vmf);
 	}
+	pr_info_verbose("huge_fault at %llx\n", (uint64_t) vmf->vma->vm_ops->huge_fault);
 	if (vmf->vma->vm_ops->huge_fault) {
 		vm_fault_t ret = vmf->vma->vm_ops->huge_fault(vmf, PE_SIZE_PMD);
 
@@ -4452,6 +4453,7 @@ static inline vm_fault_t wp_huge_pmd(struct vm_fault *vmf)
 			return ret;
 	}
 
+	WARN(1, "__split_huge_pmd not implemented\n");
 	/* COW or write-notify handled on pte level: split pmd. */
 	__split_huge_pmd(vmf->vma, vmf->pmd, vmf->address, false, NULL);
 
@@ -4460,6 +4462,7 @@ static inline vm_fault_t wp_huge_pmd(struct vm_fault *vmf)
 
 static vm_fault_t create_huge_pud(struct vm_fault *vmf)
 {
+	WARN(1, "create_huge_pud not implemented with ECPT\n");
 #if defined(CONFIG_TRANSPARENT_HUGEPAGE) &&			\
 	defined(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
 	/* No support for anonymous transparent PUD pages yet */
@@ -4484,6 +4487,7 @@ static vm_fault_t wp_huge_pud(struct vm_fault *vmf, pud_t orig_pud)
 	/* No support for anonymous transparent PUD pages yet */
 	if (vma_is_anonymous(vmf->vma))
 		return VM_FAULT_FALLBACK;
+	pr_info_verbose("huge_fault at %llx\n", (uint64_t) vmf->vma->vm_ops->huge_fault);
 	if (vmf->vma->vm_ops->huge_fault)
 		return vmf->vma->vm_ops->huge_fault(vmf, PE_SIZE_PUD);
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
@@ -4505,6 +4509,78 @@ static vm_fault_t wp_huge_pud(struct vm_fault *vmf, pud_t orig_pud)
  * The mmap_lock may have been released depending on flags and our return value.
  * See filemap_fault() and __lock_page_or_retry().
  */
+#ifdef CONFIG_X86_64_ECPT
+static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
+{
+	pte_t entry;
+	uint64_t prot;
+	int res;
+	/**
+	 * no clear idea of the location of pte
+	 * 	call do_anonymous_page or do_fault to handle
+	 */
+	if (!vmf->pte) {
+		if (vma_is_anonymous(vmf->vma))
+			return do_anonymous_page(vmf);
+		else
+			return do_fault(vmf);
+	}
+
+	if (!pte_present(vmf->orig_pte))
+		return do_swap_page(vmf);
+
+	if (pte_protnone(vmf->orig_pte) && vma_is_accessible(vmf->vma))
+		return do_numa_page(vmf);
+
+	// vmf->ptl = &vmf->vma->vm_mm->page_table_lock;
+	// spin_lock(vmf->ptl);
+	entry = vmf->orig_pte;
+	if (unlikely(!pte_same(*vmf->pte, entry))) {
+		update_mmu_tlb(vmf->vma, vmf->address, vmf->pte);
+		goto unlock;
+	}
+	if (vmf->flags & FAULT_FLAG_WRITE) {
+		if (!pte_write(entry))
+			return do_wp_page(vmf);
+		entry = pte_mkdirty(entry);
+	}
+
+	entry = pte_mkyoung(entry);
+	prot = pte_flags(entry);
+	res = ecpt_mm_update_prot(
+		vmf->vma->vm_mm,
+		vmf->address, 
+		__ecpt_pgprot(prot),
+		page_4KB
+	);
+
+	if (!pte_same(entry, *vmf->pte) && !res) {
+		/* update successfully */
+		update_mmu_cache(vmf->vma, vmf->address, vmf->pte);
+	}
+	// if (ptep_set_access_flags(vmf->vma, vmf->address, vmf->pte, entry,
+				// vmf->flags & FAULT_FLAG_WRITE)) {
+		// update_mmu_cache(vmf->vma, vmf->address, vmf->pte);
+	// } 
+	else {
+		/* Skip spurious TLB flush for retried page fault */
+		if (vmf->flags & FAULT_FLAG_TRIED)
+			goto unlock;
+		/*
+		 * This is needed only for protection faults but the arch code
+		 * is not yet telling us if this is a protection fault or not.
+		 * This still avoids useless tlb flushes for .text page faults
+		 * with threads.
+		 */
+		if (vmf->flags & FAULT_FLAG_WRITE)
+			flush_tlb_fix_spurious_fault(vmf->vma, vmf->address);
+	}
+unlock:
+	// pte_unmap_unlock(vmf->pte, vmf->ptl);
+	return 0;
+}
+
+#else
 static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 {
 	pte_t entry;
@@ -4603,6 +4679,7 @@ unlock:
 	return 0;
 }
 
+#endif
 /*
  * By the time we get here, we already hold the mm semaphore
  *
@@ -4610,7 +4687,7 @@ unlock:
  * return value.  See filemap_fault() and __lock_page_or_retry().
  */
 
-#ifndef CONFIG_X86_64_ECPT
+#ifdef CONFIG_X86_64_ECPT
 static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 		unsigned long address, unsigned int flags)
 {
@@ -4624,21 +4701,107 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	unsigned int dirty = flags & FAULT_FLAG_WRITE;
 	struct mm_struct *mm = vma->vm_mm;
 	vm_fault_t ret;
-	pmd_t pmd;
-
-	pr_info_verbose("WARN: address=%lx\n", address);
+	pte_t pte;
+	ecpt_entry_t *entry_p;
+	Granularity g = unknown;	
+	uint32_t way = 0;
+	// entry = ecpt_mm_peek(mm, address, &g);
 	
-	pmd = __pmd(hpt_mm_peek(mm, address).pmd);
-	vmf.orig_pmd = pmd;
-	vmf.pmd = &pmd;
+	spin_lock(&mm->page_table_lock);
+	entry_p = get_hpt_entry(mm->map_desc, address, &g, &way);
+	spin_unlock(&mm->page_table_lock);
 
-	if (pmd_none(pmd)) {
-		ret = create_huge_pmd(&vmf);
-		if (!(ret & VM_FAULT_FALLBACK))
-			return ret;
+	pr_info_verbose("address=%lx .vpn=%llx .pte=%llx\n", 
+		address, 
+		(uint64_t) (entry_p ? entry_p->VPN_tag : 0),
+		(uint64_t) (entry_p ? entry_p->pte : 0)
+	);
+
+	if (entry_p == NULL) {
+		BUG_ON(g != unknown);
+		/* no such page */
+		
+		vmf.pud = NULL;
+		vmf.pmd = NULL;
+		vmf.pte = NULL;
+
+		if (__transparent_hugepage_enabled(vma)) {
+			pr_info_verbose("__transparent_hugepage_enabled\n");
+			// vmf.pud = (pud_t * )&entry.pte;
+			vmf.pud = NULL;
+			ret = create_huge_pud(&vmf);
+			if (!(ret & VM_FAULT_FALLBACK))
+				return ret;
+			
+			/* fall back try PMD */
+			ret = create_huge_pmd(&vmf);
+			if (!(ret & VM_FAULT_FALLBACK))
+				return ret;
+		}
+
+		return handle_pte_fault(&vmf);
 	}
 
-	return 0;
+	if (g == page_1GB) {
+		/* copied from __handle_mm_fault in radix tree implementation */
+		pud_t orig_pud = __pud(entry_p->pte);
+		vmf.pud = (pud_t * )&entry_p->pte;
+		
+
+		barrier();
+		if (pud_trans_huge(orig_pud) || pud_devmap(orig_pud)) {
+
+			/* NUMA case for anonymous PUDs would go here */
+
+			if (dirty && !pud_write(orig_pud)) {
+				ret = wp_huge_pud(&vmf, orig_pud);
+				if (!(ret & VM_FAULT_FALLBACK))
+					return ret;
+			} else {
+				huge_pud_set_accessed(&vmf, orig_pud);
+				return 0;
+			}
+		} else {
+			WARN(1, "error page encoding orig_pud=%lx\n", orig_pud.pud);
+		}
+	} 
+	
+	if (g == page_2MB) {
+		vmf.pmd = (pmd_t * )&entry_p->pte;
+		vmf.orig_pmd = *vmf.pmd;
+		
+		barrier();
+		if (unlikely(is_swap_pmd(vmf.orig_pmd))) {
+			VM_BUG_ON(thp_migration_supported() &&
+					  !is_pmd_migration_entry(vmf.orig_pmd));
+			if (is_pmd_migration_entry(vmf.orig_pmd)){
+				WARN(1, "pmd migration not implemented\n");
+				pmd_migration_entry_wait(mm, vmf.pmd);
+			}
+				
+			return 0;
+		}
+
+		if (pmd_trans_huge(vmf.orig_pmd) || pmd_devmap(vmf.orig_pmd)) {
+			if (pmd_protnone(vmf.orig_pmd) && vma_is_accessible(vma)){
+				WARN(1, "do_huge_pmd_numa_page not implemented\n");
+				return do_huge_pmd_numa_page(&vmf);
+			}
+			
+			if (dirty && !pmd_write(vmf.orig_pmd)) {
+				ret = wp_huge_pmd(&vmf);
+				if (!(ret & VM_FAULT_FALLBACK))
+					return ret;
+			} else {
+				huge_pmd_set_accessed(&vmf);
+				return 0;
+			}
+		}
+	} 
+
+	vmf.pte = (pte_t * ) &entry_p->pte;
+	vmf.orig_pte = *vmf.pte;
+	return handle_pte_fault(&vmf);
 }
 
 #else 
@@ -4659,7 +4822,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	p4d_t *p4d;
 	vm_fault_t ret;
 
-	pr_err("ERROR: __handle_mm_fault is being called\n");
+	// pr_err("ERROR: __handle_mm_fault is being called\n");
 
 	pgd = pgd_offset(mm, address);
 	p4d = p4d_alloc(mm, pgd, address);
@@ -4806,7 +4969,8 @@ vm_fault_t handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 			   unsigned int flags, struct pt_regs *regs)
 {
 	vm_fault_t ret;
-
+	pr_info_verbose("vma at %llx vma->pgd=%llx address=%lx flags=%x\n",
+	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  address, flags);
 	__set_current_state(TASK_RUNNING);
 
 	count_vm_event(PGFAULT);

@@ -871,7 +871,7 @@ static ECPT_desc_t * map_desc_alloc_default(void) {
 	if (desc == NULL)
 		goto out;
 
-	dump_stack();
+	// dump_stack();
 	// mm->map_desc = desc;
 
 	for (; way < ECPT_TOTAL_WAY; way++) {
@@ -1135,13 +1135,14 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 			// DEBUG_VAR((uint64_t) entry_ptr);
 			if (gran == unknown) *g = way_to_gran(w);
 			*way = w;
-			break;
+			return entry_ptr;
 		} else {
 			/* not found move on */
 			entry_ptr = NULL;
 		}
 	}
-
+	*g = unknown;
+	*way = -1;
 	return entry_ptr;
 }
 
@@ -1435,7 +1436,7 @@ ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * gran) {
 
 	if (entry_p == NULL) {
 		pr_warn("WARN: vaddr=%llx gran=%d doesn't exist", vaddr, *gran);
-
+		*gran = unknown;
 		return empty;
 	}
 

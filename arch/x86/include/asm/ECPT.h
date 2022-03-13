@@ -107,6 +107,10 @@ extern ECPT_desc_t ecpt_desc;
 
 
 
+static inline bool empty_entry(ecpt_entry_t * e) {
+	return e->VPN_tag == 0 && e->pte == 0;
+}
+
 void load_ECPT_desc(ECPT_desc_t * ecpt);
 // void * map_desc_alloc_default(void);
  
