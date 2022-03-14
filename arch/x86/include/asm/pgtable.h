@@ -1007,7 +1007,14 @@ static inline pud_t native_local_pudp_get_and_clear(pud_t *pudp)
 	native_pud_clear(pudp);
 	return res;
 }
-
+#ifdef CONFIG_X86_64_ECPT
+inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
+			      pte_t *ptep, pte_t pte);
+inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
+			      pmd_t *pmdp, pmd_t pmd);
+inline void set_pud_at(struct mm_struct *mm, unsigned long addr,
+			      pud_t *pudp, pud_t pud);				  
+#else
 static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
@@ -1025,6 +1032,7 @@ static inline void set_pud_at(struct mm_struct *mm, unsigned long addr,
 {
 	native_set_pud(pudp, pud);
 }
+#endif
 
 /*
  * We only update the dirty/accessed state if we set

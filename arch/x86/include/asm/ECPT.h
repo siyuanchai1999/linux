@@ -4,10 +4,9 @@
 // #include <asm/page_types.h>
 // #include <asm/page_64_types.h>
 #include <linux/mm_types.h>
-#include <linux/spinlock.h>
 #include <linux/gfp.h>
 #include <linux/random.h>
-#include <asm/pgalloc.h>
+// #include <asm/pgalloc.h>
 #include <linux/slab.h>
 
 
@@ -79,6 +78,8 @@ static inline int ecpt_pte_present(ecpt_pte_t a)
 
 
 
+
+
 #define ECPT_INSERT_MAX_TRIES 128
 
 // typedef struct ecpt_meta_2M_ {
@@ -100,6 +101,8 @@ typedef enum {
 	page_1GB
 } Granularity ; 
 // enum Granularity {}; 
+
+
 
 extern uint32_t way_to_crN[ECPT_MAX_WAY];
 
