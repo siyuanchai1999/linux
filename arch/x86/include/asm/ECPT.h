@@ -102,13 +102,9 @@ typedef enum {
 } Granularity ; 
 // enum Granularity {}; 
 
-
-
 extern uint32_t way_to_crN[ECPT_MAX_WAY];
 
 extern ECPT_desc_t ecpt_desc;
-
-
 
 static inline bool empty_entry(ecpt_entry_t * e) {
 	return e->VPN_tag == 0 && e->pte == 0;

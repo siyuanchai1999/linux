@@ -826,6 +826,10 @@ static uint64_t alloc_way_default(uint32_t n_entries) {
 	uint32_t order = LOG(nr_pages);
 	
 	// pr_info_verbose("order=%x\n", order);
+	WARN(n_entries * sizeof(ecpt_entry_t) != nr_pages << PAGE_SHIFT,
+		"Page trunc off n_entries=%x nr_pages=%llx\n", n_entries, nr_pages );
+	WARN(1 << order != nr_pages, 
+		"Trunc off during log operation order=%x nr_pages=%llx\n", order, nr_pages );
 	addr = __get_free_pages(GFP_PGTABLE_USER, order);
 
 	if (!addr) {
@@ -836,6 +840,21 @@ static uint64_t alloc_way_default(uint32_t n_entries) {
 
 	cr = addr + HPT_NUM_ENTRIES_TO_CR3(n_entries);
 	return cr;
+}
+
+static void free_one_way(uint64_t cr) {
+	uint32_t n_entries = GET_HPT_SIZE(cr);
+	uint64_t nr_pages = EPCT_NUM_ENTRY_TO_NR_PAGES (n_entries);
+	uint32_t order = LOG(nr_pages);
+
+	uint64_t base = GET_HPT_BASE_VIRT(cr);
+	
+	WARN(n_entries * sizeof(ecpt_entry_t) != nr_pages << PAGE_SHIFT,
+		"Page trunc off n_entries=%x nr_pages=%llx\n", n_entries, nr_pages );
+	WARN(1 << order != nr_pages, 
+		"Trunc off during log operation order=%x nr_pages=%llx\n", order, nr_pages );
+
+	free_pages(base, order);
 }
 
 static inline uint64_t alloc_4K_way_default(void) {
@@ -986,11 +1005,32 @@ void * pgd_alloc(struct mm_struct *mm) {
 	spin_lock(&pgd_lock);
 	ecpt_ctor(mm, desc);
 	spin_unlock(&pgd_lock);
-
+	pr_info_verbose("Create ecpt at %llx for mm at %llx\n",
+		(uint64_t) desc, (uint64_t) mm);
 	return desc;
-}	
+}
 
 
+/**
+ * @brief free pgd in the ECPT way
+ * 
+ * @param mm  
+ * @param map_desc we save the type of pgd_t to avoid change the entire code base
+ */
+void pgd_free(struct mm_struct *mm, pgd_t *map_desc) {
+	ECPT_desc_t * ecpt = (ECPT_desc_t *) map_desc;
+	uint16_t i = 0;
+	pr_info_verbose("Destroy ecpt at %llx\n", (uint64_t) ecpt);
+	dump_stack();
+	print_ecpt(ecpt);
+	
+	for (i = ECPT_KERNEL_WAY; i < ECPT_TOTAL_WAY; i++) {
+		free_one_way(ecpt->table[i]);
+	}
+
+	ecpt_dtor(ecpt);
+	kfree(ecpt);
+}
 /**
  * @brief based on vaddr and granularity
  * 	select all possible ways that can contain such entries
