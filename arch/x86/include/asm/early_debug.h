@@ -21,7 +21,7 @@
 #define debug_putstr(__x)  __putstr(__x)
 #define debug_puthex(__x)  __puthex(__x)
 #define debug_putaddr(__x) { \
-		debug_putstr(#__x ": 0x"); \
+		debug_putstr(#__x ": "); \
 		debug_puthex((unsigned long)(__x)); \
 		debug_putstr("\n"); \
 	}
