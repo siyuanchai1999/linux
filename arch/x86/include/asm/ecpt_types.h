@@ -5,6 +5,7 @@
 /* adpated from <asm/pgtable_types.h> */
 #include <linux/const.h>
 #include <asm/ECPT_defs.h>
+#include <linux/types.h>
 // #include <linux/mem_encrypt.h>
 
 // #include <asm/page_types.h>

@@ -63,9 +63,6 @@ extern pmdval_t early_pmd_flags;
 #include <asm/paravirt.h>
 #else  /* !CONFIG_PARAVIRT_XXL */
 
-#ifdef CONFIG_X86_64_ECPT
-	#define set_hpt_pgd_entry(pgdp, pgd)	native_set_hpt_pgd_entry(pgdp, pgd)
-#endif
 
 #define set_pte(ptep, pte)		native_set_pte(ptep, pte)
 
@@ -727,6 +724,11 @@ static inline pgd_t pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 #include <linux/log2.h>
 #include <asm/fixmap.h>
 
+#ifdef CONFIG_X86_64_ECPT
+	#include <asm/ECPT.h>
+	#include <asm/ECPT_interface.h>
+#endif
+
 static inline int pte_none(pte_t pte)
 {
 	return !(pte.pte & ~(_PAGE_KNL_ERRATUM_MASK));
@@ -1007,32 +1009,37 @@ static inline pud_t native_local_pudp_get_and_clear(pud_t *pudp)
 	native_pud_clear(pudp);
 	return res;
 }
-#ifdef CONFIG_X86_64_ECPT
-inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
-			      pte_t *ptep, pte_t pte);
-inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
-			      pmd_t *pmdp, pmd_t pmd);
-inline void set_pud_at(struct mm_struct *mm, unsigned long addr,
-			      pud_t *pudp, pud_t pud);				  
-#else
+
 static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
+#ifdef CONFIG_X86_64_ECPT
+	ecpt_set_pte_at(mm, addr, ptep, pte);
+#else
 	set_pte(ptep, pte);
+#endif
+	
 }
 
 static inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
 			      pmd_t *pmdp, pmd_t pmd)
 {
+#ifdef CONFIG_X86_64_ECPT
+	ecpt_set_pmd_at(mm, addr, pmdp, pmd);
+#else
 	set_pmd(pmdp, pmd);
+#endif
 }
 
 static inline void set_pud_at(struct mm_struct *mm, unsigned long addr,
 			      pud_t *pudp, pud_t pud)
 {
+#ifdef CONFIG_X86_64_ECPT
+	ecpt_set_pud_at(mm, addr, pudp, pud);
+#else
 	native_set_pud(pudp, pud);
+#endif	
 }
-#endif
 
 /*
  * We only update the dirty/accessed state if we set
@@ -1077,7 +1084,12 @@ static inline pte_t ptep_get_and_clear_full(struct mm_struct *mm,
 		 */
 		pte = native_local_ptep_get_and_clear(ptep);
 	} else {
-		pte = ptep_get_and_clear(mm, addr, ptep);
+#ifdef CONFIG_X86_64_ECPT
+	pte = ecpt_native_ptep_get_and_clear(mm, addr, ptep);
+#else
+	pte = ptep_get_and_clear(mm, addr, ptep);
+#endif
+		
 	}
 	return pte;
 }
@@ -1122,6 +1134,9 @@ static inline int pmd_write(pmd_t pmd)
 static inline pmd_t pmdp_huge_get_and_clear(struct mm_struct *mm, unsigned long addr,
 				       pmd_t *pmdp)
 {
+#ifdef CONFIG_X86_64_ECPT
+	return ecpt_native_pmdp_get_and_clear(mm, addr, pmdp);
+#endif
 	return native_pmdp_get_and_clear(pmdp);
 }
 
@@ -1129,6 +1144,10 @@ static inline pmd_t pmdp_huge_get_and_clear(struct mm_struct *mm, unsigned long 
 static inline pud_t pudp_huge_get_and_clear(struct mm_struct *mm,
 					unsigned long addr, pud_t *pudp)
 {
+#ifdef CONFIG_X86_64_ECPT
+	return ecpt_native_pudp_get_and_clear(mm, addr, pudp);
+#endif
+
 	return native_pudp_get_and_clear(pudp);
 }
 

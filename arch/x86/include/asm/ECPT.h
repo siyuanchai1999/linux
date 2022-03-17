@@ -3,11 +3,11 @@
 
 // #include <asm/page_types.h>
 // #include <asm/page_64_types.h>
-#include <linux/mm_types.h>
-#include <linux/gfp.h>
-#include <linux/random.h>
+// #include <linux/mm_types.h>
+// #include <linux/gfp.h>
+// #include <linux/random.h>
 // #include <asm/pgalloc.h>
-#include <linux/slab.h>
+// #include <linux/slab.h>
 
 
 #include <asm/ecpt_types.h>
@@ -19,10 +19,14 @@
 #define pgprot_decrypted(prot)	__pgprot(__sme_clr(pgprot_val(prot)))
 
 #ifndef __ASSEMBLY__
-#include <asm/x86_init.h>
-#include <asm/pkru.h>
-#include <asm/fpu/api.h>
-#include <asm-generic/pgtable_uffd.h>
+// #include <asm/x86_init.h>
+// #include <asm/pkru.h>
+// #include <asm/fpu/api.h>
+// #include <asm-generic/pgtable_uffd.h>
+#include <asm/processor.h>
+#include <linux/bitops.h>
+#include <linux/threads.h>
+#include <asm/fixmap.h>
 #endif
 
 static inline void native_set_ecpt_pud(ecpt_pud_t *pudp, ecpt_pud_t pud)
