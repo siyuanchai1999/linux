@@ -6,6 +6,8 @@
 
 #include <asm/pgalloc.h>
 #include <linux/spinlock.h>
+#include <linux/random.h>
+#include <linux/slab.h>
 
 #ifdef CONFIG_DEBUG_BEFORE_CONSOLE
 #include <asm/early_debug.h>
@@ -1654,46 +1656,5 @@ void print_ecpt(ECPT_desc_t * ecpt) {
 
 }
 
-inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
-			      pte_t *ptep, pte_t pte)
-{
-	int res;
-	pr_info("set_pte_at Insert 4KB addr=%lx pte=%lx\n", addr, pte.pte);
-	res = ecpt_mm_insert(
-		mm,
-		addr,
-		ENTRY_TO_ADDR(pte.pte),
-		__ecpt_pgprot(ENTRY_TO_PROT(pte.pte)),
-		page_4KB
-	);
 
-	WARN(res, "Error when insert %lx as 4KB page\n", addr);
-}
-inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
-			      pmd_t *pmdp, pmd_t pmd)
-{
-	int res = ecpt_mm_insert(
-		mm,
-		addr,
-		ENTRY_TO_ADDR(pmd.pmd),
-		__ecpt_pgprot(ENTRY_TO_PROT(pmd.pmd)),
-		page_2MB
-	);
-
-	WARN(res, "Error when insert %lx as 2MB page\n", addr);
-}
-
-inline void set_pud_at(struct mm_struct *mm, unsigned long addr,
-			      pud_t *pudp, pud_t pud)
-{
-	int res = ecpt_mm_insert(
-		mm,
-		addr,
-		ENTRY_TO_ADDR(pud.pud),
-		__ecpt_pgprot(ENTRY_TO_PROT(pud.pud)),
-		page_1GB
-	);
-
-	WARN(res, "Error when insert %lx as 1GB page\n", addr);
-}
 

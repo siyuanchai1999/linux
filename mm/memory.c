@@ -1307,13 +1307,20 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 
 static unsigned long zap_pte_range(struct mmu_gather *tlb,
 				struct vm_area_struct *vma, pmd_t *pmd,
+#ifdef CONFIG_X86_64_ECPT
+				pte_t * ptep,
+#endif
 				unsigned long addr, unsigned long end,
-				struct zap_details *details)
+				struct zap_details *details
+)
 {
 	struct mm_struct *mm = tlb->mm;
 	int force_flush = 0;
 	int rss[NR_MM_COUNTERS];
+#ifndef CONFIG_X86_64_ECPT
 	spinlock_t *ptl;
+#endif
+	
 	pte_t *start_pte;
 	pte_t *pte;
 	swp_entry_t entry;
@@ -1321,12 +1328,17 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	tlb_change_page_size(tlb, PAGE_SIZE);
 again:
 	init_rss_vec(rss);
+#ifdef CONFIG_X86_64_ECPT
+	start_pte = ptep;
+#else	
 	start_pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
+#endif
 	pte = start_pte;
 	flush_tlb_batched_pending(mm);
 	arch_enter_lazy_mmu_mode();
 	do {
 		pte_t ptent = *pte;
+		pr_info_verbose("ptent=%lx\n",ptent.pte );
 		if (pte_none(ptent))
 			continue;
 
@@ -1423,8 +1435,10 @@ again:
 	/* Do the actual TLB flush before dropping ptl */
 	if (force_flush)
 		tlb_flush_mmu_tlbonly(tlb);
-	pte_unmap_unlock(start_pte, ptl);
 
+#ifndef CONFIG_X86_64_ECPT
+	pte_unmap_unlock(start_pte, ptl);
+#endif
 	/*
 	 * If we forced a TLB flush (either due to running out of
 	 * batch buffers or because we needed to flush dirty TLB
@@ -1444,6 +1458,92 @@ again:
 	return addr;
 }
 
+
+
+#ifdef CONFIG_X86_64_ECPT
+void unmap_page_range(struct mmu_gather *tlb,
+			     struct vm_area_struct *vma,
+			     unsigned long addr, unsigned long end,
+			     struct zap_details *details)
+{	
+	unsigned long next;
+	Granularity g = unknown;
+	ecpt_entry_t entry;
+
+	pr_info_verbose("vma at %llx vma->pgd=%llx start=%lx end=%lx\n",
+	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  addr, end);
+	print_ecpt(vma->vm_mm->map_desc);
+
+	do {
+		entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
+		pr_info_verbose("{.vpn=%llx .pte=%llx}\n", entry.VPN_tag, entry.pte);
+		if (empty_entry(&entry)) {
+
+		} else if (g == page_4KB) {
+			pte_t * pte = (pte_t *) &entry.pte;
+			next = zap_pte_range(tlb, vma, 
+				NULL,	/* pmd */
+				pte, /* pte */
+				addr, addr + PAGE_SIZE, details);
+
+		} else if (g == page_2MB) {
+			pmd_t * pmd = (pmd_t *) &entry.pte;
+			WARN(1, "2M unmap not implemented yet");
+			next = pmd_addr_end(addr, end);
+			
+			if (is_swap_pmd(*pmd) || pmd_trans_huge(*pmd) || pmd_devmap(*pmd)) {
+				if (next - addr != HPAGE_PMD_SIZE)
+					__split_huge_pmd(vma, pmd, addr, false, NULL);
+				else if (zap_huge_pmd(tlb, vma, pmd, addr))
+					goto next;
+				/* fall through */
+			} else if (details && details->single_page &&
+				PageTransCompound(details->single_page) &&
+				next - addr == HPAGE_PMD_SIZE && pmd_none(*pmd)) {
+				spinlock_t *ptl = pmd_lock(tlb->mm, pmd);
+				/*
+				* Take and drop THP pmd lock so that we cannot return
+				* prematurely, while zap_huge_pmd() has cleared *pmd,
+				* but not yet decremented compound_mapcount().
+				*/
+				spin_unlock(ptl);
+			}
+
+			/*
+			* Here there can be other concurrent MADV_DONTNEED or
+			* trans huge page faults running, and if the pmd is
+			* none or trans huge it can change under us. This is
+			* because MADV_DONTNEED holds the mmap_lock in read
+			* mode.
+			*/
+			if (pmd_none_or_trans_huge_or_clear_bad(pmd))
+			goto next;
+
+
+		} else if (g == page_1GB) {
+			pud_t * pud = (pud_t *) &entry.pte;
+			next = pud_addr_end(addr, end);
+			if (pud_trans_huge(*pud) || pud_devmap(*pud)) {
+				if (next - addr != HPAGE_PUD_SIZE) {
+					mmap_assert_locked(tlb->mm);
+					split_huge_pud(vma, pud, addr);
+				} else if (zap_huge_pud(tlb, vma, pud, addr))
+					goto next;
+				/* fall through */
+			}
+			if (pud_none_or_clear_bad(pud))
+				continue;
+
+		} else {
+			BUG();
+		}
+
+next:
+		cond_resched();
+	} while (addr = next, addr != end);
+
+}
+#else
 static inline unsigned long zap_pmd_range(struct mmu_gather *tlb,
 				struct vm_area_struct *vma, pud_t *pud,
 				unsigned long addr, unsigned long end,
@@ -1538,6 +1638,7 @@ static inline unsigned long zap_p4d_range(struct mmu_gather *tlb,
 	return addr;
 }
 
+
 void unmap_page_range(struct mmu_gather *tlb,
 			     struct vm_area_struct *vma,
 			     unsigned long addr, unsigned long end,
@@ -1546,6 +1647,10 @@ void unmap_page_range(struct mmu_gather *tlb,
 	pgd_t *pgd;
 	unsigned long next;
 
+	pr_info_verbose("vma at %llx vma->pgd=%llx start=%lx end=%lx\n",
+	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  addr, end);
+	print_ecpt(vma->vm_mm->map_desc);
+	// pr_info_verbose("mm at %llx addr=%lx end=%lx\n", (uint64_t) vma->vm_mm, addr, end);
 	BUG_ON(addr >= end);
 	tlb_start_vma(tlb, vma);
 	pgd = pgd_offset(vma->vm_mm, addr);
@@ -1557,7 +1662,7 @@ void unmap_page_range(struct mmu_gather *tlb,
 	} while (pgd++, addr = next, addr != end);
 	tlb_end_vma(tlb, vma);
 }
-
+#endif
 
 static void unmap_single_vma(struct mmu_gather *tlb,
 		struct vm_area_struct *vma, unsigned long start_addr,
@@ -4796,7 +4901,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	unsigned int dirty = flags & FAULT_FLAG_WRITE;
 	struct mm_struct *mm = vma->vm_mm;
 	vm_fault_t ret;
-	pte_t pte;
+	// pte_t pte;
 	ecpt_entry_t *entry_p;
 	Granularity g = unknown;	
 	uint32_t way = 0;

@@ -1082,7 +1082,11 @@ static inline pte_t ptep_get_and_clear_full(struct mm_struct *mm,
 		 * Full address destruction in progress; paravirt does not
 		 * care about updates and native needs no locking
 		 */
-		pte = native_local_ptep_get_and_clear(ptep);
+#ifdef CONFIG_X86_64_ECPT
+	pte = ecpt_native_ptep_get_and_clear(mm, addr, ptep);
+#else
+	pte = native_local_ptep_get_and_clear(ptep);
+#endif
 	} else {
 #ifdef CONFIG_X86_64_ECPT
 	pte = ecpt_native_ptep_get_and_clear(mm, addr, ptep);
