@@ -346,6 +346,11 @@ void free_pgd_range(struct mmu_gather *tlb,
 {
 	pgd_t *pgd;
 	unsigned long next;
+#ifdef CONFIG_X86_64_ECPT	
+	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
+	WARN(1, "free_pgd_range not implented with ECPT\n");
+	return;
+#endif
 
 	/*
 	 * The next few lines have given us lots of grief...
@@ -408,7 +413,7 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 	while (vma) {
 		struct vm_area_struct *next = vma->vm_next;
 		unsigned long addr = vma->vm_start;
-
+		pr_info_verbose("start=%lx end=%lx\n", vma->vm_start, vma->vm_end);
 		/*
 		 * Hide vma from rmap and truncate_pagecache before freeing
 		 * pgtables
@@ -1237,7 +1242,7 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 	struct mmu_notifier_range range;
 	bool is_cow;
 	int ret;
-
+	WARN(1, "copy_page_range not implemended with ECPT!\n");
 	/*
 	 * Don't copy ptes where a page fault will fill them correctly.
 	 * Fork becomes much lighter when there are big shared or private
@@ -2488,7 +2493,7 @@ int remap_pfn_range_notrack(struct vm_area_struct *vma, unsigned long addr,
 	unsigned long end = addr + PAGE_ALIGN(size);
 	struct mm_struct *mm = vma->vm_mm;
 	int err;
-
+	WARN(1, "remap_pfn_range_notrack not implemented with ECPT!\n");
 	if (WARN_ON_ONCE(!PAGE_ALIGNED(addr)))
 		return -EINVAL;
 

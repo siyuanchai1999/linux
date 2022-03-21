@@ -994,7 +994,8 @@ static void ecpt_dtor(ECPT_desc_t * ecpt)
  */
 void * pgd_alloc(struct mm_struct *mm) {
 	void* desc = map_desc_alloc_default();
-	
+	uint32_t n_entries = 0, i = 0, bytes_need;
+
 	WARN(!desc, "map_desc_alloc_default fails\n");
 	
 	mm->map_desc = desc;
@@ -1007,6 +1008,14 @@ void * pgd_alloc(struct mm_struct *mm) {
 	spin_lock(&pgd_lock);
 	ecpt_ctor(mm, desc);
 	spin_unlock(&pgd_lock);
+
+	/* Update pgtables_bytes */
+	for (i = ECPT_KERNEL_WAY; i < ECPT_TOTAL_WAY; i++) {
+		n_entries = GET_HPT_SIZE(((ECPT_desc_t * ) desc)->table[i]);
+		bytes_need = n_entries * sizeof(ecpt_entry_t);
+		atomic_long_add(bytes_need,  &mm->pgtables_bytes); 
+	}
+
 	pr_info_verbose("Create ecpt at %llx for mm at %llx\n",
 		(uint64_t) desc, (uint64_t) mm);
 	return desc;
@@ -1022,13 +1031,20 @@ void * pgd_alloc(struct mm_struct *mm) {
 void pgd_free(struct mm_struct *mm, pgd_t *map_desc) {
 	ECPT_desc_t * ecpt = (ECPT_desc_t *) map_desc;
 	uint16_t i = 0;
+	uint32_t n_entries = 0, bytes_need;
 	pr_info_verbose("Destroy ecpt at %llx\n", (uint64_t) ecpt);
-	dump_stack();
-	print_ecpt(ecpt);
+	// dump_stack();
+	// print_ecpt(ecpt);
 	
 	for (i = ECPT_KERNEL_WAY; i < ECPT_TOTAL_WAY; i++) {
 		free_one_way(ecpt->table[i]);
+
+		n_entries = GET_HPT_SIZE(ecpt->table[i]);
+		bytes_need = n_entries * sizeof(ecpt_entry_t);
+		atomic_long_sub(bytes_need,  &mm->pgtables_bytes); 
 	}
+
+
 
 	ecpt_dtor(ecpt);
 	kfree(ecpt);
