@@ -727,7 +727,7 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 	gfp_t gfp;
 	struct page *page;
 	unsigned long haddr = vmf->address & HPAGE_PMD_MASK;
-
+	pr_info_verbose("addr=%lx\n", vmf->address);
 	if (!transhuge_vma_suitable(vma, haddr))
 		return VM_FAULT_FALLBACK;
 	if (unlikely(anon_vma_prepare(vma)))
@@ -1901,18 +1901,28 @@ void __split_huge_pud(struct vm_area_struct *vma, pud_t *pud,
 {
 	spinlock_t *ptl;
 	struct mmu_notifier_range range;
-
+	// WARN(1, "__split_huge_pud not implemented with ECPT\n");
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma, vma->vm_mm,
 				address & HPAGE_PUD_MASK,
 				(address & HPAGE_PUD_MASK) + HPAGE_PUD_SIZE);
 	mmu_notifier_invalidate_range_start(&range);
+
+#ifdef CONFIG_X86_64_ECPT
+	/* This could happen since ECPT doesn't know  */	
+	if (!pud)
+		goto out;	
+#else
 	ptl = pud_lock(vma->vm_mm, pud);
+#endif
 	if (unlikely(!pud_trans_huge(*pud) && !pud_devmap(*pud)))
 		goto out;
 	__split_huge_pud_locked(vma, pud, range.start);
 
 out:
+#ifndef CONFIG_X86_64_ECPT
 	spin_unlock(ptl);
+#endif
+	
 	/*
 	 * No need to double call mmu_notifier->invalidate_range() callback as
 	 * the above pudp_huge_clear_flush_notify() did already call it.
@@ -2149,7 +2159,7 @@ void __split_huge_pmd(struct vm_area_struct *vma, pmd_t *pmd,
 	struct mmu_notifier_range range;
 	bool do_unlock_page = false;
 	pmd_t _pmd;
-
+	WARN(1, "__split_huge_pmd not implemented with ECPT\n");
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma, vma->vm_mm,
 				address & HPAGE_PMD_MASK,
 				(address & HPAGE_PMD_MASK) + HPAGE_PMD_SIZE);

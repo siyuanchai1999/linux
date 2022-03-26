@@ -1477,13 +1477,13 @@ void unmap_page_range(struct mmu_gather *tlb,
 
 	pr_info_verbose("vma at %llx vma->pgd=%llx start=%lx end=%lx\n",
 	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  addr, end);
-	print_ecpt(vma->vm_mm->map_desc);
+	// print_ecpt(vma->vm_mm->map_desc);
 
 	do {
 		entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
-		pr_info_verbose("{.vpn=%llx .pte=%llx}\n", entry.VPN_tag, entry.pte);
+		pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
 		if (empty_entry(&entry)) {
-
+			next = addr + PAGE_SIZE;
 		} else if (g == page_4KB) {
 			pte_t * pte = (pte_t *) &entry.pte;
 			next = zap_pte_range(tlb, vma, 
@@ -4476,7 +4476,7 @@ static vm_fault_t do_fault(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	struct mm_struct *vm_mm = vma->vm_mm;
 	vm_fault_t ret;
-	pr_info_verbose("vmf at %llx\n", (uint64_t) vmf);
+	pr_info_verbose("vmf=%lx\n", vmf->address);
 	/*
 	 * The VMA was not fully populated on mmap() or missing VM_DONTEXPAND
 	 */
@@ -4634,9 +4634,11 @@ out_map:
 }
 
 static inline vm_fault_t create_huge_pmd(struct vm_fault *vmf)
-{
+{	
+	pr_info_verbose("is_anonymous=%d \n", vma_is_anonymous(vmf->vma));
 	if (vma_is_anonymous(vmf->vma))
 		return do_huge_pmd_anonymous_page(vmf);
+	pr_info_verbose("huge_fault at %llx \n", (uint64_t) vmf->vma->vm_ops->huge_fault);
 	if (vmf->vma->vm_ops->huge_fault)
 		return vmf->vma->vm_ops->huge_fault(vmf, PE_SIZE_PMD);
 	return VM_FAULT_FALLBACK;
@@ -4667,12 +4669,13 @@ static inline vm_fault_t wp_huge_pmd(struct vm_fault *vmf)
 
 static vm_fault_t create_huge_pud(struct vm_fault *vmf)
 {
-	WARN(1, "create_huge_pud not implemented with ECPT\n");
+	// WARN(1, "create_huge_pud not implemented with ECPT\n");
 #if defined(CONFIG_TRANSPARENT_HUGEPAGE) &&			\
 	defined(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
 	/* No support for anonymous transparent PUD pages yet */
 	if (vma_is_anonymous(vmf->vma))
 		goto split;
+	pr_info_verbose("vmf->vma->vm_ops->huge_fault at %llx\n", (uint64_t) vmf->vma->vm_ops->huge_fault);
 	if (vmf->vma->vm_ops->huge_fault) {
 		vm_fault_t ret = vmf->vma->vm_ops->huge_fault(vmf, PE_SIZE_PUD);
 
@@ -5174,8 +5177,8 @@ vm_fault_t handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 			   unsigned int flags, struct pt_regs *regs)
 {
 	vm_fault_t ret;
-	pr_info_verbose("vma at %llx vma->pgd=%llx address=%lx flags=%x\n",
-	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  address, flags);
+	pr_info_verbose("vma at %llx vma->pgd=%llx vma->vm_flags=%lx address=%lx flags=%x\n",
+	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  vma->vm_flags , address, flags);
 	__set_current_state(TASK_RUNNING);
 
 	count_vm_event(PGFAULT);
