@@ -3,7 +3,7 @@
 
 #include <asm/ECPT.h>
 
-static inline void ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
+static inline int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
 	int res;
@@ -17,6 +17,7 @@ static inline void ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 	);
 
 	WARN(res, "Error when insert %lx as 4KB page\n", addr);
+	return res;
 }
 static inline void ecpt_set_pmd_at(struct mm_struct *mm, unsigned long addr,
 			      pmd_t *pmdp, pmd_t pmd)

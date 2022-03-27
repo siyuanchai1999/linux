@@ -1010,13 +1010,14 @@ static inline pud_t native_local_pudp_get_and_clear(pud_t *pudp)
 	return res;
 }
 
-static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
+static inline int set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
 #ifdef CONFIG_X86_64_ECPT
-	ecpt_set_pte_at(mm, addr, ptep, pte);
+	return ecpt_set_pte_at(mm, addr, ptep, pte);
 #else
 	set_pte(ptep, pte);
+	return 0;
 #endif
 	
 }

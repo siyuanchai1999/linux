@@ -4057,13 +4057,15 @@ static vm_fault_t __do_fault(struct vm_fault *vmf)
 	 *				unlock_page(B)
 	 *				# flush A, B to clear the writeback
 	 */
+	/* We don't need to allocate for ECPT. The ECPT data structure determines, when it will resize */
+#ifndef CONFIG_X86_64_ECPT
 	if (pmd_none(*vmf->pmd) && !vmf->prealloc_pte) {
 		vmf->prealloc_pte = pte_alloc_one(vma->vm_mm);
 		if (!vmf->prealloc_pte)
 			return VM_FAULT_OOM;
 		smp_wmb(); /* See comment in __pte_alloc() */
 	}
-
+#endif
 	ret = vma->vm_ops->fault(vmf);
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY |
 			    VM_FAULT_DONE_COW)))
@@ -4163,7 +4165,11 @@ vm_fault_t do_set_pmd(struct vm_fault *vmf, struct page *page)
 }
 #endif
 
-void do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr)
+#if CONFIG_X86_64_ECPT	
+	int do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr)
+#else 
+	void do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr)
+#endif
 {
 	struct vm_area_struct *vma = vmf->vma;
 	bool write = vmf->flags & FAULT_FLAG_WRITE;
@@ -4189,7 +4195,11 @@ void do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr)
 		inc_mm_counter_fast(vma->vm_mm, mm_counter_file(page));
 		page_add_file_rmap(page, false);
 	}
+#if CONFIG_X86_64_ECPT	
+	return set_pte_at(vma->vm_mm, addr, vmf->pte, entry);
+#else 
 	set_pte_at(vma->vm_mm, addr, vmf->pte, entry);
+#endif
 }
 
 /**
@@ -4207,6 +4217,7 @@ void do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr)
  *
  * Return: %0 on success, %VM_FAULT_ code in case of error.
  */
+#ifdef CONFIG_X86_64_ECPT
 vm_fault_t finish_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
@@ -4229,7 +4240,71 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 			return ret;
 	}
 
-	if (pmd_none(*vmf->pmd)) {
+	/* CHANGED: vmf->pmd could be none since pmd is decoupled from PTE table */
+	// if (pmd_none(*vmf->pmd)) {
+	// 	if (PageTransCompound(page)) {
+	// 		ret = do_set_pmd(vmf, page);
+	// 		if (ret != VM_FAULT_FALLBACK)
+	// 			return ret;
+	// 	}
+
+	// 	if (vmf->prealloc_pte) {
+	// 		vmf->ptl = pmd_lock(vma->vm_mm, vmf->pmd);
+	// 		if (likely(pmd_none(*vmf->pmd))) {
+	// 			mm_inc_nr_ptes(vma->vm_mm);
+	// 			pmd_populate(vma->vm_mm, vmf->pmd, vmf->prealloc_pte);
+	// 			vmf->prealloc_pte = NULL;
+	// 		}
+	// 		spin_unlock(vmf->ptl);
+	// 	} else if (unlikely(pte_alloc(vma->vm_mm, vmf->pmd))) {
+	// 		return VM_FAULT_OOM;
+	// 	}
+	// }
+
+	// if (pmd_devmap_trans_unstable(vmf->pmd))
+	// 	return 0;
+		
+
+	// vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd,
+				    //   vmf->address, &vmf->ptl);
+	ret = 0;
+	/* Re-check under ptl */
+	// if (likely(pte_none(*vmf->pte)))
+	// 	do_set_pte(vmf, page, vmf->address);
+	// else
+	// 	ret = VM_FAULT_NOPAGE;
+
+	if (do_set_pte(vmf, page, vmf->address)) 
+		ret = VM_FAULT_NOPAGE;
+
+	update_mmu_tlb(vma, vmf->address, vmf->pte);
+	// pte_unmap_unlock(vmf->pte, vmf->ptl);
+	return ret;
+}
+#else
+vm_fault_t finish_fault(struct vm_fault *vmf)
+{
+	struct vm_area_struct *vma = vmf->vma;
+	struct page *page;
+	vm_fault_t ret;
+
+	/* Did we COW the page? */
+	if ((vmf->flags & FAULT_FLAG_WRITE) && !(vma->vm_flags & VM_SHARED))
+		page = vmf->cow_page;
+	else
+		page = vmf->page;
+
+	/*
+	 * check even for read faults because we might have lost our CoWed
+	 * page
+	 */
+	if (!(vma->vm_flags & VM_SHARED)) {
+		ret = check_stable_address_space(vma->vm_mm);
+		if (ret)
+			return ret;
+	}
+
+	if (pmd_none(*vmf->pmd)) {	
 		if (PageTransCompound(page)) {
 			ret = do_set_pmd(vmf, page);
 			if (ret != VM_FAULT_FALLBACK)
@@ -4251,7 +4326,7 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 
 	/* See comment in handle_pte_fault() */
 	if (pmd_devmap_trans_unstable(vmf->pmd))
-		return 0;
+		return 0;		
 
 	vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd,
 				      vmf->address, &vmf->ptl);
@@ -4266,6 +4341,7 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 	return ret;
 }
+#endif
 
 static unsigned long fault_around_bytes __read_mostly =
 	rounddown_pow_of_two(65536);
@@ -4365,7 +4441,7 @@ static vm_fault_t do_read_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	vm_fault_t ret = 0;
-
+	pr_info_verbose("addr=%lx\n", vmf->address);
 	/*
 	 * Let's call ->map_pages() first and use ->fault() as fallback
 	 * if page by the offset is not ready to be mapped (cold cache or
@@ -4394,7 +4470,7 @@ static vm_fault_t do_cow_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	vm_fault_t ret;
-
+	pr_info_verbose("addr=%lx\n", vmf->address);
 	if (unlikely(anon_vma_prepare(vma)))
 		return VM_FAULT_OOM;
 
@@ -4432,7 +4508,7 @@ static vm_fault_t do_shared_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	vm_fault_t ret, tmp;
-
+	pr_info_verbose("addr=%lx\n", vmf->address);
 	ret = __do_fault(vmf);
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY)))
 		return ret;
@@ -4476,7 +4552,8 @@ static vm_fault_t do_fault(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	struct mm_struct *vm_mm = vma->vm_mm;
 	vm_fault_t ret;
-	pr_info_verbose("vmf=%lx\n", vmf->address);
+	pr_info_verbose("addr=%lx fault at %llx vmf->flags=%x\n",
+	 	vmf->address, (uint64_t) vma->vm_ops->fault, vmf->flags);
 	/*
 	 * The VMA was not fully populated on mmap() or missing VM_DONTEXPAND
 	 */
