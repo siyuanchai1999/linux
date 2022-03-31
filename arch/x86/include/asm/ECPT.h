@@ -108,7 +108,10 @@ typedef enum {
 
 extern uint32_t way_to_crN[ECPT_MAX_WAY];
 
+/* defined in head64.S */
 extern ECPT_desc_t ecpt_desc;
+
+extern pte_t pte_default;
 
 static inline bool empty_entry(ecpt_entry_t * e) {
 	return e->VPN_tag == 0 && e->pte == 0;

@@ -1,6 +1,7 @@
 
 #include <asm/ECPT.h>
 #include <asm/ECPT_defs.h>
+#include <asm/ECPT_interface.h>
 
 #include <linux/panic.h>
 
@@ -22,6 +23,7 @@
 
 
 uint32_t way_to_crN[ECPT_MAX_WAY]= {ECPT_WAY_TO_CR_SEQ};
+pte_t pte_default = {.pte = 0};
 
 /* crc32.c
    Copyright (C) 2009-2021 Free Software Foundation, Inc.
@@ -588,6 +590,20 @@ static uint32_t get_diff_rand(uint32_t cur_way, uint32_t n_way) {
 	} while (way == cur_way);
 	
 	return way;
+}
+
+static uint32_t round_robin_way = 0;
+static uint32_t get_rand_way(uint32_t n_way) {
+	uint32_t way = 0;
+
+	if (rng_is_initialized()) {
+		pr_info_verbose("call get random\n");
+		way = get_random_u32();
+	} else {
+		way = round_robin_way++;
+	}
+
+	return way % n_way;	
 }
 
 /**
@@ -1207,6 +1223,78 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 	return entry_ptr;
 }
 
+ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
+
+	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
+
+	uint32_t w = 0, way_start, way_end;
+
+	ecpt_entry_t * ecpt_base;
+	ecpt_entry_t * entry_ptr = NULL;
+	ecpt_entry_t entry;
+	/* this m */
+	ecpt_entry_t * empty_slots[ECPT_TOTAL_WAY];
+	ecpt_entry_t * evict_slots[ECPT_TOTAL_WAY];
+	uint16_t empty_i = 0, evict_i = 0;
+	if (gran == unknown) {
+		return NULL;
+	}
+
+	select_way(
+		vaddr, gran,		/* input */
+		&way_start, &way_end, &vpn	/* output */
+	);
+
+
+	for (w = way_start; w < way_end; w++) {
+
+		cr = ecpt->table[w];
+		size = GET_HPT_SIZE(cr);
+
+		if (size == 0) {
+			/* way that has not been built becuase of lazy alloc of ECPT */
+			continue;
+		}
+
+		hash = gen_hash_64(vpn, size);
+		
+		if (hash < rehash_ptr) {
+            /* not supported for resizing now */
+            /* rehash_ptr MBZ right now */
+            panic("no rehash support!\n");
+        } else {
+			/* stay with current hash table */
+            ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
+            entry_ptr = &ecpt_base[hash];
+
+		}
+        entry = *entry_ptr;
+
+		if (entry.VPN_tag == vpn) {
+			
+			return entry_ptr;
+		} else if (entry.pte == 0){
+			/* not found, but entry empty */
+			empty_slots[empty_i++] = entry_ptr;
+			entry_ptr = NULL;
+		} else {
+			evict_slots[evict_i++] = entry_ptr;	
+			entry_ptr = NULL;
+		}
+	}
+
+	if (empty_i > 0) {
+		return empty_slots[get_rand_way(empty_i)];
+	}
+
+	if (evict_i > 0) {
+		entry_ptr = evict_slots[get_rand_way(evict_i)];
+		/* TODO: eviction */
+		BUG();
+	}
+	return entry_ptr;
+}
+
 int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran) {
 	
 	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
@@ -1449,6 +1537,50 @@ int ecpt_mm_insert_range(
 	return res;
 }
 
+static int ecpt_set_pte(pte_t *ptep, pte_t pte, unsigned long addr) {
+	ecpt_entry_t * e;
+	uint64_t * tag_ptr;
+	if (ptep != &pte_default) {
+		WRITE_ONCE(*ptep, pte);
+		e = GET_ECPT_P_FROM_PTEP(ptep, addr);
+		pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
+		tag_ptr = (uint64_t *) &e->VPN_tag;
+		WRITE_ONCE(*tag_ptr, ADDR_TO_PAGE_NUM_4KB(addr));
+
+		return 0;
+	}	
+
+	return -1;
+}
+
+
+int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
+			      pte_t *ptep, pte_t pte)
+{
+	int res = 0;
+	if (ptep != &pte_default) {
+		pr_info("set_pte_at 4KB addr=%lx pte=%lx with ptep at %llx\n",
+			addr, pte.pte, (uint64_t) ptep);
+	} 
+	
+	res = ecpt_set_pte(ptep, pte, addr);
+	if (!res)
+		return res;
+
+	pr_info("ecpt_insert 4KB addr=%lx pte=%lx \n", addr, pte.pte);
+	res = ecpt_insert(
+		mm->map_desc,
+		addr,
+		ENTRY_TO_ADDR(pte.pte),
+		__ecpt_pgprot(ENTRY_TO_PROT(pte.pte)),
+		page_4KB
+	);
+
+	WARN(res, "Error when insert %lx as 4KB page\n", addr);
+	return res;
+}
+
+
 int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	
 
@@ -1496,7 +1628,7 @@ ecpt_entry_t ecpt_peek(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * gran) {
 	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, vaddr, gran, &way_temp);
 
 	if (entry_p == NULL) {
-		pr_warn("WARN: vaddr=%llx gran=%d doesn't exist", vaddr, *gran);
+		// pr_warn("WARN: vaddr=%llx gran=%d doesn't exist", vaddr, *gran);
 		*gran = unknown;
 		return empty;
 	}

@@ -1068,7 +1068,12 @@ extern int ptep_clear_flush_young(struct vm_area_struct *vma,
 static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 				       pte_t *ptep)
 {
-	pte_t pte = native_ptep_get_and_clear(ptep);
+	pte_t pte;
+#ifdef CONFIG_X86_64_ECPT
+	pte = ecpt_native_ptep_get_and_clear(mm, addr, ptep);
+#else
+	pte = native_ptep_get_and_clear(ptep);
+#endif
 	return pte;
 }
 

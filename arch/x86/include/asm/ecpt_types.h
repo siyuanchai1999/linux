@@ -19,8 +19,8 @@ typedef unsigned long	ecpt_pgprotval_t;
 
 
 typedef struct ecpt_entry{
-    uint64_t VPN_tag;
-    uint64_t pte;
+	uint64_t VPN_tag;  
+	uint64_t pte;
 } ecpt_entry_t;
 
 
@@ -49,6 +49,9 @@ typedef struct ecpt_entry{
 #define ECPT_4K_WAY_EAGER 1
 #define ECPT_2M_WAY_EAGER 0
 #define ECPT_1G_WAY_EAGER 0
+
+#define GET_PTEP_OFFSET(addr) ( sizeof(((ecpt_entry_t *)0)->VPN_tag) )
+#define GET_ECPT_P_FROM_PTEP(ptep, addr) ((ecpt_entry_t *) (((void *) ptep) - GET_PTEP_OFFSET(addr)) )
 
 #define IS_KERNEL_MAP(vaddr) (vaddr >= __PAGE_OFFSET)
 

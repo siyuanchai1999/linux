@@ -3,22 +3,51 @@
 
 #include <asm/ECPT.h>
 
-static inline int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
-			      pte_t *ptep, pte_t pte)
+/*  */
+static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {
-	int res;
-	pr_info("set_pte_at Insert 4KB addr=%lx pte=%lx\n", addr, pte.pte);
-	res = ecpt_mm_insert(
-		mm,
-		addr,
-		ENTRY_TO_ADDR(pte.pte),
-		__ecpt_pgprot(ENTRY_TO_PROT(pte.pte)),
-		page_4KB
-	);
-
-	WARN(res, "Error when insert %lx as 4KB page\n", addr);
-	return res;
+	return &mm->page_table_lock;
 }
+#define pte_lockptr pte_lockptr
+
+
+
+static inline pte_t * pte_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
+	Granularity g = page_4KB;
+	uint32_t way = 0;
+	ecpt_entry_t * e = get_hpt_entry(mm->map_desc, addr, &g, &way);
+
+	if (e) 
+		return (pte_t *) &e->pte;
+	else 
+		return (pte_t *) &pte_default.pte;
+}
+
+/* override definition in linux/pgtable.h */
+static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
+{
+	return pte_offset_ecpt((struct mm_struct *)mm, address);
+}
+
+#define pte_offset_kernel pte_offset_kernel
+
+
+/* return address of default entry if it doesn't exit */
+#define pte_offset_map_lock(mm, pmd, address, ptlp)	\
+({							\
+	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
+	pte_t *__pte = pte_offset_ecpt(mm, address);	\
+	*(ptlp) = __ptl;				\
+	spin_lock(__ptl);				\
+	__pte;						\
+})
+
+// #define pte_unmap_unlock(pte, ptl)	do {} while (0)
+
+int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
+			      pte_t *ptep, pte_t pte);
+
+
 static inline void ecpt_set_pmd_at(struct mm_struct *mm, unsigned long addr,
 			      pmd_t *pmdp, pmd_t pmd)
 {
@@ -51,8 +80,8 @@ static inline pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm,
 					unsigned long addr, pte_t *ptep)
 {
 	pte_t ret = *ptep;
-	int res = ecpt_mm_invalidate(mm, addr, page_4KB);
-
+	int res = ecpt_invalidate(mm->map_desc, addr, page_4KB);
+	pr_info("Invalidate 4KB addr=%lx\n", addr);
 	WARN(res, "Fail to invalid 4KB page %lx \n", addr);
 	return ret;
 }
@@ -63,7 +92,7 @@ static inline pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm,
 {
 	pmd_t ret = *pmdp;
 	int res = ecpt_mm_invalidate(mm, addr, page_2MB);
-
+	
 	WARN(res, "Fail to invalid 2MB page %lx \n", addr);
 	return ret;
 }

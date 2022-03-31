@@ -1016,11 +1016,7 @@ static inline pte_t maybe_mkwrite(pte_t pte, struct vm_area_struct *vma)
 }
 
 vm_fault_t do_set_pmd(struct vm_fault *vmf, struct page *page);
-#ifdef CONFIG_X86_64_ECPT
-int do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr);
-#else
 void do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr);
-#endif
 
 vm_fault_t finish_fault(struct vm_fault *vmf);
 vm_fault_t finish_mkwrite_fault(struct vm_fault *vmf);
@@ -2209,10 +2205,13 @@ static inline spinlock_t *ptlock_ptr(struct page *page)
 }
 #endif /* ALLOC_SPLIT_PTLOCKS */
 
+#ifndef pte_lockptr
 static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {
 	return ptlock_ptr(pmd_page(*pmd));
 }
+#define pte_lockptr(_mm, _pmd) pte_lockptr(_mm, _pmd)
+#endif
 
 static inline bool ptlock_init(struct page *page)
 {
@@ -2234,10 +2233,13 @@ static inline bool ptlock_init(struct page *page)
 /*
  * We use mm->page_table_lock to guard all pagetable pages of the mm.
  */
+#ifndef pte_lockptr
 static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {
 	return &mm->page_table_lock;
 }
+#define pte_lockptr(_mm, _pmd) pte_lockptr(_mm, _pmd)
+#endif
 static inline void ptlock_cache_init(void) {}
 static inline bool ptlock_init(struct page *page) { return true; }
 static inline void ptlock_free(struct page *page) {}
@@ -2264,7 +2266,7 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 	__ClearPageTable(page);
 	dec_lruvec_page_state(page, NR_PAGETABLE);
 }
-
+#ifndef pte_offset_map_lock
 #define pte_offset_map_lock(mm, pmd, address, ptlp)	\
 ({							\
 	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
@@ -2273,11 +2275,15 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 	spin_lock(__ptl);				\
 	__pte;						\
 })
+#endif
 
+#ifndef pte_unmap_unlock
 #define pte_unmap_unlock(pte, ptl)	do {		\
 	spin_unlock(ptl);				\
 	pte_unmap(pte);					\
 } while (0)
+
+#endif
 
 #define pte_alloc(mm, pmd) (unlikely(pmd_none(*(pmd))) && __pte_alloc(mm, pmd))
 

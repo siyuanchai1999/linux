@@ -367,8 +367,9 @@ static int set_clr_page_flags(struct x86_mapping_info *info,
 	if (pmd_large(*pmdp))
 		ptep = split_large_pmd(info, pmdp, address);
 	else
-		ptep = pte_offset_kernel(pmdp, address);
-
+#ifndef	CONFIG_X86_64_ECPT	
+		ptep = pte_offset_kernel(pmdp, address); /* hack here this function needs to be reimplmented */
+#endif
 	if (!ptep)
 		return -ENOMEM;
 

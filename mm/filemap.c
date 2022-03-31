@@ -3186,7 +3186,9 @@ EXPORT_SYMBOL(filemap_fault);
 static bool filemap_map_pmd(struct vm_fault *vmf, struct page *page)
 {
 	struct mm_struct *mm = vmf->vma->vm_mm;
-
+#ifdef CONFIG_X86_64_ECPT
+	if (vmf->pmd == NULL) return false;
+#endif
 	/* Huge page is mapped? No need to proceed. */
 	if (pmd_trans_huge(*vmf->pmd)) {
 		unlock_page(page);
@@ -3295,6 +3297,7 @@ vm_fault_t filemap_map_pages(struct vm_fault *vmf,
 	unsigned int mmap_miss = READ_ONCE(file->f_ra.mmap_miss);
 	vm_fault_t ret = 0;
 
+	pr_info_verbose("start_pgoff=%lx end_pgoff=%lx\n", start_pgoff, end_pgoff);
 	rcu_read_lock();
 	head = first_map_page(mapping, &xas, end_pgoff);
 	if (!head)
@@ -3316,7 +3319,11 @@ vm_fault_t filemap_map_pages(struct vm_fault *vmf,
 			mmap_miss--;
 
 		addr += (xas.xa_index - last_pgoff) << PAGE_SHIFT;
+#ifdef CONFIG_X86_64_ECPT		
+		vmf->pte = pte_offset_map(vma->vm_mm, addr);
+#else 	
 		vmf->pte += xas.xa_index - last_pgoff;
+#endif
 		last_pgoff = xas.xa_index;
 
 		if (!pte_none(*vmf->pte))
