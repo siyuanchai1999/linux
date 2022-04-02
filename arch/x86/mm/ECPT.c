@@ -1540,10 +1540,10 @@ int ecpt_mm_insert_range(
 static int ecpt_set_pte(pte_t *ptep, pte_t pte, unsigned long addr) {
 	ecpt_entry_t * e;
 	uint64_t * tag_ptr;
-	if (ptep != &pte_default) {
+	if (ptep != NULL && ptep != &pte_default) {
 		WRITE_ONCE(*ptep, pte);
 		e = GET_ECPT_P_FROM_PTEP(ptep, addr);
-		pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
+		// pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
 		tag_ptr = (uint64_t *) &e->VPN_tag;
 		WRITE_ONCE(*tag_ptr, ADDR_TO_PAGE_NUM_4KB(addr));
 
@@ -1558,7 +1558,7 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
 	int res = 0;
-	if (ptep != &pte_default) {
+	if (ptep != NULL && ptep != &pte_default) {
 		pr_info("set_pte_at 4KB addr=%lx pte=%lx with ptep at %llx\n",
 			addr, pte.pte, (uint64_t) ptep);
 	} 
@@ -1580,6 +1580,40 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 	return res;
 }
 
+static pte_t __ecpt_native_ptep_get_and_clear(pte_t *ptep) {
+	ecpt_entry_t * e;
+	uint64_t * tag_ptr;
+
+	pte_t ret = READ_ONCE(*ptep);
+	pte_t zero = {.pte = 0};
+
+	WRITE_ONCE(*ptep, zero);
+	e = GET_ECPT_P_FROM_PTEP(ptep, addr);
+	// pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
+	tag_ptr = (uint64_t *) &e->VPN_tag;
+	
+	WRITE_ONCE(*tag_ptr, 0);
+
+	return ret;
+}
+
+pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm,
+					unsigned long addr, pte_t *ptep)
+{
+	pte_t ret;
+	int res;
+	if (ptep != NULL && ptep != &pte_default) {
+		pr_info("ptep_get_and_clear 4KB addr=%lx with ptep at %llx\n",
+			addr, (uint64_t) ptep);
+		return __ecpt_native_ptep_get_and_clear(ptep);
+	} 
+
+	ret = READ_ONCE(*ptep);
+	res = ecpt_invalidate(mm->map_desc, addr, page_4KB);
+	pr_info("Invalidate 4KB addr=%lx\n", addr);
+	WARN(res, "Fail to invalid 4KB page %lx \n", addr);
+	return ret;
+}
 
 int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	

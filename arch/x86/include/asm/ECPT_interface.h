@@ -14,9 +14,9 @@ static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
 
 static inline pte_t * pte_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
 	Granularity g = page_4KB;
-	uint32_t way = 0;
-	ecpt_entry_t * e = get_hpt_entry(mm->map_desc, addr, &g, &way);
-
+	// uint32_t way = 0;
+	// ecpt_entry_t * e = get_hpt_entry(mm->map_desc, addr, &g, &way);
+	ecpt_entry_t * e = ecpt_search_fit(mm->map_desc, addr, g);
 	if (e) 
 		return (pte_t *) &e->pte;
 	else 
@@ -76,15 +76,8 @@ static inline void ecpt_set_pud_at(struct mm_struct *mm, unsigned long addr,
 	WARN(res, "Error when insert %lx as 1GB page\n", addr);
 }
 
-static inline pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm,
-					unsigned long addr, pte_t *ptep)
-{
-	pte_t ret = *ptep;
-	int res = ecpt_invalidate(mm->map_desc, addr, page_4KB);
-	pr_info("Invalidate 4KB addr=%lx\n", addr);
-	WARN(res, "Fail to invalid 4KB page %lx \n", addr);
-	return ret;
-}
+pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm,
+					unsigned long addr, pte_t *ptep);
 
 
 static inline pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm,

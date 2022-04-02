@@ -141,7 +141,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	spinlock_t *old_ptl, *new_ptl;
 	bool force_flush = false;
 	unsigned long len = old_end - old_addr;
-
+	pr_info_verbose("old_addr=%lx new_addr=%lx len=%lx\n", old_addr, new_addr, len);
 	/*
 	 * When need_rmap_locks is true, we take the i_mmap_rwsem and anon_vma
 	 * locks to ensure that rmap will always observe either the old or the
@@ -168,13 +168,47 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	 * pte locks because exclusive mmap_lock prevents deadlock.
 	 */
 	old_pte = pte_offset_map_lock(mm, old_pmd, old_addr, &old_ptl);
+#ifdef 	CONFIG_X86_64_ECPT
+	new_pte = pte_offset_map(new_vma->vm_mm, new_addr);
+#else
 	new_pte = pte_offset_map(new_pmd, new_addr);
+#endif
 	new_ptl = pte_lockptr(mm, new_pmd);
 	if (new_ptl != old_ptl)
 		spin_lock_nested(new_ptl, SINGLE_DEPTH_NESTING);
 	flush_tlb_batched_pending(vma->vm_mm);
 	arch_enter_lazy_mmu_mode();
 
+#ifdef CONFIG_X86_64_ECPT
+	for (; old_addr < old_end; ) {
+		if (pte_none(*old_pte))
+			continue;
+
+		pte = ptep_get_and_clear(mm, old_addr, old_pte);
+		/*
+		 * If we are remapping a valid PTE, make sure
+		 * to flush TLB before we drop the PTL for the
+		 * PTE.
+		 *
+		 * NOTE! Both old and new PTL matter: the old one
+		 * for racing with page_mkclean(), the new one to
+		 * make sure the physical page stays valid until
+		 * the TLB entry for the old mapping has been
+		 * flushed.
+		 */
+		if (pte_present(pte))
+			force_flush = true;
+		pte = move_pte(pte, new_vma->vm_page_prot, old_addr, new_addr);
+		pte = move_soft_dirty_pte(pte);
+		set_pte_at(mm, new_addr, new_pte, pte);
+		
+		/* pte are not next to each other in ECPT,*/
+		old_addr += PAGE_SIZE; 
+		new_addr += PAGE_SIZE;
+		old_pte = pte_offset_map(mm, old_addr);
+		new_pte = pte_offset_map(new_vma->vm_mm, new_addr);
+	}
+#else 
 	for (; old_addr < old_end; old_pte++, old_addr += PAGE_SIZE,
 				   new_pte++, new_addr += PAGE_SIZE) {
 		if (pte_none(*old_pte))
@@ -198,7 +232,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 		pte = move_soft_dirty_pte(pte);
 		set_pte_at(mm, new_addr, new_pte, pte);
 	}
-
+#endif
 	arch_leave_lazy_mmu_mode();
 	if (force_flush)
 		flush_tlb_range(vma, old_end - len, old_end);
@@ -343,7 +377,7 @@ static bool move_huge_pud(struct vm_area_struct *vma, unsigned long old_addr,
 	spinlock_t *old_ptl, *new_ptl;
 	struct mm_struct *mm = vma->vm_mm;
 	pud_t pud;
-
+	WARN(1, "move_huge_pud not implemented with ECPT\n");
 	/*
 	 * The destination pud shouldn't be established, free_pgtables()
 	 * should have released it.
@@ -476,6 +510,152 @@ static bool move_pgt_entry(enum pgt_entry entry, struct vm_area_struct *vma,
 	return moved;
 }
 
+#ifdef CONFIG_X86_64_ECPT
+unsigned long move_page_tables(struct vm_area_struct *vma,
+		unsigned long old_addr, struct vm_area_struct *new_vma,
+		unsigned long new_addr, unsigned long len,
+		bool need_rmap_locks)
+{
+	unsigned long extent, old_end;
+	struct mmu_notifier_range range;
+	pmd_t *old_pmd = NULL, *new_pmd = NULL;
+	pud_t *old_pud = NULL, *new_pud = NULL; 
+	
+	ecpt_entry_t *entry_p;
+	Granularity g = unknown;	
+	uint32_t way = 0;
+	struct mm_struct * mm = vma->vm_mm;
+
+	pr_info_verbose("old_addr=%lx new_addr=%lx len=%lx\n", old_addr, new_addr, len);
+	old_end = old_addr + len;
+	flush_cache_range(vma, old_addr, old_end);
+
+	mmu_notifier_range_init(&range, MMU_NOTIFY_UNMAP, 0, vma, vma->vm_mm,
+				old_addr, old_end);
+	mmu_notifier_invalidate_range_start(&range);
+
+	for (; old_addr < old_end; old_addr += extent, new_addr += extent) {
+		cond_resched();
+		/*
+		 * If extent is PUD-sized try to speed up the move by moving at the
+		 * PUD level if possible.
+		 */
+		spin_lock(&mm->page_table_lock);
+		entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
+		spin_unlock(&mm->page_table_lock);
+
+		pr_info_verbose("old_addr=%lx .vpn=%llx .pte=%llx\n", 
+			old_addr, 
+			(uint64_t) (entry_p ? entry_p->VPN_tag : 0),
+			(uint64_t) (entry_p ? entry_p->pte : 0)
+		);
+
+		if (entry_p == NULL) {
+			extent = PAGE_SIZE;
+			continue;
+		}
+
+		if (g == page_1GB) {
+			extent = get_extent(NORMAL_PUD, old_addr, old_end, new_addr);
+
+			old_pud = (pud_t *) &entry_p->pte;
+			// old_pud = get_old_pud(vma->vm_mm, old_addr);
+			// if (!old_pud)
+			// 	continue;
+			// new_pud = alloc_new_pud(vma->vm_mm, vma, new_addr);
+			// if (!new_pud)
+			// 	break;
+			// if (pud_trans_huge(*old_pud) || pud_devmap(*old_pud)) {
+			// 	if (extent == HPAGE_PUD_SIZE) {
+			// 		move_pgt_entry(HPAGE_PUD, vma, old_addr, new_addr,
+			// 				old_pud, new_pud, need_rmap_locks);
+			// 		/* We ignore and continue on error? */
+			// 		continue;
+			// 	}
+			// } 
+			if (extent == HPAGE_PUD_SIZE) {
+				move_pgt_entry(HPAGE_PUD, vma, old_addr, new_addr,
+						old_pud, new_pud, need_rmap_locks);
+				/* We ignore and continue on error? */
+				continue;
+			}
+			
+			/* if the entire 1G memory cannot be moved, split and fall through to 2MB case */
+			split_huge_pud(vma, old_pud, old_addr);
+
+			spin_lock(&mm->page_table_lock);
+			entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
+			spin_unlock(&mm->page_table_lock);
+			/* no actiont to move normal PUD in EPCT */
+			// else if (IS_ENABLED(CONFIG_HAVE_MOVE_PUD) && extent == PUD_SIZE) {
+
+			// 	if (move_pgt_entry(NORMAL_PUD, vma, old_addr, new_addr,
+			// 			old_pud, new_pud, true))
+			// 		continue;
+			// }
+
+		} 
+		
+		if (g == page_2MB) {
+			extent = get_extent(NORMAL_PMD, old_addr, old_end, new_addr);
+			
+			old_pmd = (pmd_t *) &entry_p->pte;
+
+			// old_pmd = get_old_pmd(vma->vm_mm, old_addr);
+			// if (!old_pmd)
+			// 	continue;
+			// new_pmd = alloc_new_pmd(vma->vm_mm, vma, new_addr);
+			// if (!new_pmd)
+			// 	break;
+			// if (is_swap_pmd(*old_pmd) || pmd_trans_huge(*old_pmd) ||
+			// 	pmd_devmap(*old_pmd)) {
+			// 	if (extent == HPAGE_PMD_SIZE &&
+			// 		move_pgt_entry(HPAGE_PMD, vma, old_addr, new_addr,
+			// 			old_pmd, new_pmd, need_rmap_locks))
+			// 		continue;
+			// 	split_huge_pmd(vma, old_pmd, old_addr);
+			// 	if (pmd_trans_unstable(old_pmd))
+			// 		continue;
+			// } 
+			// else if (IS_ENABLED(CONFIG_HAVE_MOVE_PMD) &&
+			// 	extent == PMD_SIZE) {
+			// 	/*
+			// 	* If the extent is PMD-sized, try to speed the move by
+			// 	* moving at the PMD level if possible.
+			// 	*/
+			// 	if (move_pgt_entry(NORMAL_PMD, vma, old_addr, new_addr,
+			// 			old_pmd, new_pmd, true))
+			// 		continue;
+			// }
+			if (extent == HPAGE_PMD_SIZE &&
+					move_pgt_entry(HPAGE_PMD, vma, old_addr, new_addr,
+						old_pmd, new_pmd, need_rmap_locks))
+					continue;
+			
+			/* If we cannot move the entire 2MB, fall through to 4KB case */
+			split_huge_pmd(vma, old_pmd, old_addr);
+		
+			spin_lock(&mm->page_table_lock);
+			entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
+			spin_unlock(&mm->page_table_lock);
+
+			if (pmd_trans_unstable(old_pmd))
+					continue;
+		}
+		
+		BUG_ON(g != page_4KB);
+		extent = get_extent(NORMAL_PMD, old_addr, old_end, new_addr);
+		// if (pte_alloc(new_vma->vm_mm, new_pmd))
+		// 	break;
+		move_ptes(vma, old_pmd, old_addr, old_addr + extent, new_vma,
+			  new_pmd, new_addr, need_rmap_locks);
+	}
+
+	mmu_notifier_invalidate_range_end(&range);
+
+	return len + old_addr - old_end;	/* how much done */
+}
+#else
 unsigned long move_page_tables(struct vm_area_struct *vma,
 		unsigned long old_addr, struct vm_area_struct *new_vma,
 		unsigned long new_addr, unsigned long len,
@@ -485,7 +665,8 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 	struct mmu_notifier_range range;
 	pmd_t *old_pmd, *new_pmd;
 	pud_t *old_pud, *new_pud;
-
+	pr_info_verbose("old_addr=%lx new_addr=%lx len=%lx\n", old_addr, new_addr, len);
+	WARN(1, "move_page_tables not implented with ECPT\n");
 	old_end = old_addr + len;
 	flush_cache_range(vma, old_addr, old_end);
 
@@ -558,7 +739,7 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 
 	return len + old_addr - old_end;	/* how much done */
 }
-
+#endif
 static unsigned long move_vma(struct vm_area_struct *vma,
 		unsigned long old_addr, unsigned long old_len,
 		unsigned long new_len, unsigned long new_addr,
