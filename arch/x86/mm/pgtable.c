@@ -128,6 +128,7 @@ static void pgd_ctor(struct mm_struct *mm, pgd_t *pgd)
 	if (CONFIG_PGTABLE_LEVELS == 2 ||
 	    (CONFIG_PGTABLE_LEVELS == 3 && SHARED_KERNEL_PMD) ||
 	    CONFIG_PGTABLE_LEVELS >= 4) {
+		pr_info_verbose("KERNEL_PGD_BOUNDARY=%lx KERNEL_PGD_PTRS=%lx\n", KERNEL_PGD_BOUNDARY, KERNEL_PGD_PTRS);
 		clone_pgd_range(pgd + KERNEL_PGD_BOUNDARY,
 				swapper_pg_dir + KERNEL_PGD_BOUNDARY,
 				KERNEL_PGD_PTRS);
@@ -411,6 +412,7 @@ static inline void _pgd_free(pgd_t *pgd)
 
 static inline pgd_t *_pgd_alloc(void)
 {
+	pr_info_verbose("order=%d\n", PGD_ALLOCATION_ORDER);
 	return (pgd_t *)__get_free_pages(GFP_PGTABLE_USER,
 					 PGD_ALLOCATION_ORDER);
 }
@@ -421,14 +423,18 @@ static inline void _pgd_free(pgd_t *pgd)
 }
 #endif /* CONFIG_X86_PAE */
 
+#ifdef CONFIG_X86_64_ECPT
+
+#else 
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *pgd;
 	pmd_t *u_pmds[MAX_PREALLOCATED_USER_PMDS];
 	pmd_t *pmds[MAX_PREALLOCATED_PMDS];
 
+	WARN(1, KERN_WARNING "pgd_alloc still implemented with radix tree!\n");
 	pgd = _pgd_alloc();
-
+	
 	if (pgd == NULL)
 		goto out;
 
@@ -467,7 +473,6 @@ out_free_pgd:
 out:
 	return NULL;
 }
-
 void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
 	pgd_mop_up_pmds(mm, pgd);
@@ -476,6 +481,8 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	_pgd_free(pgd);
 }
 
+#endif
+
 /*
  * Used to set accessed or dirty bits in the page table entries
  * on other architectures. On x86, the accessed and dirty bits
@@ -483,6 +490,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd)
  * to also make the pte writeable at the same time the dirty bit is
  * set. In that case we do actually need to write the PTE.
  */
+#ifndef CONFIG_X86_64_ECPT
 int ptep_set_access_flags(struct vm_area_struct *vma,
 			  unsigned long address, pte_t *ptep,
 			  pte_t entry, int dirty)
@@ -494,6 +502,8 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
 
 	return changed;
 }
+
+#endif
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 int pmdp_set_access_flags(struct vm_area_struct *vma,
@@ -663,7 +673,7 @@ void native_set_fixmap(unsigned /* enum fixed_addresses */ idx,
 	address = __fix_to_virt(idx);
 	
 	
-	pr_info_verbose("address=%016lx phys=%016llx\n" , address, phys);
+	pr_info_verbose("address=%016lx phys=%016llx flags=%lx idx=%x\n" , address, phys, flags.pgprot, idx);
 	res = ecpt_mm_insert(&init_mm, address, phys, __ecpt_pgprot(flags.pgprot), page_4KB);
 
 }

@@ -1540,7 +1540,7 @@ int ecpt_mm_insert_range(
 static int ecpt_set_pte(pte_t *ptep, pte_t pte, unsigned long addr) {
 	ecpt_entry_t * e;
 	uint64_t * tag_ptr;
-	if (ptep != NULL && ptep != &pte_default.pte) {
+	if (ptep != NULL && ptep != (pte_t *) &pte_default.pte) {
 		WRITE_ONCE(*ptep, pte);
 		e = GET_ECPT_P_FROM_PTEP(ptep, addr);
 		// pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
@@ -1558,8 +1558,8 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
 	int res = 0;
-	if (ptep != NULL && ptep != &pte_default.pte) {
-		pr_info(" addr=%lx pte=%lx with ptep at %llx\n",
+	if (ptep != NULL && ptep != (pte_t *) &pte_default.pte) {
+		pr_info(" set_pte_at addr=%lx pte=%lx with ptep at %llx\n",
 			addr, pte.pte, (uint64_t) ptep);
 	} 
 	
@@ -1567,7 +1567,7 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 	if (!res)
 		return res;
 
-	pr_info("ecpt_insert 4KB addr=%lx pte=%lx \n", addr, pte.pte);
+	pr_info("set_pte_at 4KB addr=%lx pte=%lx \n", addr, pte.pte);
 	res = ecpt_insert(
 		mm->map_desc,
 		addr,
@@ -1579,6 +1579,26 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 	WARN(res, "Error when insert %lx as 4KB page\n", addr);
 	return res;
 }
+
+int ptep_set_access_flags(struct vm_area_struct *vma,
+			  unsigned long address, pte_t *ptep,
+			  pte_t entry, int dirty)
+{	
+	int changed = 1;
+	if (ptep != NULL && ptep != (pte_t *) &pte_default.pte) {
+		pr_info(" 	ptep_set_access_flags addr=%lx pte=%lx with ptep at %llx\n",
+			address, entry.pte, (uint64_t) ptep);
+		changed = !pte_same(*ptep, entry);
+
+		if (changed && dirty)
+			set_pte(ptep, entry);
+		return changed;
+	} 
+
+	WARN(1, "Invalid set access addr=%lx ptep at %llx entry=%lx\n", address, (uint64_t) ptep, entry.pte );
+
+	return 0;
+}	
 
 static pte_t __ecpt_native_ptep_get_and_clear(pte_t *ptep) {
 	ecpt_entry_t * e;
