@@ -785,7 +785,8 @@ copy_nonpresent_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	pte_t pte = *src_pte;
 	struct page *page;
 	swp_entry_t entry = pte_to_swp_entry(pte);
-
+	pr_info_verbose("dst_pte at %llx src_pte at %llx\n", (uint64_t) dst_pte, (uint64_t) src_pte );
+	
 	if (likely(!non_swap_entry(entry))) {
 		if (swap_duplicate(entry) < 0)
 			return -EIO;
@@ -950,6 +951,7 @@ copy_present_pte(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
 	unsigned long vm_flags = src_vma->vm_flags;
 	pte_t pte = *src_pte;
 	struct page *page;
+	pr_info_verbose("addr=%lx dst_pte at %llx src_pte at %llx\n", addr, (uint64_t) dst_pte, (uint64_t) src_pte );
 
 	page = vm_normal_page(src_vma, addr, pte);
 	if (page) {
@@ -1022,28 +1024,41 @@ copy_pte_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
 	int rss[NR_MM_COUNTERS];
 	swp_entry_t entry = (swp_entry_t){0};
 	struct page *prealloc = NULL;
-
+	pr_info_verbose("addr=%lx end=%lx\n", addr, end);
 again:
 	progress = 0;
 	init_rss_vec(rss);
 
+#ifdef CONFIG_X86_64_ECPT
+	dst_pte = pte_offset_map_lock(dst_mm, dst_pmd, addr, &dst_ptl);
+#else
 	dst_pte = pte_alloc_map_lock(dst_mm, dst_pmd, addr, &dst_ptl);
+#endif
 	if (!dst_pte) {
-		ret = -ENOMEM;
+		ret = -ENOMEM; /* Let's leave it for now */
 		goto out;
 	}
+
+#ifdef CONFIG_X86_64_ECPT
+	src_pte = pte_offset_map(src_mm, addr);
+#else
 	src_pte = pte_offset_map(src_pmd, addr);
+#endif
+
 	src_ptl = pte_lockptr(src_mm, src_pmd);
 	spin_lock_nested(src_ptl, SINGLE_DEPTH_NESTING);
 	orig_src_pte = src_pte;
 	orig_dst_pte = dst_pte;
 	arch_enter_lazy_mmu_mode();
-
+	// pr_info_verbose("dst_pte at %llx src_pte at %llx\n", (uint64_t) dst_pte, (uint64_t) src_pte );
+	pr_info_verbose("Entering Do while Loop\n");
 	do {
 		/*
 		 * We are holding two locks at this point - either of them
 		 * could generate latencies in another task on another CPU.
 		 */
+		pr_info_verbose("addr=%lx dst_pte at %llx src_pte = %llx progress=%d\n", 
+			addr , (uint64_t) dst_pte, (uint64_t) src_pte->pte, progress);
 		if (progress >= 32) {
 			progress = 0;
 			if (need_resched() ||
@@ -1082,6 +1097,7 @@ again:
 		 * If we need a pre-allocated page for this pte, drop the
 		 * locks, allocate, and try again.
 		 */
+		pr_info_verbose("ret=%d\n", ret);
 		if (unlikely(ret == -EAGAIN))
 			break;
 		if (unlikely(prealloc)) {
@@ -1095,7 +1111,15 @@ again:
 			prealloc = NULL;
 		}
 		progress += 8;
+#ifdef CONFIG_X86_64_ECPT
+	
+	} while (((addr += PAGE_SIZE)) &&
+			(addr != end) &&
+			(dst_pte = pte_offset_map(dst_mm, addr)) &&
+		 	(src_pte = pte_offset_map(src_mm, addr)) );
+#else
 	} while (dst_pte++, src_pte++, addr += PAGE_SIZE, addr != end);
+#endif
 
 	arch_leave_lazy_mmu_mode();
 	spin_unlock(src_ptl);
@@ -1123,7 +1147,6 @@ again:
 
 	/* We've captured and resolved the error. Reset, try again. */
 	ret = 0;
-
 	if (addr != end)
 		goto again;
 out:
@@ -1242,13 +1265,22 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 	struct mmu_notifier_range range;
 	bool is_cow;
 	int ret;
-	WARN(1, "copy_page_range not implemended with ECPT!\n");
+
+#ifdef CONFIG_X86_64_ECPT
+	Granularity g = unknown;
+	ecpt_entry_t entry;
+#endif
+
+	// WARN(1, "copy_page_range not implemended with ECPT!\n");
+	pr_info_verbose("addr=%lx end=%lx flags=%lx anon_vma=%llx\n",
+	 		addr, end, src_vma->vm_flags, (uint64_t) src_vma->anon_vma);
 	/*
 	 * Don't copy ptes where a page fault will fill them correctly.
 	 * Fork becomes much lighter when there are big shared or private
 	 * readonly mappings. The tradeoff is that copy_page_range is more
 	 * efficient than faulting.
 	 */
+	
 	if (!(src_vma->vm_flags & (VM_HUGETLB | VM_PFNMAP | VM_MIXEDMAP)) &&
 	    !src_vma->anon_vma)
 		return 0;
@@ -1289,6 +1321,32 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 		raw_write_seqcount_begin(&src_mm->write_protect_seq);
 	}
 
+#ifdef CONFIG_X86_64_ECPT
+	
+	do {
+		entry = ecpt_mm_peek(src_mm, addr, &g);
+		pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
+		if (empty_entry(&entry) || g == page_4KB ) {
+			next = pmd_addr_end(addr, end);
+			if(copy_pte_range(dst_vma, src_vma,
+				NULL, /* dst_pmd */ NULL, /* src_pmd */
+				addr, next)
+			) {
+				ret = -ENOMEM;
+				break;
+			}
+		} else if (g == page_2MB) {
+			// pmd_t * pmd = (pmd_t *) &entry.pte;
+			WARN(1, "2M unmap not implemented yet");
+
+		} else if (g == page_1GB) {
+			BUG();
+
+		} else {
+			BUG();
+		}
+	} while (addr = next, addr != end);
+#else
 	ret = 0;
 	dst_pgd = pgd_offset(dst_mm, addr);
 	src_pgd = pgd_offset(src_mm, addr);
@@ -1302,6 +1360,7 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 			break;
 		}
 	} while (dst_pgd++, src_pgd++, addr = next, addr != end);
+#endif
 
 	if (is_cow) {
 		raw_write_seqcount_end(&src_mm->write_protect_seq);
@@ -1481,7 +1540,7 @@ void unmap_page_range(struct mmu_gather *tlb,
 
 	do {
 		entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
-		pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
+		// pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
 		if (empty_entry(&entry)) {
 			next = addr + PAGE_SIZE;
 		} else if (g == page_4KB) {
@@ -2777,7 +2836,7 @@ static int __apply_to_page_range(struct mm_struct *mm, unsigned long addr,
 	unsigned long end = addr + size;
 	pgtbl_mod_mask mask = 0;
 	int err = 0;
-
+	WARN(1, "remap_pfn_range_notrack not implemented with ECPT!\n");
 	if (WARN_ON(addr >= end))
 		return -EINVAL;
 

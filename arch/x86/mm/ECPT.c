@@ -1540,7 +1540,7 @@ int ecpt_mm_insert_range(
 static int ecpt_set_pte(pte_t *ptep, pte_t pte, unsigned long addr) {
 	ecpt_entry_t * e;
 	uint64_t * tag_ptr;
-	if (ptep != NULL && ptep != &pte_default) {
+	if (ptep != NULL && ptep != &pte_default.pte) {
 		WRITE_ONCE(*ptep, pte);
 		e = GET_ECPT_P_FROM_PTEP(ptep, addr);
 		// pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
@@ -1558,8 +1558,8 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
 	int res = 0;
-	if (ptep != NULL && ptep != &pte_default) {
-		pr_info("set_pte_at 4KB addr=%lx pte=%lx with ptep at %llx\n",
+	if (ptep != NULL && ptep != &pte_default.pte) {
+		pr_info(" addr=%lx pte=%lx with ptep at %llx\n",
 			addr, pte.pte, (uint64_t) ptep);
 	} 
 	
