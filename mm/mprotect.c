@@ -54,9 +54,10 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 	 * changing from under us from pmd_none to pmd_trans_huge
 	 * and/or the other way around.
 	 */
+#ifndef CONFIG_X86_64_ECPT	
 	if (pmd_trans_unstable(pmd))
 		return 0;
-
+#endif
 	/*
 	 * The pmd points to a regular pte so the pmd can't change
 	 * from under us even if the mmap_lock is only hold for
@@ -72,6 +73,7 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 	flush_tlb_batched_pending(vma->vm_mm);
 	arch_enter_lazy_mmu_mode();
 	do {
+		pr_info_verbose("ptep at %llx =%lx addr=%lx\n", (uint64_t) pte, pte->pte, addr);
 		oldpte = *pte;
 		if (pte_present(oldpte)) {
 			pte_t ptent;
@@ -187,7 +189,13 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 				pages++;
 			}
 		}
+#ifdef CONFIG_X86_64_ECPT
+	} while ((addr += PAGE_SIZE) &&
+			(addr != end) &&
+		 	(pte = pte_offset_map(vma->vm_mm, addr)) );
+#else
 	} while (pte++, addr += PAGE_SIZE, addr != end);
+#endif	
 	arch_leave_lazy_mmu_mode();
 	pte_unmap_unlock(pte - 1, ptl);
 
@@ -230,6 +238,8 @@ static inline unsigned long change_pmd_range(struct vm_area_struct *vma,
 	struct mmu_notifier_range range;
 
 	range.start = 0;
+
+	WARN(1, "change_pmd_range not well supported with ECPT!\n");
 
 	pmd = pmd_offset(pud, addr);
 	do {
@@ -331,6 +341,80 @@ static inline unsigned long change_p4d_range(struct vm_area_struct *vma,
 	return pages;
 }
 
+#ifdef CONFIG_X86_64_ECPT
+static unsigned long change_protection_range(struct vm_area_struct *vma,
+		unsigned long addr, unsigned long end, pgprot_t newprot,
+		unsigned long cp_flags)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	unsigned long next;
+	unsigned long start = addr;
+	unsigned long pages = 0;
+
+	Granularity g = unknown;
+	ecpt_entry_t entry;
+
+	pr_info_verbose("vma at %llx mm at %llx pgd at %llx map_desc at %llx start=%lx end=%lx newprot=%lx\n", 
+		(uint64_t) vma, (uint64_t) mm, (uint64_t) mm->pgd, (uint64_t) mm->map_desc,
+		start, end, newprot.pgprot);
+
+	BUG_ON(addr >= end);
+
+	do {
+		entry = ecpt_mm_peek(mm, addr, &g);
+		if (empty_entry(&entry) || g == page_4KB ) {
+			/**
+			 * If current addr coresponds to a 4K or not mapped entry,
+			 * 	addr in [addr, addr + 2MB], must all have 4K or not mapped entry. (addr + 2MB <= end)
+			 * 	addr cannot correspond to 2MB or 1GB page,
+			 * 	ow. we have duplicated entry across granularity
+			 * So we are safe to have next = pmd_addr_end
+			 */
+
+			next = pmd_addr_end(addr, end);
+			pages += change_pte_range(vma,
+			 			NULL, /* pmd */ 
+						addr, next,
+						newprot,
+						cp_flags);
+		} else if (g == page_2MB) {
+			pmd_t * pmd = (pmd_t *) &entry.pte;
+			WARN(1, "2M unmap not implemented yet");
+
+
+			/**
+			 * If current addr coresponds to a 2M ,
+			 * 	addr in [addr, addr + 1GB], can be 4K, 2M, or not mapped
+			 * 	Thus, we can only use pmd_addr_end here
+			 */
+
+			next = pmd_addr_end(addr, end);
+			pages += change_pmd_range(vma,
+						NULL,  /* NULL */
+						addr, next,
+						newprot, cp_flags);
+
+		} else if (g == page_1GB) {
+			pud_t * pud = (pud_t *) &entry.pte;
+			next = pud_addr_end(addr, end);
+			if (pud_none_or_clear_bad(pud))
+				continue;
+			BUG();
+		} else {
+			BUG();
+		}
+	} while (addr = next, addr != end);
+
+	/* Only flush the TLB if we actually modified any entries: */
+	if (pages)
+		flush_tlb_range(vma, start, end);
+	dec_tlb_flush_pending(mm);
+
+	return pages;
+}
+
+
+#else
 static unsigned long change_protection_range(struct vm_area_struct *vma,
 		unsigned long addr, unsigned long end, pgprot_t newprot,
 		unsigned long cp_flags)
@@ -360,6 +444,8 @@ static unsigned long change_protection_range(struct vm_area_struct *vma,
 
 	return pages;
 }
+
+#endif
 
 unsigned long change_protection(struct vm_area_struct *vma, unsigned long start,
 		       unsigned long end, pgprot_t newprot,
