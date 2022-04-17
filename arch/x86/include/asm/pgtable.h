@@ -92,7 +92,11 @@ extern pmdval_t early_pmd_flags;
 #define pud_clear(pud)			native_pud_clear(pud)
 #endif
 
+#ifdef CONFIG_X86_64_ECPT
+#define pte_clear(mm, addr, ptep) ecpt_native_ptep_get_and_clear(mm, addr, ptep)
+#else
 #define pte_clear(mm, addr, ptep)	native_pte_clear(mm, addr, ptep)
+#endif
 #define pmd_clear(pmd)			native_pmd_clear(pmd)
 
 #define pgd_val(x)	native_pgd_val(x)

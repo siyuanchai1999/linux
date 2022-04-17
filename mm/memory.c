@@ -1371,9 +1371,6 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 
 static unsigned long zap_pte_range(struct mmu_gather *tlb,
 				struct vm_area_struct *vma, pmd_t *pmd,
-#ifdef CONFIG_X86_64_ECPT
-				pte_t * ptep,
-#endif
 				unsigned long addr, unsigned long end,
 				struct zap_details *details
 )
@@ -1381,9 +1378,7 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	struct mm_struct *mm = tlb->mm;
 	int force_flush = 0;
 	int rss[NR_MM_COUNTERS];
-#ifndef CONFIG_X86_64_ECPT
 	spinlock_t *ptl;
-#endif
 	
 	pte_t *start_pte;
 	pte_t *pte;
@@ -1392,17 +1387,16 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	tlb_change_page_size(tlb, PAGE_SIZE);
 again:
 	init_rss_vec(rss);
-#ifdef CONFIG_X86_64_ECPT
-	start_pte = ptep;
-#else	
+
 	start_pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
-#endif
+
+
+	pr_info_verbose("ptep at %llx addr=%lx end=%lx\n", (uint64_t) start_pte, addr, end);
 	pte = start_pte;
 	flush_tlb_batched_pending(mm);
 	arch_enter_lazy_mmu_mode();
 	do {
 		pte_t ptent = *pte;
-		pr_info_verbose("ptent=%lx\n",ptent.pte );
 		if (pte_none(ptent))
 			continue;
 
@@ -1491,8 +1485,13 @@ again:
 		if (unlikely(!free_swap_and_cache(entry)))
 			print_bad_pte(vma, addr, ptent, NULL);
 		pte_clear_not_present_full(mm, addr, pte, tlb->fullmm);
+#ifdef CONFIG_X86_64_ECPT
+	} while (((addr += PAGE_SIZE)) &&
+			(addr != end) &&
+		 	(pte = pte_offset_map(mm, addr)) );
+#else
 	} while (pte++, addr += PAGE_SIZE, addr != end);
-
+#endif
 	add_mm_rss_vec(mm, rss);
 	arch_leave_lazy_mmu_mode();
 
@@ -1500,9 +1499,7 @@ again:
 	if (force_flush)
 		tlb_flush_mmu_tlbonly(tlb);
 
-#ifndef CONFIG_X86_64_ECPT
 	pte_unmap_unlock(start_pte, ptl);
-#endif
 	/*
 	 * If we forced a TLB flush (either due to running out of
 	 * batch buffers or because we needed to flush dirty TLB
