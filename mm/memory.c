@@ -347,9 +347,9 @@ void free_pgd_range(struct mmu_gather *tlb,
 	pgd_t *pgd;
 	unsigned long next;
 #ifdef CONFIG_X86_64_ECPT	
-	// pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
-	// WARN(1, "free_pgd_range not implented with ECPT\n");
-	// return;
+	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
+	WARN(1, "free_pgd_range not implented with ECPT\n");
+	return;
 #endif
 
 	/*
@@ -1531,18 +1531,14 @@ void unmap_page_range(struct mmu_gather *tlb,
 
 	pr_info_verbose("vma at %llx vma->pgd=%llx start=%lx end=%lx\n",
 	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  addr, end);
-	// print_ecpt(vma->vm_mm->map_desc);
 
 	do {
 		entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
-		// pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
-		if (empty_entry(&entry)) {
-			next = addr + PAGE_SIZE;
-		} else if (g == page_4KB) {
-			pte_t * pte = (pte_t *) &entry.pte;
+		if (empty_entry(&entry) || g == page_4KB) {
+			next = pmd_addr_end(addr, end);
 			next = zap_pte_range(tlb, vma, 
 				NULL,	/* pmd */
-				addr, addr + PAGE_SIZE, details);
+				addr, next, details);
 
 		} else if (g == page_2MB) {
 			pmd_t * pmd = (pmd_t *) &entry.pte;
