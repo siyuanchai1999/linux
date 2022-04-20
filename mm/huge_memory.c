@@ -1672,7 +1672,7 @@ bool move_huge_pmd(struct vm_area_struct *vma, unsigned long old_addr,
 	pmd_t pmd;
 	struct mm_struct *mm = vma->vm_mm;
 	bool force_flush = false;
-
+	WARN(1, "move_huge_pmd not implemented with ECPT\n");
 	/*
 	 * The destination pmd shouldn't be established, free_pgtables()
 	 * should have release it.
@@ -2238,7 +2238,6 @@ void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
-
 	pgd = pgd_offset(vma->vm_mm, address);
 	if (!pgd_present(*pgd))
 		return;

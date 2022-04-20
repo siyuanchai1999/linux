@@ -650,18 +650,12 @@ void __init alternative_instructions(void)
 	 * Then patch alternatives, such that those paravirt calls that are in
 	 * alternatives can be overwritten by their immediate fragments.
 	 */
-	pr_info_verbose("__alt_instructions=%llx __alt_instructions_end=%llx\n", 
-		(uint64_t) __alt_instructions, (uint64_t) __alt_instructions_end);
 	apply_alternatives(__alt_instructions, __alt_instructions_end);
 
 #ifdef CONFIG_SMP
 	/* Patch to UP if other cpus not imminent. */
 	if (!noreplace_smp && (num_present_cpus() == 1 || setup_max_cpus <= 1)) {
 		uniproc_patched = true;
-		pr_info_verbose("__smp_locks=%llx __smp_locks_end=%llx\n", 
-			(uint64_t) __smp_locks, (uint64_t) __smp_locks_end);
-		pr_info_verbose("_text=%llx _etext=%llx\n", 
-			(uint64_t) _text, (uint64_t) _etext);
 		alternatives_smp_module_add(NULL, "core kernel",
 					    __smp_locks, __smp_locks_end,
 					    _text, _etext);
@@ -960,7 +954,6 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 void *text_poke(void *addr, const void *opcode, size_t len)
 {
 	lockdep_assert_held(&text_mutex);
-	pr_info_verbose("addr=%llx opcode[0]=%x\n", (uint64_t) addr, * ((unsigned char *) opcode));
 	return __text_poke(addr, opcode, len);
 }
 

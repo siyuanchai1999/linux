@@ -121,6 +121,7 @@ static inline pud_t *pud_offset(p4d_t *p4d, unsigned long address)
 
 static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
 {
+	
 	return (pgd + pgd_index(address));
 };
 
@@ -128,7 +129,12 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
  * a shortcut to get a pgd_t in a given mm
  */
 #ifndef pgd_offset
-#define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
+#define pgd_offset(mm, address)  \
+({									\
+	WARN(1, "%s not implemented with ECPT\n", __func__);	\
+	pgd_offset_pgd((mm)->pgd, (address));	\
+})
+// #define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
 #endif
 
 /*

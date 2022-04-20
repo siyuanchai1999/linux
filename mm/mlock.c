@@ -353,7 +353,7 @@ static unsigned long __munlock_pagevec_fill(struct pagevec *pvec,
 {
 	pte_t *pte;
 	spinlock_t *ptl;
-
+	WARN(1, "__munlock_pagevec_fill not implemented with ECPT!\n");
 	/*
 	 * Initialize pte walk starting at the already pinned page where we
 	 * are sure that there is a pte, as it was pinned under the same

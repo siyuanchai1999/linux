@@ -252,7 +252,7 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 	unsigned long next;
 	const struct mm_walk_ops *ops = walk->ops;
 	int err = 0;
-
+	WARN(1, "walk_pgd_range not implemented with ECPT!\n");
 	if (walk->pgd)
 		pgd = walk->pgd + pgd_index(addr);
 	else
@@ -442,6 +442,10 @@ int walk_page_range(struct mm_struct *mm, unsigned long start,
 
 	if (!walk.mm)
 		return -EINVAL;
+
+	WARN(1, "walk_page_range not Implemented with ECPT\n");
+	pr_info_verbose("mm at %llx start=%lx end=%lx\n", 
+		(uint64_t) mm, start, end);
 
 	mmap_assert_locked(walk.mm);
 

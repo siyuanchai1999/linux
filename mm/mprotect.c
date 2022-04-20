@@ -507,7 +507,8 @@ mprotect_fixup(struct vm_area_struct *vma, struct vm_area_struct **pprev,
 		*pprev = vma;
 		return 0;
 	}
-
+	pr_info_verbose("vma at %llx start=%lx end=%lx newflags=%lx oldflags=%lx\n", 
+		(uint64_t) vma, start, end, newflags, oldflags);
 	/*
 	 * Do PROT_NONE PFN permission checks here when we can still
 	 * bail out without undoing a lot of state. This is a rather

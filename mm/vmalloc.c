@@ -293,8 +293,7 @@ static int vmap_range_noflush(unsigned long addr, unsigned long end,
 	int err;
 	pgtbl_mod_mask mask = 0;
 
-	pr_info_verbose("addr=%lx end=%lx phys_addr=%llx prot=%lx\n",
-					 addr, end, phys_addr, prot.pgprot);
+	WARN(1, "vmap_range_noflush not implemented with ECPT!\n");
 	might_sleep();
 	BUG_ON(addr >= end);
 
@@ -427,7 +426,7 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 	pgd_t *pgd;
 	unsigned long addr = start;
 	pgtbl_mod_mask mask = 0;
-
+	BUG();
 	BUG_ON(addr >= end);
 	pgd = pgd_offset_k(addr);
 	do {
@@ -553,8 +552,8 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 	pgtbl_mod_mask mask = 0;
 	int res = 0;
 
-	pr_info_verbose("addr=%lx end=%lx prot=%lx\n",
-					 addr, end, prot.pgprot);
+	// pr_info_verbose("addr=%lx end=%lx prot=%lx\n",
+					//  addr, end, prot.pgprot);
 
 	BUG_ON(addr >= end);
 
@@ -563,7 +562,7 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 	// 	return -ENOMEM;
 	do {
 		struct page *page = pages[nr];
-		pr_info_verbose("page at %llx", (uint64_t) page);
+		// pr_info_verbose("page at %llx", (uint64_t) page);
 		if (WARN_ON(!page))
 			return -ENOMEM;
 		res = ecpt_mm_insert(
@@ -635,7 +634,7 @@ int vmap_pages_range_noflush(unsigned long addr, unsigned long end,
 		pgprot_t prot, struct page **pages, unsigned int page_shift)
 {
 	unsigned int i, nr = (end - addr) >> PAGE_SHIFT;
-
+	// dump_stack();
 	pr_info_verbose("addr=%lx end=%lx prot=%lx page_shift=%x\n",
 					 addr, end, prot.pgprot, page_shift);
 					 

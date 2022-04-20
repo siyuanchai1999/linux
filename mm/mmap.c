@@ -1409,6 +1409,11 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 	struct mm_struct *mm = current->mm;
 	vm_flags_t vm_flags;
 	int pkey = 0;
+	// dump_stack();
+	// if (file)
+	// 	pr_info_verbose("file=%s addr=%lx len=%lx\n", file->f_path.dentry->d_iname, addr, len);
+	// else
+	// 	pr_info_verbose("file=NULL addr=%lx len=%lx\n", addr, len);
 
 	*populate = 0;
 
@@ -1776,6 +1781,9 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 	vma->vm_page_prot = vm_get_page_prot(vm_flags);
 	vma->vm_pgoff = pgoff;
 
+	pr_info_verbose("vma at %llx start=%lx end=%lx flags=%lx pgoff=%lx\n",
+		(uint64_t) vma, vma->vm_start, vma->vm_end, vma->vm_flags, vma->vm_pgoff
+	);
 	if (file) {
 		if (vm_flags & VM_SHARED) {
 			error = mapping_map_writable(file->f_mapping);
@@ -1784,6 +1792,7 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 		}
 
 		vma->vm_file = get_file(file);
+		// pr_info_verbose("call mmap at %llx\n", (uint64_t) file->f_op->mmap);
 		error = call_mmap(file, vma);
 		if (error)
 			goto unmap_and_free_vma;
@@ -2798,7 +2807,8 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 {
 	unsigned long end;
 	struct vm_area_struct *vma, *prev, *last;
-
+	pr_info_verbose("mm at %llx start=%lx len=%lx\n", (uint64_t) mm, start, len);
+	dump_stack();
 	if ((offset_in_page(start)) || start > TASK_SIZE || len > TASK_SIZE-start)
 		return -EINVAL;
 

@@ -347,9 +347,9 @@ void free_pgd_range(struct mmu_gather *tlb,
 	pgd_t *pgd;
 	unsigned long next;
 #ifdef CONFIG_X86_64_ECPT	
-	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
-	WARN(1, "free_pgd_range not implented with ECPT\n");
-	return;
+	// pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
+	// WARN(1, "free_pgd_range not implented with ECPT\n");
+	// return;
 #endif
 
 	/*
@@ -520,7 +520,7 @@ static inline void add_mm_rss_vec(struct mm_struct *mm, int *rss)
  */
 static void print_bad_pte(struct vm_area_struct *vma, unsigned long addr,
 			  pte_t pte, struct page *page)
-{
+{	
 	pgd_t *pgd = pgd_offset(vma->vm_mm, addr);
 	p4d_t *p4d = p4d_offset(pgd, addr);
 	pud_t *pud = pud_offset(p4d, addr);
@@ -1097,7 +1097,6 @@ again:
 		 * If we need a pre-allocated page for this pte, drop the
 		 * locks, allocate, and try again.
 		 */
-		pr_info_verbose("ret=%d\n", ret);
 		if (unlikely(ret == -EAGAIN))
 			break;
 		if (unlikely(prealloc)) {
@@ -1112,7 +1111,6 @@ again:
 		}
 		progress += 8;
 #ifdef CONFIG_X86_64_ECPT
-	
 	} while (((addr += PAGE_SIZE)) &&
 			(addr != end) &&
 			(dst_pte = pte_offset_map(dst_mm, addr)) &&
@@ -1544,7 +1542,6 @@ void unmap_page_range(struct mmu_gather *tlb,
 			pte_t * pte = (pte_t *) &entry.pte;
 			next = zap_pte_range(tlb, vma, 
 				NULL,	/* pmd */
-				pte, /* pte */
 				addr, addr + PAGE_SIZE, details);
 
 		} else if (g == page_2MB) {
@@ -1880,7 +1877,6 @@ static pmd_t *walk_to_pmd(struct mm_struct *mm, unsigned long addr)
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
-
 	pgd = pgd_offset(mm, addr);
 	p4d = p4d_alloc(mm, pgd, addr);
 	if (!p4d)
@@ -2920,8 +2916,7 @@ static inline bool cow_user_page(struct page *dst, struct page *src,
 	struct vm_area_struct *vma = vmf->vma;
 	struct mm_struct *mm = vma->vm_mm;
 	unsigned long addr = vmf->address;
-	// pr_info_verbose("dst at %llx src at %llx\n", (uint64_t) dst, (uint64_t) src);
-	pr_info_verbose("WARN: NOT implemented!\n");
+
 	if (likely(src)) {
 		copy_user_highpage(dst, src, addr, vma);
 		return true;
@@ -3417,6 +3412,7 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	// pr_info_verbose("WARN: NOT implemented!\n");
+	pr_info_verbose("addr=%lx\n", vmf->address);
 	if (userfaultfd_pte_wp(vma, *vmf->pte)) {
 		pte_unmap_unlock(vmf->pte, vmf->ptl);
 		return handle_userfault(vmf, VM_UFFD_WP);
@@ -4342,6 +4338,8 @@ static vm_fault_t do_read_fault(struct vm_fault *vmf)
 	if (vma->vm_ops->map_pages && fault_around_bytes >> PAGE_SHIFT > 1) {
 		if (likely(!userfaultfd_minor(vmf->vma))) {
 			ret = do_fault_around(vmf);
+			// print_ecpt(vma->vm_mm->map_desc);
+			pr_info_verbose("ret=%d\n", ret);
 			if (ret)
 				return ret;
 		}
@@ -4861,8 +4859,9 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	ecpt_entry_t *entry_p;
 	Granularity g = unknown;	
 	uint32_t way = 0;
-	// entry = ecpt_mm_peek(mm, address, &g);
-	
+
+
+
 	spin_lock(&mm->page_table_lock);
 	entry_p = get_hpt_entry(mm->map_desc, address, &g, &way);
 	spin_unlock(&mm->page_table_lock);
@@ -4881,6 +4880,8 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 		vmf.pmd = NULL;
 		vmf.pte = NULL;
 
+		// print_ecpt(mm->map_desc);
+
 		if (__transparent_hugepage_enabled(vma)) {
 			pr_info_verbose("__transparent_hugepage_enabled\n");
 			// vmf.pud = (pud_t * )&entry.pte;
@@ -4895,7 +4896,9 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 				return ret;
 		}
 
-		return handle_pte_fault(&vmf);
+		ret = handle_pte_fault(&vmf);
+		// print_ecpt(mm->map_desc);
+		return ret;
 	}
 
 	if (g == page_1GB) {
@@ -4957,7 +4960,9 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 
 	vmf.pte = (pte_t * ) &entry_p->pte;
 	vmf.orig_pte = *vmf.pte;
-	return handle_pte_fault(&vmf);
+	ret = handle_pte_fault(&vmf);
+	// print_ecpt(mm->map_desc);
+	return ret;
 }
 
 #else 
@@ -5126,7 +5131,7 @@ vm_fault_t handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 {
 	vm_fault_t ret;
 	pr_info_verbose("vma at %llx vma->pgd=%llx vma->vm_flags=%lx address=%lx flags=%x\n",
-	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  vma->vm_flags , address, flags);
+	  	(uint64_t) vma, (uint64_t) vma->vm_mm->map_desc,  vma->vm_flags , address, flags);
 	__set_current_state(TASK_RUNNING);
 
 	count_vm_event(PGFAULT);
@@ -5250,7 +5255,6 @@ int follow_invalidate_pte(struct mm_struct *mm, unsigned long address,
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *ptep;
-
 	pgd = pgd_offset(mm, address);
 	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
 		goto out;

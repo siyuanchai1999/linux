@@ -1045,7 +1045,8 @@ void * pgd_alloc(struct mm_struct *mm) {
  * @param map_desc we save the type of pgd_t to avoid change the entire code base
  */
 void pgd_free(struct mm_struct *mm, pgd_t *map_desc) {
-	ECPT_desc_t * ecpt = (ECPT_desc_t *) map_desc;
+	// ECPT_desc_t * ecpt = (ECPT_desc_t *) map_desc;
+	ECPT_desc_t * ecpt = (ECPT_desc_t *) mm->map_desc;
 	uint16_t i = 0;
 	uint32_t n_entries = 0, bytes_need;
 	pr_info_verbose("Destroy ecpt at %llx\n", (uint64_t) ecpt);
@@ -1204,11 +1205,13 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
             entry_ptr = &ecpt_base[hash];
 
 		}
+		// pr_info_verbose("looking at entry_ptr at %llx {.vpn=%llx .pte=%llx} vpn=%llx\n", 
+			// (uint64_t) entry_ptr, entry_ptr->VPN_tag, entry_ptr->pte, vpn);
         entry = *entry_ptr;
 
 		// DEBUG_VAR(entry.VPN_tag);
 		if (entry.VPN_tag == vpn) {
-			
+			// pr_info_verbose("found at %llx vaddr=%llx\n", (uint64_t) entry_ptr, vaddr);
 			// DEBUG_VAR((uint64_t) entry_ptr);
 			if (gran == unknown) *g = way_to_gran(w);
 			*way = w;
@@ -1218,6 +1221,7 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 			entry_ptr = NULL;
 		}
 	}
+	// pr_info_verbose("Not Found! vaddr=%llx\n", vaddr);
 	*g = unknown;
 	*way = -1;
 	return entry_ptr;
@@ -1284,13 +1288,16 @@ ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity g
 	}
 
 	if (empty_i > 0) {
-		return empty_slots[get_rand_way(empty_i)];
+		entry_ptr = empty_slots[get_rand_way(empty_i)];
+		// pr_info_verbose("return ptr at %llx vaddr=%llx", (uint64_t) entry_ptr, vaddr);
+
+		return entry_ptr;
 	}
 
 	if (evict_i > 0) {
 		entry_ptr = evict_slots[get_rand_way(evict_i)];
 		/* TODO: eviction */
-		BUG();
+		return NULL;
 	}
 	return entry_ptr;
 }
@@ -1394,8 +1401,8 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		
 		if (!ecpt_entry_present(entry_ptr)) {
 			/* can insert here */
-			// pr_info_verbose("hash=%llx way=%d entry_ptr=%llx pte=%llx\n", 
-					// hash, way_start + way, (uint64_t) entry_ptr, entry.pte);
+			// pr_info_verbose("hash=%llx addr=%llx entry_ptr=%llx pte=%llx\n", 
+					// hash, vaddr, (uint64_t) entry_ptr, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
 			ecpt->occupied[way_start + way] += 1;
 			return 0;
@@ -1419,7 +1426,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	// pr_info_verbose("collision cannot be resolved.\n");
 	// pr_info_verbose("collision cannot be resolved: ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", 
 	// 		(uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
-	print_ecpt(ecpt);
+	// print_ecpt(ecpt);
 	WARN(1, KERN_WARNING"Hash Collision unresolved:\n ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", 
 			(uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
 	/* exceed max number of tries */
@@ -1537,37 +1544,44 @@ int ecpt_mm_insert_range(
 	return res;
 }
 
-static int ecpt_set_pte(pte_t *ptep, pte_t pte, unsigned long addr) {
-	ecpt_entry_t * e;
-	uint64_t * tag_ptr;
-	if (ptep != NULL && ptep != (pte_t *) &pte_default.pte) {
-		WRITE_ONCE(*ptep, pte);
-		e = GET_ECPT_P_FROM_PTEP(ptep, addr);
-		// pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
-		tag_ptr = (uint64_t *) &e->VPN_tag;
-		WRITE_ONCE(*tag_ptr, ADDR_TO_PAGE_NUM_4KB(addr));
+// static int ecpt_set_pte(pte_t *ptep, pte_t pte, unsigned long addr) {
+// 	ecpt_entry_t * e;
+// 	uint64_t * tag_ptr;
+// 	if (ptep != NULL && ptep != (pte_t *) &pte_default.pte) {
+// 		WRITE_ONCE(*ptep, pte);
+// 		e = GET_ECPT_P_FROM_PTEP(ptep, addr);
+// 		// pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
+// 		tag_ptr = (uint64_t *) &e->VPN_tag;
+// 		WRITE_ONCE(*tag_ptr, ADDR_TO_PAGE_NUM_4KB(addr));
 
-		return 0;
-	}	
+// 		return 0;
+// 	}	
 
-	return -1;
-}
+// 	return -1;
+// }
 
 
 int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
 	int res = 0;
+	ecpt_entry_t * e;
+	uint64_t * tag_ptr;
 	if (ptep != NULL && ptep != (pte_t *) &pte_default.pte) {
-		pr_info(" set_pte_at addr=%lx pte=%lx with ptep at %llx\n",
-			addr, pte.pte, (uint64_t) ptep);
-	} 
-	
-	res = ecpt_set_pte(ptep, pte, addr);
-	if (!res)
-		return res;
+		// pr_info(" set_pte_at addr=%lx pte=%lx with ptep at %llx\n",
+		// 	addr, pte.pte, (uint64_t) ptep);
+		
+		WRITE_ONCE(*ptep, pte);
+		e = GET_ECPT_P_FROM_PTEP(ptep, addr);
+		tag_ptr = (uint64_t *) &e->VPN_tag;
+		WRITE_ONCE(*tag_ptr, ADDR_TO_PAGE_NUM_4KB(addr));
 
-	pr_info("set_pte_at 4KB addr=%lx pte=%lx \n", addr, pte.pte);
+		pr_info_verbose("entry at %llx {.vpn=%llx .pte=%llx}\n", 
+			(uint64_t) e, e->VPN_tag, e->pte);
+		return 0;
+	} 
+
+	pr_info("  set_pte_at 4KB addr=%lx pte=%lx \n", addr, pte.pte);
 	res = ecpt_insert(
 		mm->map_desc,
 		addr,
@@ -1586,7 +1600,7 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
 {	
 	int changed = 1;
 	if (ptep != NULL && ptep != (pte_t *) &pte_default.pte) {
-		pr_info(" 	ptep_set_access_flags addr=%lx pte=%lx with ptep at %llx\n",
+		pr_info_verbose("ptep_set_access_flags addr=%lx pte=%lx with ptep at %llx\n",
 			address, entry.pte, (uint64_t) ptep);
 		changed = !pte_same(*ptep, entry);
 
@@ -1600,20 +1614,21 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
 	return 0;
 }	
 
-static pte_t __ecpt_native_ptep_get_and_clear(pte_t *ptep) {
+static pte_t __ecpt_native_ptep_get_and_clear(pte_t *ptep, unsigned long addr) {
 	ecpt_entry_t * e;
 	uint64_t * tag_ptr;
 
 	pte_t ret = READ_ONCE(*ptep);
 	pte_t zero = {.pte = 0};
-
+	
 	WRITE_ONCE(*ptep, zero);
 	e = GET_ECPT_P_FROM_PTEP(ptep, addr);
-	// pr_info_verbose("ptep at %llx entry at %llx\n", (uint64_t) ptep, (uint64_t) e);
+	
 	tag_ptr = (uint64_t *) &e->VPN_tag;
 	
 	WRITE_ONCE(*tag_ptr, 0);
-
+	pr_info_verbose("ptep_get_and_clear 4KB addr=%lx with entry at %llx\n",
+			addr, (uint64_t) e);
 	return ret;
 }
 
@@ -1623,9 +1638,8 @@ pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm,
 	pte_t ret;
 	int res;
 	if (ptep != NULL && ptep != &pte_default) {
-		pr_info("ptep_get_and_clear 4KB addr=%lx with ptep at %llx\n",
-			addr, (uint64_t) ptep);
-		return __ecpt_native_ptep_get_and_clear(ptep);
+		
+		return __ecpt_native_ptep_get_and_clear(ptep, addr);
 	} 
 
 	ret = READ_ONCE(*ptep);
@@ -1824,8 +1838,37 @@ void load_ECPT_desc(ECPT_desc_t * ecpt) {
 	(*f)(ecpt->table[0]);
 } 
 
+void print_ecpt_user_pgtable_detail(ECPT_desc_t * ecpt) {
+	uint64_t cr, size;
+	uint32_t  i, j;
+	ecpt_entry_t * ecpt_base, * entry_ptr; 
+
+
+	for (i = ECPT_KERNEL_WAY; i < ECPT_TOTAL_WAY; i++) {
+		pr_info("\t 0x%x/0x%llx %llx -> cr%d \n",
+			ecpt->occupied[i], GET_HPT_SIZE(ecpt->table[i]), 
+			ecpt->table[i], way_to_crN[i]);
+
+		cr = ecpt->table[i];
+		size = GET_HPT_SIZE(cr);
+
+		ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
+
+		for (j = 0; j < size; j++) {
+            entry_ptr = &ecpt_base[j];
+			if (entry_ptr->VPN_tag != 0) {
+				pr_info("\t\t entry at %llx {.vpn=%llx .pte=%llx}\n", 
+					(uint64_t) entry_ptr, entry_ptr->VPN_tag, entry_ptr->pte);
+			}
+		}
+	
+	}
+}
+
 void print_ecpt(ECPT_desc_t * ecpt) {
 	uint16_t i ;
+
+	bool user_table_detail = true;
 
 	if (ecpt == &ecpt_desc) 
 		pr_info("show root ECPT ------------------\n");
@@ -1854,9 +1897,14 @@ void print_ecpt(ECPT_desc_t * ecpt) {
 	pr_info("\t ecpt->lru.next=%llx\n", (uint64_t)ecpt->lru.next);
 	pr_info("\t ecpt->lru.prev=%llx\n", (uint64_t)ecpt->lru.prev);
 	
+	if (user_table_detail)
+		print_ecpt_user_pgtable_detail(ecpt);
+
 	pr_info("End of ECPT at %llx ------------------", (uint64_t) ecpt);
 
 }
+
+
 
 
 
