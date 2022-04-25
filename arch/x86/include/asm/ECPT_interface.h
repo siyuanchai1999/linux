@@ -44,6 +44,9 @@ static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 
 // #define pte_unmap_unlock(pte, ptl)	do {} while (0)
 
+#define pte_alloc(mm, pmd) (NULL)
+#define __ARCH_HAS_PTE_ALLOC
+
 int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte);
 

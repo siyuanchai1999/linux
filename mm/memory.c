@@ -1891,10 +1891,14 @@ static pmd_t *walk_to_pmd(struct mm_struct *mm, unsigned long addr)
 pte_t *__get_locked_pte(struct mm_struct *mm, unsigned long addr,
 			spinlock_t **ptl)
 {
+#ifdef CONFIG_X86_64_ECPT
+	pmd_t *pmd = NULL;
+#else
 	pmd_t *pmd = walk_to_pmd(mm, addr);
 
 	if (!pmd)
 		return NULL;
+#endif
 	return pte_alloc_map_lock(mm, pmd, addr, ptl);
 }
 
