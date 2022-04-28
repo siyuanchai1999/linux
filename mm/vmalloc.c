@@ -620,32 +620,19 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 
 	int nr = 0;
 	pgtbl_mod_mask mask = 0;
-	int res = 0;
-
-	// pr_info_verbose("addr=%lx end=%lx prot=%lx\n",
-					//  addr, end, prot.pgprot);
+	pte_t * pte;
 
 	BUG_ON(addr >= end);
-
-	// pte = pte_alloc_kernel_track(pmd, addr, mask);
-	// if (!pte)
-	// 	return -ENOMEM;
+	
 	do {
+		pte = pte_offset_kernel(&init_mm, addr);
 		struct page *page = pages[nr];
-		// pr_info_verbose("page at %llx", (uint64_t) page);
+
+		if (WARN_ON(!pte_none(*pte)))
+			return -EBUSY;
 		if (WARN_ON(!page))
 			return -ENOMEM;
-		res = ecpt_mm_insert(
-			&init_mm,
-			addr,
-			page_to_pfn(page) << PAGE_SHIFT,
-			__ecpt_pgprot(prot.pgprot),
-			page_4KB
-		);
-
-		if (WARN_ON(res))
-			return -EBUSY;
-		// set_pte_at(&init_mm, addr, pte, mk_pte(page, prot));
+		set_pte_at(&init_mm, addr, pte, mk_pte(page, prot));
 		nr++;
 	} while (addr += PAGE_SIZE, addr != end);
 	mask |= PGTBL_PTE_MODIFIED;
