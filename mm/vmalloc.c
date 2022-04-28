@@ -420,6 +420,75 @@ static void vunmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
  *
  * This is an internal function only. Do not use outside mm/.
  */
+#ifdef CONFIG_X86_64_ECPT
+void vunmap_range_noflush(unsigned long start, unsigned long end)
+{
+	unsigned long next;
+	pgd_t *pgd;
+	unsigned long addr = start;
+	pgtbl_mod_mask mask = 0;
+	
+	Granularity g = unknown;
+	ecpt_entry_t * entry;
+	uint32_t way;
+
+	BUG_ON(addr >= end);
+	pr_info_verbose("start=%lx end=%lx\n", start, end);
+	do {
+		/**
+		 * This could be triggered if start = 0x80000000 end = 0x80004000
+		 * but start correspond to a 2MB or 1GB page. 
+		 */
+		BUG_ON(addr >= end);
+
+		entry = get_hpt_entry((ECPT_desc_t *) init_mm.map_desc, addr, &g, &way);
+		
+		pr_info_verbose("addr=%lx entry at %llx {.vpn=%llx .pte=%llx}\n", 
+			addr,
+			(uint64_t) entry, 
+			entry ? entry->VPN_tag : 0,
+			entry ? entry->pte : 0
+		);
+
+		if (entry == NULL) {
+			next = addr + PAGE_SIZE;
+			continue;
+		}
+		
+		if (g == page_4KB) {
+			pte_t * pte = (pte_t *) &entry->pte;
+			
+			pte_t ptent = ptep_get_and_clear(&init_mm, addr, pte);
+			WARN_ON(!pte_none(ptent) && !pte_present(ptent));
+			
+			next = addr + PAGE_SIZE;
+			mask |= PGTBL_PTE_MODIFIED;
+		} else if (g == page_2MB) {
+			pmd_t * pmd = (pmd_t *) &entry->pte;
+			pmd_t pmdnt = pmdp_huge_get_and_clear(&init_mm, addr, pmd);
+			
+			next = addr + PAGE_SIZE_2MB;
+			mask |= PGTBL_PMD_MODIFIED;
+
+		} else if (g == page_1GB) {
+			pud_t * pud = (pud_t *) &entry->pte;
+			pud_t pudnt = pudp_huge_get_and_clear(&init_mm, addr, pud);
+			
+			next = addr + PAGE_SIZE_1GB;
+			mask |= PGTBL_PUD_MODIFIED;
+		} else {
+			/* should not be here */
+			BUG();
+		}
+
+	} while (addr = next, addr != end);
+
+
+	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
+		arch_sync_kernel_mappings(start, end);
+} 
+
+#else
 void vunmap_range_noflush(unsigned long start, unsigned long end)
 {
 	unsigned long next;
@@ -441,6 +510,7 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
 		arch_sync_kernel_mappings(start, end);
 }
+#endif
 
 /**
  * vunmap_range - unmap kernel virtual addresses
