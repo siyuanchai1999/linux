@@ -204,21 +204,6 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	
 	ecpt_desc_ptr = &ecpt_desc;
 
-	/* require early hpt to be 4K aligned */
-	// for (way = 0; way < ECPT_2M_WAY; way++) {
-	// 	if (ecpt_desc_ptr->cr[way] & ~PAGE_MASK)
-	// 		for (;;);
-	// }
-
-	// debug_putstr((const char *) fixup_pointer((void*) &str[0], physaddr));
-
-	__puthex(ecpt_desc.table[0]);
-	__putstr(str);
-	__puthex(ecpt_desc.table[1]);
-	__putstr(str);
-	
-	__puthex(sizeof(ECPT_desc_t));
-	__putstr(str);
 
 	vaddr_start = __START_KERNEL_map;
 	paddr_start = load_delta;
@@ -888,7 +873,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 
 	/* Kill off the identity-map trampoline */
 #ifdef CONFIG_X86_64_ECPT
-	
+	early_debug_init();
 	reset_early_hpt();
 #else 
 	reset_early_page_tables();
