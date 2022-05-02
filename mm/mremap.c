@@ -554,7 +554,7 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 			extent = PAGE_SIZE;
 			continue;
 		}
-
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
 		if (g == page_1GB) {
 			extent = get_extent(NORMAL_PUD, old_addr, old_end, new_addr);
 
@@ -642,7 +642,7 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 			if (pmd_trans_unstable(old_pmd))
 					continue;
 		}
-		
+#endif		
 		BUG_ON(g != page_4KB);
 		extent = get_extent(NORMAL_PMD, old_addr, old_end, new_addr);
 		// if (pte_alloc(new_vma->vm_mm, new_pmd))
