@@ -96,6 +96,7 @@ static void free_work(struct work_struct *w)
 }
 
 /*** Page table manipulation functions ***/
+
 static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 			phys_addr_t phys_addr, pgprot_t prot,
 			unsigned int max_page_shift, pgtbl_mod_mask *mask)
@@ -105,7 +106,11 @@ static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 	unsigned long size = PAGE_SIZE;
 
 	pfn = phys_addr >> PAGE_SHIFT;
+#ifdef CONFIG_X86_64_ECPT
+	pte = pte_offset_kernel(&init_mm, addr);
+#else
 	pte = pte_alloc_kernel_track(pmd, addr, mask);
+#endif
 	if (!pte)
 		return -ENOMEM;
 	do {
@@ -125,7 +130,12 @@ static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 #endif
 		set_pte_at(&init_mm, addr, pte, pfn_pte(pfn, prot));
 		pfn++;
+
+#ifdef CONFIG_X86_64_ECPT
+	} while ((addr += size) && (addr != end) && (pte = pte_offset_kernel(&init_mm, addr)));
+#else
 	} while (pte += PFN_DOWN(size), addr += size, addr != end);
+#endif
 	*mask |= PGTBL_PTE_MODIFIED;
 	return 0;
 }
@@ -149,9 +159,10 @@ static int vmap_try_huge_pmd(pmd_t *pmd, unsigned long addr, unsigned long end,
 	if (!IS_ALIGNED(phys_addr, PMD_SIZE))
 		return 0;
 
+#ifndef CONFIG_X86_64_ECPT
 	if (pmd_present(*pmd) && !pmd_free_pte_page(pmd, addr))
 		return 0;
-
+#endif
 	return pmd_set_huge(pmd, phys_addr, prot);
 }
 
@@ -199,9 +210,10 @@ static int vmap_try_huge_pud(pud_t *pud, unsigned long addr, unsigned long end,
 	if (!IS_ALIGNED(phys_addr, PUD_SIZE))
 		return 0;
 
+#ifndef CONFIG_X86_64_ECPT
 	if (pud_present(*pud) && !pud_free_pmd_page(pud, addr))
 		return 0;
-
+#endif
 	return pud_set_huge(pud, phys_addr, prot);
 }
 
@@ -282,6 +294,55 @@ static int vmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 	return 0;
 }
 
+#ifdef CONFIG_X86_64_ECPT
+static int vmap_range_noflush(unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{	
+	unsigned long start;
+	unsigned long next;
+	int err;
+	pgtbl_mod_mask mask = 0;
+
+	might_sleep();
+	BUG_ON(addr >= end);
+
+	pr_info_verbose("addr=%lx end=%lx phys_addr=%llx\n", addr, end, phys_addr);
+	start = addr;
+	do {
+
+		next = p4d_addr_end(addr, end);
+		if (vmap_try_huge_p4d(NULL /* p4d */, addr, next, phys_addr, prot,
+					max_page_shift)) {
+			mask |= PGTBL_P4D_MODIFIED;
+			continue;
+		}
+
+		next = pud_addr_end(addr, end);
+		if (vmap_try_huge_pud(NULL /* pud */, addr, next, phys_addr, prot,
+					max_page_shift)) {
+			mask |= PGTBL_PUD_MODIFIED;
+			continue;
+		}
+
+		next = pmd_addr_end(addr, end);
+		if (vmap_try_huge_pmd(NULL /* pmd */, addr, next, phys_addr, prot,
+					max_page_shift)) {
+			mask |= PGTBL_PMD_MODIFIED;
+			continue;
+		}
+
+		if (vmap_pte_range(NULL /* pmd */, addr, next, phys_addr, prot, max_page_shift, &mask))
+			return -ENOMEM;
+	} while (phys_addr += (next - addr), addr = next, addr != end);
+	
+
+	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
+		arch_sync_kernel_mappings(start, end);
+
+	return err;
+}
+#else
 static int vmap_range_noflush(unsigned long addr, unsigned long end,
 			phys_addr_t phys_addr, pgprot_t prot,
 			unsigned int max_page_shift)
@@ -312,6 +373,7 @@ static int vmap_range_noflush(unsigned long addr, unsigned long end,
 
 	return err;
 }
+#endif
 
 int ioremap_page_range(unsigned long addr, unsigned long end,
 		phys_addr_t phys_addr, pgprot_t prot)
@@ -424,7 +486,6 @@ static void vunmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 void vunmap_range_noflush(unsigned long start, unsigned long end)
 {
 	unsigned long next;
-	pgd_t *pgd;
 	unsigned long addr = start;
 	pgtbl_mod_mask mask = 0;
 	
@@ -467,6 +528,8 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 			pmd_t * pmd = (pmd_t *) &entry->pte;
 			pmd_t pmdnt = pmdp_huge_get_and_clear(&init_mm, addr, pmd);
 			
+			WARN_ON(!pmd_none(pmdnt) && !pmd_present(pmdnt));
+
 			next = addr + PAGE_SIZE_2MB;
 			mask |= PGTBL_PMD_MODIFIED;
 
@@ -474,6 +537,8 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 			pud_t * pud = (pud_t *) &entry->pte;
 			pud_t pudnt = pudp_huge_get_and_clear(&init_mm, addr, pud);
 			
+			WARN_ON(!pud_none(pudnt) && !pud_present(pudnt));
+
 			next = addr + PAGE_SIZE_1GB;
 			mask |= PGTBL_PUD_MODIFIED;
 		} else {
@@ -625,9 +690,9 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 	BUG_ON(addr >= end);
 	
 	do {
-		pte = pte_offset_kernel(&init_mm, addr);
 		struct page *page = pages[nr];
-
+		pte = pte_offset_kernel(&init_mm, addr);
+		
 		if (WARN_ON(!pte_none(*pte)))
 			return -EBUSY;
 		if (WARN_ON(!page))
