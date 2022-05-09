@@ -524,36 +524,48 @@ uint64_t crc64_be(uint64_t crc, const void* p, uint64_t len, uint64_t * table) {
   return (crc);
 }
 
+static uint64_t crc_64_multi_hash(uint64_t vpn, int n, uint64_t * table) {
+    uint64_t hash = 0, i = 0;
+    // hash = crc64_be(0, &vpn, 5, table); /* at most we need five of them */ 
+    // for (i = 0; i < n; i++) {
+    //     hash = crc64_be(hash, &vpn, 5, table);
+    // }
 
-static uint64_t gen_hash_64(uint64_t vpn, uint64_t size) {
-    uint64_t hash = crc64_be(0xffffffff,
-					&vpn,
-					5, /* at most we need five of them */ 
-					crc64_table
-	);
+	hash = crc64_be(0, &vpn, 5, table); /* at most we need five of them */ 
+    for (i = 0; i < n; i++) {
+        hash = crc64_be(0, &hash, 5, table);
+    }
+    return hash;
+}
+
+static uint64_t gen_hash_64(uint64_t vpn, uint64_t size, uint32_t way) {
+    // uint64_t hash = crc_64_multi_hash(vpn, way, crc64_table);
+	uint64_t hash = ecpt_crc64_hash(vpn, way);
     hash = hash % size;
 
     return hash;
 }
 
-static uint64_t early_gen_hash_64(uint64_t vpn, uint64_t size, uint64_t kernel_start, uint64_t physaddr) {
+static uint64_t early_gen_hash_64(uint64_t vpn, uint64_t size, uint32_t way, uint64_t kernel_start, uint64_t physaddr) {
 	uint64_t hash;
-	uint64_t * fixup_crc64_table = (uint64_t *) ((void *) crc64_table - (void *)kernel_start + (void *)physaddr);
+	// uint64_t * fixup_crc64_table = (uint64_t *) ((void *) crc64_table - (void *)kernel_start + (void *)physaddr);
 
-	hash = crc64_be(0xffffffff,
-					&vpn,
-					5, /* at most we need five of them */ 
-					fixup_crc64_table
-	);
-
+	// hash = crc_64_multi_hash(vpn,
+	// 				way, 
+	// 				fixup_crc64_table
+	// );
+	hash = ecpt_crc64_hash_early(vpn, way, kernel_start, physaddr);
 	hash = hash % size;
     return hash;
 }
 
-#define puthexln(num) { \
+// #define puthexln(num)
+// #define puthex_tabln(num)
+
+ #define puthexln(num) { \
 		debug_puthex(num); \
 		debug_putstr(line_break); \
-	}
+	} 
 
 #define puthex_tabln(num) { \
 		debug_putstr(tab); \
@@ -580,7 +592,7 @@ static uint32_t get_diff_rand(uint32_t cur_way, uint32_t n_way) {
 	do
 	{
 		if (rng_is_initialized()) {
-			pr_info_verbose("call get random\n");
+			// pr_info_verbose("call get random\n");
 			way = get_random_u32();
 		} else {
 			way += 1;
@@ -597,7 +609,6 @@ static uint32_t get_rand_way(uint32_t n_way) {
 	uint32_t way = 0;
 
 	if (rng_is_initialized()) {
-		pr_info_verbose("call get random\n");
 		way = get_random_u32();
 	} else {
 		way = round_robin_way++;
@@ -680,7 +691,8 @@ int early_ecpt_insert(
 		
 		size = GET_HPT_SIZE(cr);
 		puthex_tabln(vpn);
-		hash = early_gen_hash_64(vpn, size, kernel_start, physaddr);
+
+		hash = early_gen_hash_64(entry.VPN_tag, size, ECPT_4K_WAY + way, kernel_start, physaddr);
 		puthex_tabln(hash);
 		ecpt_base = (ecpt_entry_t *) GET_HPT_BASE_VIRT(cr);
 		entry_ptr = &ecpt_base[hash];
@@ -729,7 +741,7 @@ int early_ecpt_invalidate(ECPT_desc_t * ecpt, uint64_t vaddr) {
 	uint64_t vpn = ADDR_TO_PAGE_NUM_2MB(vaddr);
 
 	ecpt_entry_t *entry_ptr, *ecpt_base;
-	DEBUG_VAR(vaddr);
+	// DEBUG_VAR(vaddr);
 	if (!ECPT_2M_WAY) return -2;
 
 	for (w = way_start; w < way_end; w++) {
@@ -743,14 +755,14 @@ int early_ecpt_invalidate(ECPT_desc_t * ecpt, uint64_t vaddr) {
 			BUG();
 		}
 
-		hash = gen_hash_64(vpn, size);
+		hash = gen_hash_64(vpn, size, w);
 		
 		/* stay with current hash table */
 		ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
 		entry_ptr = &ecpt_base[hash];
 
 		if (entry_ptr->VPN_tag == vpn) {
-			DEBUG_VAR((uint64_t)entry_ptr);
+			// DEBUG_VAR((uint64_t)entry_ptr);
 			break;
 		} else {
 			/* not found move on */
@@ -1190,7 +1202,7 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 			continue;
 		}
 
-		hash = gen_hash_64(vpn, size);
+		hash = gen_hash_64(vpn, size, w);
 		
 		// DEBUG_VAR(hash);
 		// DEBUG_VAR(w);
@@ -1260,7 +1272,7 @@ ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity g
 			continue;
 		}
 
-		hash = gen_hash_64(vpn, size);
+		hash = gen_hash_64(vpn, size, w);
 		
 		if (hash < rehash_ptr) {
             /* not supported for resizing now */
@@ -1382,8 +1394,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 			}
 		}
 
-		hash = gen_hash_64(vpn, size);
-		// puthex_tabln(hash);
+		hash = gen_hash_64(entry.VPN_tag, size, way_start + way);
 
 
 		if (hash < rehash_ptr) {

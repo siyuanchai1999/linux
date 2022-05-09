@@ -57,5 +57,17 @@ obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= mem_encrypt_identity.o
 obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= mem_encrypt_boot.o
 
 obj-$(CONFIG_X86_64_ECPT)	+= ECPT.o
+obj-y	+= ecpt_crc.o
+
+hostprogs		:= ecpt_gen_crc64table
+clean-files		:= ecpt_crc64table.h
+clean-files		+= ecpt_gen_crc64table
+
+$(obj)/ecpt_crc.o: $(obj)/ecpt_crc64table.h
+
+cmd_ecpt_crc64 = $< > $@
+
+$(obj)/ecpt_crc64table.h: $(obj)/ecpt_gen_crc64table
+	$(call cmd,ecpt_crc64)
 
 CFLAGS_init_$(BITS).o := -DDEBUG
