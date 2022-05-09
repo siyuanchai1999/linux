@@ -10,6 +10,8 @@
 #include <linux/random.h>
 #include <linux/slab.h>
 
+#include "ecpt_crc.h"
+
 #ifdef CONFIG_DEBUG_BEFORE_CONSOLE
 #include <asm/early_debug.h>
 #else
@@ -1415,6 +1417,9 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 			// pr_info_verbose("hash=%llx addr=%llx entry_ptr=%llx pte=%llx\n", 
 					// hash, vaddr, (uint64_t) entry_ptr, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
+			if (tries > 0) {
+				pr_info("set entry={.vpn=%llx .pte=%llx} at %llx\n", entry.VPN_tag, entry.pte, (uint64_t) entry_ptr);
+			}
 			ecpt->occupied[way_start + way] += 1;
 			return 0;
 		} else {
@@ -1425,7 +1430,8 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 				/* mapping already established, no need to kick it out */
 				return 0;
 			}
-			pr_info_verbose("kick temp={.vpn=%llx .pte=%llx} with entry={.vpn=%llx .pte=%llx}\n", temp.VPN_tag, temp.pte, entry.VPN_tag, entry.pte);
+			pr_info("kick at %llx ={.vpn=%llx .pte=%llx} with entry={.vpn=%llx .pte=%llx} way=%d hash=%llx\n", 
+				(uint64_t) entry_ptr, temp.VPN_tag, temp.pte, entry.VPN_tag, entry.pte, way_start + way, hash);
 			set_ecpt_entry(entry_ptr, entry);
 			entry = temp;
 				
@@ -1440,6 +1446,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	// print_ecpt(ecpt);
 	WARN(1, KERN_WARNING"Hash Collision unresolved:\n ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", 
 			(uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
+	print_ecpt(&ecpt_desc, 0 /* kernel */, 1 /* user */);
 	/* exceed max number of tries */
 	return -3;
 }
@@ -1593,7 +1600,7 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte, unsigned l
 	if (update_stats) {
 		way = find_way_from_ptep(ecpt, ptep);
 		BUG_ON(way == -1);
-		pr_info_verbose("update way at %llx\n", ecpt->table[way]);
+		// pr_info_verbose("update way at %llx\n", ecpt->table[way]);
 		ecpt->occupied[way] += 1;
 	}
 
@@ -1666,7 +1673,7 @@ static pte_t __ecpt_native_ptep_get_and_clear(struct mm_struct *mm, pte_t *ptep,
 	if (update_stats) {
 		way = find_way_from_ptep(ecpt, ptep);
 		BUG_ON(way == -1);
-		pr_info_verbose("update way at %llx\n", ecpt->table[way]);
+		// pr_info_verbose("update way at %llx\n", ecpt->table[way]);
 		ecpt->occupied[way] -= 1;
 	}
 
@@ -1881,13 +1888,13 @@ void load_ECPT_desc(ECPT_desc_t * ecpt) {
 	(*f)(ecpt->table[0]);
 } 
 
-void print_ecpt_user_pgtable_detail(ECPT_desc_t * ecpt) {
+static void print_ecpt_detail(ECPT_desc_t * ecpt, uint32_t way_start, uint32_t way_end) {
 	uint64_t cr, size;
 	uint32_t  i, j;
 	ecpt_entry_t * ecpt_base, * entry_ptr; 
 
 
-	for (i = ECPT_KERNEL_WAY; i < ECPT_TOTAL_WAY; i++) {
+	for (i = way_start; i < way_end; i++) {
 		pr_info("\t 0x%x/0x%llx %llx -> cr%d \n",
 			ecpt->occupied[i], GET_HPT_SIZE(ecpt->table[i]), 
 			ecpt->table[i], way_to_crN[i]);
@@ -1904,14 +1911,20 @@ void print_ecpt_user_pgtable_detail(ECPT_desc_t * ecpt) {
 					(uint64_t) entry_ptr, entry_ptr->VPN_tag, entry_ptr->pte);
 			}
 		}
-	
 	}
 }
 
-void print_ecpt(ECPT_desc_t * ecpt) {
-	uint16_t i ;
+static inline void print_ecpt_user_detail(ECPT_desc_t * ecpt) {
+	print_ecpt_detail(ecpt, ECPT_KERNEL_WAY, ECPT_TOTAL_WAY);
+}
 
-	bool user_table_detail = false;
+static inline void print_ecpt_kernel_detail(ECPT_desc_t * ecpt) {
+	print_ecpt_detail(ecpt, 0, ECPT_KERNEL_WAY);
+}
+
+
+void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail, bool user_table_detail) {
+	uint16_t i ;	
 
 	if (ecpt == &ecpt_desc) 
 		pr_info("show root ECPT ------------------\n");
@@ -1940,9 +1953,12 @@ void print_ecpt(ECPT_desc_t * ecpt) {
 	pr_info("\t ecpt->lru.next=%llx\n", (uint64_t)ecpt->lru.next);
 	pr_info("\t ecpt->lru.prev=%llx\n", (uint64_t)ecpt->lru.prev);
 	
-	if (user_table_detail)
-		print_ecpt_user_pgtable_detail(ecpt);
+	if (kernel_table_detail)
+		print_ecpt_kernel_detail(ecpt);
 
+	if (user_table_detail)
+		print_ecpt_user_detail(ecpt);
+	
 	pr_info("End of ECPT at %llx ------------------", (uint64_t) ecpt);
 
 }

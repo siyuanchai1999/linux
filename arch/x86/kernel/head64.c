@@ -204,6 +204,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	
 	ecpt_desc_ptr = &ecpt_desc;
 
+	early_debug_init();
 
 	vaddr_start = __START_KERNEL_map;
 	paddr_start = load_delta;
@@ -873,7 +874,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 
 	/* Kill off the identity-map trampoline */
 #ifdef CONFIG_X86_64_ECPT
-	early_debug_init();
+	// early_debug_init();
 	reset_early_hpt();
 #else 
 	reset_early_page_tables();
@@ -904,7 +905,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	load_ucode_bsp();
 
 #ifdef CONFIG_X86_64_ECPT
-	print_ecpt(&ecpt_desc);
+	print_ecpt(&ecpt_desc, 1 /* kernel */, 0 /* user */);
 #else
 	/* set init_top_pgt kernel high mapping*/
 	init_top_pgt[511] = early_top_pgt[511];
