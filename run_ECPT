@@ -16,7 +16,7 @@ log_name=ecpt.log
 qemu_args=(
 	"$qemu"
 	"-kernel" "arch/x86/boot/bzImage" 
-	"-m" "2048M"
+	"-m" "4096M"
 	"-display" "none"
 	"-initrd" "ramdisk.img"
 	"-serial" "stdio"
@@ -58,18 +58,3 @@ printf '%q ' "${tee_args[@]}"
 echo
 
 "${qemu_args[@]}" | "${tee_args[@]}"
-
-
-#	-kernel arch/x86/boot/bzImage \
-#	-m 2048M\
-#       -initrd ramdisk.img\
-#	-serial stdio\
-#	-append "init=/bin/sh console=ttyS0,115200" \
-#	-d mmu -D mmu.log
-
-#	-append "root=/dev/sda rw console=ttyS0,115200 acpi=off nokaslr" \
-#        -serial stdio -display none
-#	-hda rootfs.ext4 \ 
-#	-append "root=/dev/sda rw console=ttyS0,115200 acpi=off nokaslr" \
-#       	-serial stdio -display none 
-# -d mmu -D mmu.log
