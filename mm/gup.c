@@ -1091,12 +1091,9 @@ static struct page *follow_page_mask(struct vm_area_struct *vma,
 	Granularity g = unknown;
 	ecpt_entry_t entry;
 	pte_t pte;
-	pr_info_verbose("vm_start=%lx vm_end=%lx mm at %llx addr=%lx flags=%x\n", 
-		vma->vm_start, vma->vm_end , (uint64_t) mm, address, flags);
 
 	entry = ecpt_mm_peek(mm, address, &g);
 	pte.pte = entry.pte;
-	pr_info_verbose("vpn=%llx pte=%llx\n", entry.VPN_tag, entry.pte);
 	if (!pte_present(pte)) {
 		/* no such page */
 		return no_page_table(vma, flags);
@@ -1480,7 +1477,6 @@ retry:
 		cond_resched();
 
 		page = follow_page_mask(vma, start, foll_flags, &ctx);
-		pr_info_verbose("page at %llx\n", (uint64_t) page);
 		if (!page) {
 			ret = faultin_page(vma, start, &foll_flags, locked);
 			switch (ret) {
@@ -2916,7 +2912,7 @@ static void gup_pgd_range(unsigned long addr, unsigned long end,
 {
 	unsigned long next;
 	pgd_t *pgdp;
-
+	WARN(1, "gup_pgd_range not implemented with ECPT!\n");
 	pgdp = pgd_offset(current->mm, addr);
 	do {
 		pgd_t pgd = READ_ONCE(*pgdp);

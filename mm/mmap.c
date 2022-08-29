@@ -2808,7 +2808,6 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 	unsigned long end;
 	struct vm_area_struct *vma, *prev, *last;
 	pr_info_verbose("mm at %llx start=%lx len=%lx\n", (uint64_t) mm, start, len);
-	dump_stack();
 	if ((offset_in_page(start)) || start > TASK_SIZE || len > TASK_SIZE-start)
 		return -EINVAL;
 

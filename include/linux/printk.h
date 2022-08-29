@@ -517,8 +517,8 @@ struct pi_entry {
  */
 #define pr_info(fmt, ...) \
 	printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__)
-// #define pr_info_verbose(fmt, ...)
-#define pr_info_verbose(fmt, ...) printk(KERN_INFO "%s:%d %s pid=%d " pr_fmt(fmt), __FILE__ , __LINE__ , __func__, current->pid, ##__VA_ARGS__)
+#define pr_info_verbose(fmt, ...)
+// #define pr_info_verbose(fmt, ...) printk(KERN_INFO "%s:%d %s pid=%d " pr_fmt(fmt), __FILE__ , __LINE__ , __func__, current->pid, ##__VA_ARGS__)
 /**
  * pr_cont - Continues a previous log message in the same line.
  * @fmt: format string

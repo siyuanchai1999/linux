@@ -1661,13 +1661,8 @@ handle_page_fault(struct pt_regs *regs, unsigned long error_code,
 
 	/* Was the fault on kernel-controlled part of the address space? */
 	if (unlikely(fault_in_kernel_space(address))) {
-		DEBUG_STR("do_kern_addr_fault ");
-		DEBUG_VAR(address);	
 		do_kern_addr_fault(regs, error_code, address);
 	} else {
-		DEBUG_STR("do_user_addr_fault\n");
-		DEBUG_VAR(address);	
-		
 		do_user_addr_fault(regs, error_code, address);
 		/*
 		 * User address page fault handling might have reenabled

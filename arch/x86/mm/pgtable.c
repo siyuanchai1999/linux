@@ -733,7 +733,7 @@ int p4d_clear_huge(p4d_t *p4d)
 int pud_set_huge(pud_t *pud, phys_addr_t addr, pgprot_t prot)
 {
 	u8 mtrr, uniform;
-
+	BUG();
 	mtrr = mtrr_type_lookup(addr, addr + PUD_SIZE, &uniform);
 	if ((mtrr != MTRR_TYPE_INVALID) && (!uniform) &&
 	    (mtrr != MTRR_TYPE_WRBACK))
@@ -760,7 +760,7 @@ int pud_set_huge(pud_t *pud, phys_addr_t addr, pgprot_t prot)
 int pmd_set_huge(pmd_t *pmd, phys_addr_t addr, pgprot_t prot)
 {
 	u8 mtrr, uniform;
-
+	BUG();
 	mtrr = mtrr_type_lookup(addr, addr + PMD_SIZE, &uniform);
 	if ((mtrr != MTRR_TYPE_INVALID) && (!uniform) &&
 	    (mtrr != MTRR_TYPE_WRBACK)) {

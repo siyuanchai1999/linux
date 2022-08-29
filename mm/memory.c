@@ -348,7 +348,6 @@ void free_pgd_range(struct mmu_gather *tlb,
 	unsigned long next;
 #ifdef CONFIG_X86_64_ECPT	
 	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
-	WARN(1, "free_pgd_range not implented with ECPT\n");
 	return;
 #endif
 
@@ -1383,13 +1382,13 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	swp_entry_t entry;
 
 	tlb_change_page_size(tlb, PAGE_SIZE);
+	pr_info_verbose("addr=%lx end=%lx\n", addr, end);
 again:
 	init_rss_vec(rss);
 
 	start_pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
 
 
-	pr_info_verbose("ptep at %llx addr=%lx end=%lx\n", (uint64_t) start_pte, addr, end);
 	pte = start_pte;
 	flush_tlb_batched_pending(mm);
 	arch_enter_lazy_mmu_mode();
@@ -1483,12 +1482,13 @@ again:
 		if (unlikely(!free_swap_and_cache(entry)))
 			print_bad_pte(vma, addr, ptent, NULL);
 		pte_clear_not_present_full(mm, addr, pte, tlb->fullmm);
+	}
 #ifdef CONFIG_X86_64_ECPT
-	} while (((addr += PAGE_SIZE)) &&
+	while (((addr += PAGE_SIZE)) &&
 			(addr != end) &&
 		 	(pte = pte_offset_map(mm, addr)) );
 #else
-	} while (pte++, addr += PAGE_SIZE, addr != end);
+	while (pte++, addr += PAGE_SIZE, addr != end);
 #endif
 	add_mm_rss_vec(mm, rss);
 	arch_leave_lazy_mmu_mode();
@@ -1528,9 +1528,6 @@ void unmap_page_range(struct mmu_gather *tlb,
 	unsigned long next;
 	Granularity g = unknown;
 	ecpt_entry_t entry;
-
-	pr_info_verbose("vma at %llx vma->pgd=%llx start=%lx end=%lx\n",
-	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  addr, end);
 
 	do {
 		entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
