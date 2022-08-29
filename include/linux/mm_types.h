@@ -420,10 +420,12 @@ struct mm_struct {
 		unsigned long highest_vm_end;	/* highest vma end address */
 
 #ifdef CONFIG_X86_64_ECPT
-		union {
-			void * map_desc;	/* x86 ECPT */
-			pgd_t * pgd;
-		};
+		// union {
+		// 	void * map_desc;	/* x86 ECPT */
+		// 	pgd_t * pgd;
+		// };
+		void * map_desc;	/* x86 ECPT */
+		pgd_t * pgd;
 #else
 		pgd_t * pgd;	
 #endif
