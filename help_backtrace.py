@@ -47,13 +47,18 @@ def rewrite_log(log_path, addr_to_symbol):
 				func = find_function(addr_to_symbol, addr)
 				lines[i] = line.replace('?', func)
 	# print(lines)
-	with open('ecpt.log', 'w') as log:
+	with open(log_path, 'w') as log:
 		log.write(''.join(lines))
 
 def main(argv):
-	# linux_path = argv[1]
+	
+	if(len(argv) < 2):
+		linux_path = 'ecpt.log' 
+	else:
+		linux_path = argv[1]
+
 	addr_to_symbol = gen_stubs(os.path.join('.', 'vmlinux'))
-	rewrite_log('ecpt.log', addr_to_symbol)
+	rewrite_log(linux_path, addr_to_symbol)
 
 	# prep_headers(os.path.join(linux_path, 'usr/include'))
 	return 0
