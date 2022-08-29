@@ -2032,12 +2032,9 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 repeat:
 	old_pte = _lookup_address_cpa_val(cpa, address, &level);;
 	
-	pr_info_verbose("address=%lx old_pte=%lx level=%d mask_set=%lx mask_clr=%lx\n", 
-		address, old_pte.pte, level, cpa->mask_set.pgprot, cpa->mask_clr.pgprot);
 
 	if (pte_none(old_pte))
 		return __cpa_process_fault(cpa, address, primary);
-
 	if (level == PG_LEVEL_4K) {
 		pte_t new_pte;
 		pgprot_t new_prot = pte_pgprot(old_pte);
@@ -2076,7 +2073,6 @@ repeat:
 
 			cpa->flags |= CPA_FLUSHTLB;
 		}
-
 		cpa->numpages = 1;
 		return 0;
 	}

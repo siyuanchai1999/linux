@@ -281,9 +281,6 @@ static inline void invalidate_user_asid(u16 asid)
 static void load_new_mm_cr3(ECPT_desc_t *ecpt, u16 new_asid, bool need_flush)
 {
 	unsigned long new_mm_cr3;
-	pr_info_verbose("ecpt at %llx new_asid=%x need_flush=%x\n",
-		(uint64_t) ecpt, new_asid, need_flush
-	);
 	if (need_flush) {
 		invalidate_user_asid(new_asid);
 		// new_mm_cr3 = build_cr3(pgdir, new_asid);

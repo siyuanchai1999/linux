@@ -1945,6 +1945,8 @@ void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail, bool user_table_de
 			ecpt->table[i], way_to_crN[i]);
 	}
 	
+	pr_info("pte_default at %llx\n", (uint64_t) &pte_default);
+
 	if (ecpt->mm == &init_mm)
 		pr_info("\tmm = init_mm");
 	else 

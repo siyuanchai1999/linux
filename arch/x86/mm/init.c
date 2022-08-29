@@ -817,16 +817,6 @@ void __init poking_init(void)
 	BUG_ON(!poking_mm);
 	
 
-	// pr_info_verbose("poking_mm at %llx\n", (uint64_t) poking_mm);
-	
-	// list_for_each_entry(desc, &pgd_list, lru) {
-	// 	pr_info_verbose("mm at %llx\n", (uint64_t) desc->mm);
-	// 	pr_info_verbose("page->lru.next = %llx\n", (uint64_t)desc->lru.next);
-	// 	pr_info_verbose("page->lru.prev = %llx\n", (uint64_t)desc->lru.prev);
-	// }
-#ifdef CONFIG_X86_64_ECPT
-	print_ecpt(poking_mm->map_desc);
-#endif
 	/*
 	 * Randomize the poking address, but make sure that the following page
 	 * will be mapped at the same PMD. We need 2 pages, so find space for 3,
@@ -861,7 +851,6 @@ void __init poking_init(void)
 	
 	BUG_ON(res);
 
-	print_ecpt(poking_mm->map_desc);
 
 	res = ecpt_mm_invalidate(
 		poking_mm,
