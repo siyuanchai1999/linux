@@ -637,9 +637,17 @@ fail_nomem:
 
 static inline int mm_alloc_pgd(struct mm_struct *mm)
 {
+#ifdef CONFIG_X86_64_ECPT
+	mm->map_desc = pgd_alloc(mm);
+	if (unlikely(!mm->map_desc))
+		return -ENOMEM;
+#else
 	mm->pgd = pgd_alloc(mm);
 	if (unlikely(!mm->pgd))
 		return -ENOMEM;
+#endif
+
+	
 	return 0;
 }
 
@@ -1075,7 +1083,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 
 	if (mm_alloc_pgd(mm))
 		goto fail_nopgd;
-
+	pr_info_verbose("pgd at %llx\n" , (uint64_t) mm->map_desc);
 	if (init_new_context(p, mm))
 		goto fail_nocontext;
 
@@ -2548,7 +2556,9 @@ pid_t kernel_clone(struct kernel_clone_args *args)
 	struct task_struct *p;
 	int trace = 0;
 	pid_t nr;
-
+	
+	if (args->parent_tid)
+		pr_info_verbose("parent id=%d\n", *args->parent_tid);
 	/*
 	 * For legacy clone() calls, CLONE_PIDFD uses the parent_tid argument
 	 * to return the pidfd. Hence, CLONE_PIDFD and CLONE_PARENT_SETTID are
