@@ -1,22 +1,15 @@
 #!/bin/bash
 
 POSITIONAL=()
-qemu=~/qemu_ECPT/build/qemu-system-x86_64
+qemu=../qemu_ECPT/build/qemu-system-x86_64
 log_name=ecpt.log
-
-# # important comment here: don't replace the semicolon with space. bash system will screw it up.
-# # https://stackoverflow.com/questions/59314359/bash-script-execute-command-with-double-quotes-single-quotes-and-spaces
-# qemu_arg+='"init=/bin/sh console=ttyS0,115200" '
-# qemu_arg+="-d mmu -D mmu.log "
-# qemu_arg+=""
-
 
 # each argument that should be neccesarily seperated by space should be in a sperate "" item. 
 # every thing within the comment will be treated as pure literal.  
 qemu_args=(
 	"$qemu"
 	"-kernel" "arch/x86/boot/bzImage" 
-	"-m" "2048M"
+	"-m" "4096M"
 	"-display" "none"
 	"-initrd" "ramdisk.img"
 	"-serial" "stdio"
@@ -58,18 +51,3 @@ printf '%q ' "${tee_args[@]}"
 echo
 
 "${qemu_args[@]}" | "${tee_args[@]}"
-
-
-#	-kernel arch/x86/boot/bzImage \
-#	-m 2048M\
-#       -initrd ramdisk.img\
-#	-serial stdio\
-#	-append "init=/bin/sh console=ttyS0,115200" \
-#	-d mmu -D mmu.log
-
-#	-append "root=/dev/sda rw console=ttyS0,115200 acpi=off nokaslr" \
-#        -serial stdio -display none
-#	-hda rootfs.ext4 \ 
-#	-append "root=/dev/sda rw console=ttyS0,115200 acpi=off nokaslr" \
-#       	-serial stdio -display none 
-# -d mmu -D mmu.log
