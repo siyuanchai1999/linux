@@ -651,15 +651,15 @@ pte_t *lookup_address_in_mm(struct mm_struct *mm, unsigned long address,
 }
 EXPORT_SYMBOL_GPL(lookup_address_in_mm);
 
-// static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-// 				  unsigned int *level)
-// {
-// 	if (cpa->map_desc)
-// 		return __lookup_address(cpa->map_desc,
-// 					       address, level);
+static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
+				  unsigned int *level)
+{
+	if (cpa->map_desc)
+		return __lookup_address(cpa->map_desc,
+					       address, level);
 
-// 	return lookup_address(address, level);
-// }
+	return lookup_address(address, level);
+}
 
 static pte_t _lookup_address_cpa_val(struct cpa_data *cpa, unsigned long address,
 				  unsigned int *level)
@@ -2025,14 +2025,17 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 	unsigned long address;
 	int do_split, err;
 	unsigned int level;
-	pte_t old_pte;
+	pte_t *kpte, old_pte;
 	int res;
 
 	address = __cpa_addr(cpa, cpa->curpage);
 repeat:
-	old_pte = _lookup_address_cpa_val(cpa, address, &level);;
+	kpte = _lookup_address_cpa(cpa, address, &level);
+	if (!kpte)
+		return __cpa_process_fault(cpa, address, primary);
+		
+	old_pte = *kpte;
 	
-
 	if (pte_none(old_pte))
 		return __cpa_process_fault(cpa, address, primary);
 	if (level == PG_LEVEL_4K) {
@@ -2061,16 +2064,16 @@ repeat:
 		 * Do we really change anything ?
 		 */
 		if (pte_val(old_pte) != pte_val(new_pte)) {
-			void * desc = cpa->map_desc;
-			if (!desc) {
-				desc = init_mm.map_desc;
-			} 
+			// void * desc = cpa->map_desc;
+			// if (!desc) {
+			// 	desc = init_mm.map_desc;
+			// } 
 
-			/* must be 4KB here */
-			res = ecpt_update_prot((ECPT_desc_t * )desc, address, __ecpt_pgprot(new_prot.pgprot), page_4KB);
+			// /* must be 4KB here */
+			// res = ecpt_update_prot((ECPT_desc_t * )desc, address, __ecpt_pgprot(new_prot.pgprot), page_4KB);
 			
-			WARN(res, KERN_WARNING "res=%d\n", res);
-
+			// WARN(res, KERN_WARNING "res=%d\n", res);
+			set_pte_atomic(kpte, new_pte);
 			cpa->flags |= CPA_FLUSHTLB;
 		}
 		cpa->numpages = 1;
@@ -2245,7 +2248,7 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 	unsigned long numpages = cpa->numpages;
 	unsigned long rempages = numpages;
 	int ret = 0;
-	// pr_info_verbose("address=%lx old_pte=%lx level=%d\n", cpa->, old_pte.pte, level);
+	pr_info_verbose("address=%lx \n", __cpa_addr(cpa, cpa->curpage));
 	while (rempages) {
 		/*
 		 * Store the remaining nr of pages for the large page
@@ -2751,6 +2754,7 @@ int set_pages_rw(struct page *page, int numpages)
 static int __set_pages_p(struct page *page, int numpages)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
+	pr_info("__set_pages_p tempaddr=%lx\n", tempaddr);
 	struct cpa_data cpa = { .vaddr = &tempaddr,
 				.pgd = NULL,
 				.numpages = numpages,
@@ -2770,6 +2774,7 @@ static int __set_pages_p(struct page *page, int numpages)
 static int __set_pages_np(struct page *page, int numpages)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
+	pr_info("__set_pages_np tempaddr=%lx\n", tempaddr);
 	struct cpa_data cpa = { .vaddr = &tempaddr,
 				.pgd = NULL,
 				.numpages = numpages,
