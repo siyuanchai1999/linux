@@ -3,6 +3,7 @@
 POSITIONAL=()
 qemu=~/qemu_ECPT/build/qemu-system-x86_64
 log_name=ecpt.log
+set -x 
 
 # # important comment here: don't replace the semicolon with space. bash system will screw it up.
 # # https://stackoverflow.com/questions/59314359/bash-script-execute-command-with-double-quotes-single-quotes-and-spaces
@@ -20,9 +21,9 @@ qemu_args=(
 	"-display" "none"
 	"-boot" "c"
 	"-hda" "rootfs.ext4"
-	"-initrd" "ramdisk.img"
+	# "-initrd" "ramdisk.img"
 	"-serial" "stdio"
-	"-append" "init=/bin/sh root=/dev/sda console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 apic=verbose"
+	"-append" "init=/bin/sh root=/dev/sda rootdelay=10 rootfstype=ext4 console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 apic=verbose"
 	# "-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=serial,ttyS0,115200"
 #	"-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=dbgp"
     # "-nographic"

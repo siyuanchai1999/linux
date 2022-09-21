@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x 
 
 POSITIONAL=()
 qemu=../qemu_ECPT/build/qemu-system-x86_64
@@ -16,7 +17,7 @@ qemu_args=(
 	"-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 apic=verbose"
 	# "-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=serial,ttyS0,115200"
 #	"-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=dbgp"
-	"-d" "mmu" "-D" "mmu.log"
+	# "-d" "mmu" "-D" "mmu.log"
     # "-nographic"
 	)
 
