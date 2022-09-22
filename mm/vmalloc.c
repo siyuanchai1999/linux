@@ -301,7 +301,7 @@ static int vmap_range_noflush(unsigned long addr, unsigned long end,
 {	
 	unsigned long start;
 	unsigned long next;
-	int err;
+	int err = 0;
 	pgtbl_mod_mask mask = 0;
 
 	might_sleep();
