@@ -1098,7 +1098,6 @@ static struct page *follow_page_mask(struct vm_area_struct *vma,
 		/* no such page */
 		return no_page_table(vma, flags);
 	}
-
 	if (g == page_4KB) {
 		pte.pte = entry.pte;
 		return ecpt_follow_page_pte(vma, address, pte, flags, &ctx->pgmap);
@@ -1430,7 +1429,7 @@ static long __get_user_pages(struct mm_struct *mm,
 		/* first iteration or cross vma bound */
 		if (!vma || start >= vma->vm_end) {
 			vma = find_extend_vma(mm, start);
-			pr_info_verbose("in_gate_area=%d\n", in_gate_area(mm, start));
+			pr_info_verbose("in_gate_area=%d start=%lx\n", in_gate_area(mm, start), start);
 			if (!vma && in_gate_area(mm, start)) {
 				ret = get_gate_page(mm, start & PAGE_MASK,
 						gup_flags, &vma,

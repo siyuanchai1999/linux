@@ -181,7 +181,7 @@ static int vmemmap_remap_range(unsigned long start, unsigned long end,
 	unsigned long addr = start;
 	unsigned long next;
 	pgd_t *pgd;
-
+	WARN(1, "vmemmap_remap_range not implemented with ECPT!\n");
 	VM_BUG_ON(!IS_ALIGNED(start, PAGE_SIZE));
 	VM_BUG_ON(!IS_ALIGNED(end, PAGE_SIZE));
 

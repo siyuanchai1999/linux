@@ -685,17 +685,17 @@ int early_ecpt_insert(
 	puthexln(vaddr);
 
 	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
-		puthex_tabln(way);
+		// puthex_tabln(way);
 		cr = ecpt_fixed->table[ECPT_4K_WAY + way];
 
 		/* fixup cr here, because it is the virtual address to ecpt table */
 		cr = (uint64_t) fixup_pointer((void *) cr, kernel_start, physaddr);
 		
 		size = GET_HPT_SIZE(cr);
-		puthex_tabln(vpn);
+		// puthex_tabln(vpn);
 
 		hash = early_gen_hash_64(entry.VPN_tag, size, ECPT_4K_WAY + way, kernel_start, physaddr);
-		puthex_tabln(hash);
+		// puthex_tabln(hash);
 		ecpt_base = (ecpt_entry_t *) GET_HPT_BASE_VIRT(cr);
 		entry_ptr = &ecpt_base[hash];
 		
@@ -1418,7 +1418,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 					// hash, vaddr, (uint64_t) entry_ptr, entry.pte);
 			set_ecpt_entry(entry_ptr, entry);
 			if (tries > 0) {
-				pr_info("set entry={.vpn=%llx .pte=%llx} at %llx\n", entry.VPN_tag, entry.pte, (uint64_t) entry_ptr);
+				pr_info_verbose("set entry={.vpn=%llx .pte=%llx} at %llx\n", entry.VPN_tag, entry.pte, (uint64_t) entry_ptr);
 			}
 			ecpt->occupied[way_start + way] += 1;
 			return 0;
@@ -1430,7 +1430,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 				/* mapping already established, no need to kick it out */
 				return 0;
 			}
-			pr_info("kick at %llx ={.vpn=%llx .pte=%llx} with entry={.vpn=%llx .pte=%llx} way=%d hash=%llx\n", 
+			pr_info_verbose("kick at %llx ={.vpn=%llx .pte=%llx} with entry={.vpn=%llx .pte=%llx} way=%d hash=%llx\n", 
 				(uint64_t) entry_ptr, temp.VPN_tag, temp.pte, entry.VPN_tag, entry.pte, way_start + way, hash);
 			set_ecpt_entry(entry_ptr, entry);
 			entry = temp;
@@ -1620,7 +1620,7 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 		return ecpt_set_pte(mm, ptep, pte, addr);
 	} 
 
-	pr_info("  set_pte_at 4KB addr=%lx pte=%lx \n", addr, pte.pte);
+	pr_info_verbose("  set_pte_at 4KB addr=%lx pte=%lx \n", addr, pte.pte);
 	res = ecpt_insert(
 		mm->map_desc,
 		addr,
@@ -1961,7 +1961,7 @@ void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail, bool user_table_de
 	if (user_table_detail)
 		print_ecpt_user_detail(ecpt);
 	
-	pr_info("End of ECPT at %llx ------------------", (uint64_t) ecpt);
+	pr_info("End of ECPT at %llx ------------------\n", (uint64_t) ecpt);
 
 }
 

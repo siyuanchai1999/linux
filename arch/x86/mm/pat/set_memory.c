@@ -1932,7 +1932,7 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 	p4d_t *p4d;
 	pgd_t *pgd_entry;
 	long ret;
-
+	WARN(1, "populate_pgd not implemented with ECPT!\n");
 	pgd_entry = cpa->pgd + pgd_index(addr);
 
 	if (pgd_none(*pgd_entry)) {
