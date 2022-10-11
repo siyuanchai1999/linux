@@ -20,7 +20,7 @@ typedef unsigned long	ecpt_pgprotval_t;
 
 typedef struct ecpt_entry{
 	uint64_t VPN_tag;  
-	uint64_t pte;
+	uint64_t pte[ECPT_CLUSTER_FACTOR];
 } ecpt_entry_t;
 
 
@@ -531,7 +531,7 @@ static inline int ecpt_entry_present(ecpt_entry_t * entry)
 	 * the _PAGE_PSE flag will remain set at all times while the
 	 * _PAGE_PRESENT bit is clear).
 	 */
-	return entry->pte & _PAGE_PRESENT;
+	return entry->pte[0] & _PAGE_PRESENT;
 }
 
 
@@ -541,6 +541,11 @@ static inline void set_ecpt_entry(ecpt_entry_t *entry , ecpt_entry_t e)
 	*entry = e;
 	// WRITE_ONCE(*entry, e);
 }
+
+static inline int ecpt_entry_match_vpn(ecpt_entry_t *entry, uint64_t vpn) {
+	return entry->VPN_tag == vpn;
+}
+
 
 // static inline ecpt_pteval_t native_ecpt_entry_val(ecpt_entry_t entry)
 // {

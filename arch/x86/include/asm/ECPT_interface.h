@@ -3,10 +3,44 @@
 
 #include <asm/ECPT.h>
 
-static inline pte_t * pte_offset_from_ecpt_entry(struct ecpt_entry *entry, unsigned long addr) {
-	/* TODO: redefine with compaction factor */
-	return (pte_t *) &entry->pte;
+/**
+ * @brief index on compacted pte
+ * 
+ * @param addr 
+ * @return unsigned long 
+ */
+
+static inline unsigned long ecpt_pte_index(unsigned long addr) 
+{
+	return (addr >> PAGE_SIZE_4KB) & (ECPT_CLUSTER_FACTOR - 1);
 }
+
+static inline unsigned long ecpt_pmd_index(unsigned long addr) 
+{
+	return (addr >> PAGE_SIZE_2MB) & (ECPT_CLUSTER_FACTOR - 1);
+}
+
+static inline unsigned long ecpt_pud_index(unsigned long addr)
+{
+	return (addr >> PAGE_SIZE_1GB) & (ECPT_CLUSTER_FACTOR - 1);
+}
+
+
+static inline pte_t * pte_offset_from_ecpt_entry(struct ecpt_entry *entry, unsigned long addr) 
+{
+	return (pte_t *) &entry->pte[ecpt_pte_index(addr)];
+}
+
+static inline pmd_t * pmd_offset_from_ecpt_entry(struct ecpt_entry *entry, unsigned long addr) 
+{
+	return (pmd_t *) &entry->pte[ecpt_pmd_index(addr)];
+}
+
+static inline pud_t * pud_offset_from_ecpt_entry(struct ecpt_entry *entry, unsigned long addr)
+{
+	return (pud_t *) &entry->pte[ecpt_pud_index(addr)];
+}
+
 
 /*  */
 static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)

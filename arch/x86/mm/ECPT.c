@@ -139,6 +139,7 @@ int early_ecpt_insert(
 	uint64_t hash;
 	uint64_t vpn;
 	uint64_t cr;
+	pte_t pte;
 
 	ECPT_desc_t * ecpt_fixed;
 	ecpt_entry_t * ecpt_base;
@@ -163,10 +164,11 @@ int early_ecpt_insert(
 
 	vpn = ADDR_TO_PAGE_NUM_2MB(vaddr);
 
-	entry.pte = ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot);
+	pte.pte = ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot);
 	entry.VPN_tag = vpn;
+	pte
 
-	if (!(entry.pte & _PAGE_PRESENT)) {
+	if (!(pte_present(pte))) {
 		return 0;
 	}
 
@@ -251,7 +253,7 @@ int early_ecpt_invalidate(ECPT_desc_t * ecpt, uint64_t vaddr) {
 		ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
 		entry_ptr = &ecpt_base[hash];
 
-		if (entry_ptr->VPN_tag == vpn) {
+		if (ecpt_entry_match_vpn(entry_ptr, vpn)) {
 			// DEBUG_VAR((uint64_t)entry_ptr);
 			break;
 		} else {
@@ -711,8 +713,7 @@ ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity * g
 			// (uint64_t) entry_ptr, entry_ptr->VPN_tag, entry_ptr->pte, vpn);
         entry = *entry_ptr;
 
-		// DEBUG_VAR(entry.VPN_tag);
-		if (entry.VPN_tag == vpn) {
+		if (ecpt_entry_match_vpn(entry_ptr, vpn)) {
 			// pr_info_verbose("found at %llx vaddr=%llx\n", (uint64_t) entry_ptr, vaddr);
 			// DEBUG_VAR((uint64_t) entry_ptr);
 			if (gran == unknown) *g = way_to_gran(w);
@@ -776,7 +777,7 @@ ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity g
 		}
         entry = *entry_ptr;
 
-		if (entry.VPN_tag == vpn) {
+		if (ecpt_entry_match_vpn(entry_ptr, vpn)) {
 			
 			return entry_ptr;
 		} else if (entry.pte == 0){
