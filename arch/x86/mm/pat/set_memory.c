@@ -2026,7 +2026,6 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 	int do_split, err;
 	unsigned int level;
 	pte_t *kpte, old_pte;
-	int res;
 
 	address = __cpa_addr(cpa, cpa->curpage);
 repeat:
@@ -2754,7 +2753,6 @@ int set_pages_rw(struct page *page, int numpages)
 static int __set_pages_p(struct page *page, int numpages)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
-	pr_info("__set_pages_p tempaddr=%lx\n", tempaddr);
 	struct cpa_data cpa = { .vaddr = &tempaddr,
 				.pgd = NULL,
 				.numpages = numpages,
@@ -2774,7 +2772,6 @@ static int __set_pages_p(struct page *page, int numpages)
 static int __set_pages_np(struct page *page, int numpages)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
-	pr_info("__set_pages_np tempaddr=%lx\n", tempaddr);
 	struct cpa_data cpa = { .vaddr = &tempaddr,
 				.pgd = NULL,
 				.numpages = numpages,

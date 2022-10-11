@@ -365,35 +365,11 @@ static int bad_address(void *p)
 #ifdef CONFIG_X86_64_ECPT
 static void dump_pagetable(unsigned long address)
 {
-	// void *base;
-	// uint64_t cr3;
-	// ecpt_pmd_t pmd;
-	ecpt_entry_t entry;
-	Granularity g = unknown;
-	// base = __va(read_cr3_pa());
-	// cr3 = (uint64_t)base + read_cr3_prot();
 
-
-	// pgd_t *base = __va(read_cr3_pa());
-	// pgd_t *pgd = base + pgd_index(address);
-	// p4d_t *p4d;
-	// pud_t *pud;
-	// pmd_t *pmd;
-	// pte_t *pte;
+	print_ecpt(current->mm->map_desc, 1, 1);
 
 	if (bad_address((void *) current->mm))
 		goto bad;
-
-	/**
-	 * TODO: change hpt_peek and cr3 call here
-	 * 
-	 */
-	// pr_info("base=%llx ", cr3, (uint64_t)base);
-	entry = ecpt_mm_peek(current->mm, address, &g);
-	pr_info("entry.pte= %llx ", entry.pte);
-// out:
-// 	pr_cont("\n");
-// 	return;
 bad:
 	pr_info("BAD\n");
 }

@@ -519,7 +519,7 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 	unsigned long extent, old_end;
 	struct mmu_notifier_range range;
 	pmd_t *old_pmd = NULL, *new_pmd = NULL;
-	pud_t *old_pud = NULL, *new_pud = NULL; 
+	// pud_t *old_pud = NULL, *new_pud = NULL; 
 	
 	ecpt_entry_t *entry_p;
 	Granularity g = unknown;	

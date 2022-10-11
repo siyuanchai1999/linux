@@ -1253,7 +1253,9 @@ copy_p4d_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
 int
 copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 {
+#ifndef CONFIG_X86_64_ECPT
 	pgd_t *src_pgd, *dst_pgd;
+#endif
 	unsigned long next;
 	unsigned long addr = src_vma->vm_start;
 	unsigned long end = src_vma->vm_end;
@@ -1864,6 +1866,7 @@ void zap_vma_ptes(struct vm_area_struct *vma, unsigned long address,
 }
 EXPORT_SYMBOL_GPL(zap_vma_ptes);
 
+#ifndef CONFIG_X86_64_ECPT
 static pmd_t *walk_to_pmd(struct mm_struct *mm, unsigned long addr)
 {
 	pgd_t *pgd;
@@ -1884,6 +1887,7 @@ static pmd_t *walk_to_pmd(struct mm_struct *mm, unsigned long addr)
 	VM_BUG_ON(pmd_trans_huge(*pmd));
 	return pmd;
 }
+#endif
 
 pte_t *__get_locked_pte(struct mm_struct *mm, unsigned long addr,
 			spinlock_t **ptl)

@@ -173,3 +173,5 @@ ramdisk.img
 ECPT.S
 head_64_disas.S
 compile_road_map.md
+
+targets/**

@@ -90,65 +90,14 @@ void ___p4d_free_tlb(struct mmu_gather *tlb, p4d_t *p4d)
 #endif	/* CONFIG_PGTABLE_LEVELS > 3 */
 #endif	/* CONFIG_PGTABLE_LEVELS > 2 */
 
-static inline void pgd_list_add(pgd_t *pgd)
-{
-	struct page *page = virt_to_page(pgd);
-
-	list_add(&page->lru, &pgd_list);
-}
-
-static inline void pgd_list_del(pgd_t *pgd)
-{
-	struct page *page = virt_to_page(pgd);
-
-	list_del(&page->lru);
-}
-
 #define UNSHARED_PTRS_PER_PGD				\
 	(SHARED_KERNEL_PMD ? KERNEL_PGD_BOUNDARY : PTRS_PER_PGD)
 #define MAX_UNSHARED_PTRS_PER_PGD			\
 	max_t(size_t, KERNEL_PGD_BOUNDARY, PTRS_PER_PGD)
 
-
-static void pgd_set_mm(pgd_t *pgd, struct mm_struct *mm)
-{
-	virt_to_page(pgd)->pt_mm = mm;
-}
-
 struct mm_struct *pgd_page_get_mm(struct page *page)
 {
 	return page->pt_mm;
-}
-
-static void pgd_ctor(struct mm_struct *mm, pgd_t *pgd)
-{
-	/* If the pgd points to a shared pagetable level (either the
-	   ptes in non-PAE, or shared PMD in PAE), then just copy the
-	   references from swapper_pg_dir. */
-	if (CONFIG_PGTABLE_LEVELS == 2 ||
-	    (CONFIG_PGTABLE_LEVELS == 3 && SHARED_KERNEL_PMD) ||
-	    CONFIG_PGTABLE_LEVELS >= 4) {
-		pr_info_verbose("KERNEL_PGD_BOUNDARY=%lx KERNEL_PGD_PTRS=%lx\n", KERNEL_PGD_BOUNDARY, KERNEL_PGD_PTRS);
-		clone_pgd_range(pgd + KERNEL_PGD_BOUNDARY,
-				swapper_pg_dir + KERNEL_PGD_BOUNDARY,
-				KERNEL_PGD_PTRS);
-	}
-
-	/* list required to sync kernel mapping updates */
-	if (!SHARED_KERNEL_PMD) {
-		pgd_set_mm(pgd, mm);
-		pgd_list_add(pgd);
-	}
-}
-
-static void pgd_dtor(pgd_t *pgd)
-{
-	if (SHARED_KERNEL_PMD)
-		return;
-
-	spin_lock(&pgd_lock);
-	pgd_list_del(pgd);
-	spin_unlock(&pgd_lock);
 }
 
 /*
@@ -210,6 +159,8 @@ void pud_populate(struct mm_struct *mm, pud_t *pudp, pmd_t *pmd)
 #define PREALLOCATED_USER_PMDS	 0
 #define MAX_PREALLOCATED_USER_PMDS 0
 #endif	/* CONFIG_X86_PAE */
+
+#ifndef CONFIG_X86_64_ECPT
 
 static void free_pmds(struct mm_struct *mm, pmd_t *pmds[], int count)
 {
@@ -349,6 +300,9 @@ static void pgd_prepopulate_user_pmd(struct mm_struct *mm,
 {
 }
 #endif
+
+#endif /* CONFIG_X86_64_ECPT */
+
 /*
  * Xen paravirt assumes pgd table should be in one page. 64 bit kernel also
  * assumes that pgd should be in one page.
@@ -426,6 +380,58 @@ static inline void _pgd_free(pgd_t *pgd)
 #ifdef CONFIG_X86_64_ECPT
 
 #else 
+
+
+static inline void pgd_list_add(pgd_t *pgd)
+{
+	struct page *page = virt_to_page(pgd);
+
+	list_add(&page->lru, &pgd_list);
+}
+
+static inline void pgd_list_del(pgd_t *pgd)
+{
+	struct page *page = virt_to_page(pgd);
+
+	list_del(&page->lru);
+}
+
+static void pgd_set_mm(pgd_t *pgd, struct mm_struct *mm)
+{
+	virt_to_page(pgd)->pt_mm = mm;
+}
+
+static void pgd_ctor(struct mm_struct *mm, pgd_t *pgd)
+{
+	/* If the pgd points to a shared pagetable level (either the
+	   ptes in non-PAE, or shared PMD in PAE), then just copy the
+	   references from swapper_pg_dir. */
+	if (CONFIG_PGTABLE_LEVELS == 2 ||
+	    (CONFIG_PGTABLE_LEVELS == 3 && SHARED_KERNEL_PMD) ||
+	    CONFIG_PGTABLE_LEVELS >= 4) {
+		pr_info_verbose("KERNEL_PGD_BOUNDARY=%lx KERNEL_PGD_PTRS=%lx\n", KERNEL_PGD_BOUNDARY, KERNEL_PGD_PTRS);
+		clone_pgd_range(pgd + KERNEL_PGD_BOUNDARY,
+				swapper_pg_dir + KERNEL_PGD_BOUNDARY,
+				KERNEL_PGD_PTRS);
+	}
+
+	/* list required to sync kernel mapping updates */
+	if (!SHARED_KERNEL_PMD) {
+		pgd_set_mm(pgd, mm);
+		pgd_list_add(pgd);
+	}
+}
+
+static void pgd_dtor(pgd_t *pgd)
+{
+	if (SHARED_KERNEL_PMD)
+		return;
+
+	spin_lock(&pgd_lock);
+	pgd_list_del(pgd);
+	spin_unlock(&pgd_lock);
+}
+
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *pgd;

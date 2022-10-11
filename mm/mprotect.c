@@ -378,7 +378,7 @@ static unsigned long change_protection_range(struct vm_area_struct *vma,
 						newprot,
 						cp_flags);
 		} else if (g == page_2MB) {
-			pmd_t * pmd = (pmd_t *) &entry.pte;
+			// pmd_t * pmd = (pmd_t *) &entry.pte;
 			WARN(1, "2M unmap not implemented yet");
 
 

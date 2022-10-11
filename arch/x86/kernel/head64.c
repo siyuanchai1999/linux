@@ -108,6 +108,7 @@ static unsigned long __head *fixup_long(void *ptr, unsigned long physaddr)
 	return fixup_pointer(ptr, physaddr);
 }
 
+#ifndef CONFIG_X86_64_ECPT
 #ifdef CONFIG_X86_5LEVEL
 static unsigned int __head *fixup_int(void *ptr, unsigned long physaddr)
 {
@@ -133,10 +134,12 @@ static bool __head check_la57_support(unsigned long physaddr)
 	return true;
 }
 #else
-// static bool __head check_la57_support(unsigned long physaddr)
-// {
-// 	return false;
-// }
+static bool __head check_la57_support(unsigned long physaddr)
+{
+	return false;
+}
+#endif
+
 #endif
 
 
@@ -174,7 +177,6 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	uint64_t fixup_text, fixup_end;
 
 	ECPT_desc_t * ecpt_desc_ptr;
-	char str[10] = "\n";
 	// unsigned int *next_pgt_ptr;
 
 	// la57 = check_la57_support(physaddr);
@@ -431,7 +433,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	int i;
 	unsigned int *next_pgt_ptr;
 
-	// la57 = check_la57_support(physaddr);
+	la57 = check_la57_support(physaddr);
 
 	/* Is the address too large? */
 	if (physaddr >> MAX_PHYSMEM_BITS)

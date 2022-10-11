@@ -280,7 +280,7 @@ static inline void invalidate_user_asid(u16 asid)
 #ifdef CONFIG_X86_64_ECPT
 static void load_new_mm_cr3(ECPT_desc_t *ecpt, u16 new_asid, bool need_flush)
 {
-	unsigned long new_mm_cr3;
+	// unsigned long new_mm_cr3;
 	if (need_flush) {
 		invalidate_user_asid(new_asid);
 		// new_mm_cr3 = build_cr3(pgdir, new_asid);
