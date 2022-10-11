@@ -59,6 +59,33 @@
 #define PAGE_NUM_TO_ADDR_2MB(x)   (((uint64_t) x) << PAGE_SHIFT_2MB)
 #define PAGE_NUM_TO_ADDR_1GB(x)   (((uint64_t) x) << PAGE_SHIFT_1GB)
 
+#define PTE_CLUSTER_NBITS 0
+#define PMD_CLUSTER_NBITS 0
+#define PUD_CLUSTER_NBITS 0
+
+#define PTE_4KB_CLUSTER_FACTOR (1 << PTE_CLUSTER_NBITS)
+#define PMD_2MB_CLUSTER_FACTOR (1 << PMD_CLUSTER_NBITS)
+#define PUD_1GB_CLUSTER_FACTOR (1 << PUD_CLUSTER_NBITS)
+
+#define PTE_CLUSTERED_SIZE (PTE_4KB_CLUSTER_FACTOR * PAGE_SIZE_4KB)
+#define PMD_CLUSTERED_SIZE (PMD_2MB_CLUSTER_FACTOR * PAGE_SIZE_2MB)
+#define PUD_CLUSTERED_SIZE (PUD_1GB_CLUSTER_FACTOR * PAGE_SIZE_1GB)
+
+#define cluster_pte_addr_end(addr, end)						\
+({	unsigned long __boundary = ((addr) + PTE_CLUSTERED_SIZE) & (~(PTE_CLUSTERED_SIZE - 1));	\
+	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
+})
+
+#define cluster_pmd_addr_end(addr, end)						\
+({	unsigned long __boundary = ((addr) + PMD_CLUSTERED_SIZE) & (~(PMD_CLUSTERED_SIZE - 1));	\
+	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
+})
+
+#define cluster_pud_addr_end(addr, end)						\
+({	unsigned long __boundary = ((addr) + PUD_CLUSTERED_SIZE) & (~(PUD_CLUSTERED_SIZE - 1));	\
+	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
+})
+
 #define ENTRY_TO_PROT(x) ((x) & ~PG_ADDRESS_MASK)
 #define ENTRY_TO_ADDR(x) ((x) & PG_ADDRESS_MASK)
 

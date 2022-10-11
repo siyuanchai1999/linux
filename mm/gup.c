@@ -2451,11 +2451,16 @@ static int gup_pte_range(pmd_t pmd, unsigned long addr, unsigned long end,
 	int nr_start = *nr, ret = 0;
 	pte_t *ptep, *ptem;
 
+	
+#ifdef CONFIG_X86_64_ECPT
+	ptem = ptep = pte_offset_from_ecpt_entry((ecpt_entry_t *) pmd.pmd, addr);
+#else 
 	ptem = ptep = pte_offset_map(&pmd, addr);
+#endif
 	do {
 		pte_t pte = ptep_get_lockless(ptep);
 		struct page *head, *page;
-
+		pr_info("gup_pte_range addr=%lx end=%lx\n", addr, end);
 		/*
 		 * Similar to the PMD case below, NUMA hinting must take slow
 		 * path using the pte_protnone check.
@@ -2815,6 +2820,7 @@ static int gup_pmd_range(pud_t *pudp, pud_t pud, unsigned long addr, unsigned lo
 	unsigned long next;
 	pmd_t *pmdp;
 
+	WARN(1, "gup_pmd_range not implemented with ECPT!\n");
 	pmdp = pmd_offset_lockless(pudp, pud, addr);
 	do {
 		pmd_t pmd = READ_ONCE(*pmdp);
@@ -2857,7 +2863,7 @@ static int gup_pud_range(p4d_t *p4dp, p4d_t p4d, unsigned long addr, unsigned lo
 {
 	unsigned long next;
 	pud_t *pudp;
-
+	WARN(1, "gup_pud_range not implemented with ECPT!\n");
 	pudp = pud_offset_lockless(p4dp, p4d, addr);
 	do {
 		pud_t pud = READ_ONCE(*pudp);
@@ -2879,6 +2885,68 @@ static int gup_pud_range(p4d_t *p4dp, p4d_t p4d, unsigned long addr, unsigned lo
 
 	return 1;
 }
+
+#ifdef CONFIG_X86_64_ECPT
+static void gup_pgd_range(unsigned long addr, unsigned long end,
+		unsigned int flags, struct page **pages, int *nr)
+{
+	unsigned long next;
+	Granularity g = unknown;
+	ecpt_entry_t * entry;
+	uint32_t way = 0;
+	pmd_t pmd_dummy;
+	pud_t pud_dummy;
+	p4d_t p4d_dummy;
+	int res;
+	// WARN(1, "gup_pgd_range not implemented with ECPT!\n");
+	pr_info("gup_pgd_range addr=%lx end=%lx\n", addr, end);
+
+	do {
+		entry = get_hpt_entry(current->mm->map_desc, addr, &g, &way);
+		
+		if (g == unknown) {
+			next = addr + PAGE_SIZE_4KB;
+		} else if (g == page_4KB) {
+			next = cluster_pte_addr_end(addr, end);
+			pmd_dummy.pmd = (uint64_t) entry;
+			res = gup_pte_range(pmd_dummy, addr, next, flags, pages, nr);
+			if (!res) {
+				/**
+				 *  return when gup_pte_range returns zero where gup job is not fully done
+				 * */
+				pr_warn("res=%d from gup_pte_range\n", res);
+				return;
+			}
+				
+		} else if (g == page_2MB) {
+			next = cluster_pmd_addr_end(addr, end);
+			pud_dummy.pud = (uint64_t) entry;
+			res = gup_pmd_range(&pud_dummy, pud_dummy, addr, next, flags, pages, nr);
+			if (!res) {
+				/**
+				 *  return when gup_pmd_range returns zero where gup job is not fully done
+				 * */
+				pr_warn("res=%d from gup_pmd_range\n", res);
+				return;
+			}
+		} else if (g == page_1GB){
+			next = cluster_pud_addr_end(addr, end);
+			p4d_dummy.p4d = (uint64_t) entry;
+			res = gup_pud_range(&p4d_dummy, p4d_dummy, addr, next, flags, pages, nr);
+			if (!res) {
+				/**
+				 *  return when gup_pmd_range returns zero where gup job is not fully done
+				 * */
+				pr_warn("res=%d from gup_pud_range\n", res);
+				return;
+			}
+		} else {
+			BUG();
+		}
+	} while (addr = next, addr != end);
+
+}
+#else
 
 static int gup_p4d_range(pgd_t *pgdp, pgd_t pgd, unsigned long addr, unsigned long end,
 			 unsigned int flags, struct page **pages, int *nr)
@@ -2930,6 +2998,8 @@ static void gup_pgd_range(unsigned long addr, unsigned long end,
 			return;
 	} while (pgdp++, addr = next, addr != end);
 }
+#endif
+
 #else
 static inline void gup_pgd_range(unsigned long addr, unsigned long end,
 		unsigned int flags, struct page **pages, int *nr)

@@ -3,6 +3,11 @@
 
 #include <asm/ECPT.h>
 
+static inline pte_t * pte_offset_from_ecpt_entry(struct ecpt_entry *entry, unsigned long addr) {
+	/* TODO: redefine with compaction factor */
+	return (pte_t *) &entry->pte;
+}
+
 /*  */
 static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {

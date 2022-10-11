@@ -30,7 +30,7 @@
 
 #include "internal.h"
 
-static pud_t *get_old_pud(struct mm_struct *mm, unsigned long addr)
+static __maybe_unused pud_t *get_old_pud(struct mm_struct *mm, unsigned long addr)
 {
 	pgd_t *pgd;
 	p4d_t *p4d;
@@ -51,7 +51,7 @@ static pud_t *get_old_pud(struct mm_struct *mm, unsigned long addr)
 	return pud;
 }
 
-static pmd_t *get_old_pmd(struct mm_struct *mm, unsigned long addr)
+static __maybe_unused pmd_t *get_old_pmd(struct mm_struct *mm, unsigned long addr)
 {
 	pud_t *pud;
 	pmd_t *pmd;
@@ -67,7 +67,7 @@ static pmd_t *get_old_pmd(struct mm_struct *mm, unsigned long addr)
 	return pmd;
 }
 
-static pud_t *alloc_new_pud(struct mm_struct *mm, struct vm_area_struct *vma,
+static __maybe_unused pud_t *alloc_new_pud(struct mm_struct *mm, struct vm_area_struct *vma,
 			    unsigned long addr)
 {
 	pgd_t *pgd;
@@ -81,7 +81,7 @@ static pud_t *alloc_new_pud(struct mm_struct *mm, struct vm_area_struct *vma,
 	return pud_alloc(mm, p4d, addr);
 }
 
-static pmd_t *alloc_new_pmd(struct mm_struct *mm, struct vm_area_struct *vma,
+static __maybe_unused pmd_t *alloc_new_pmd(struct mm_struct *mm, struct vm_area_struct *vma,
 			    unsigned long addr)
 {
 	pud_t *pud;
@@ -469,7 +469,7 @@ static __always_inline unsigned long get_extent(enum pgt_entry entry,
  * Attempts to speedup the move by moving entry at the level corresponding to
  * pgt_entry. Returns true if the move was successful, else false.
  */
-static bool move_pgt_entry(enum pgt_entry entry, struct vm_area_struct *vma,
+static __maybe_unused bool move_pgt_entry(enum pgt_entry entry, struct vm_area_struct *vma,
 			unsigned long old_addr, unsigned long new_addr,
 			void *old_entry, void *new_entry, bool need_rmap_locks)
 {
