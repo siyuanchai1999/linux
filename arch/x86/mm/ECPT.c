@@ -934,7 +934,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	// print_ecpt(ecpt);
 	WARN(1, KERN_WARNING"Hash Collision unresolved:\n ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", 
 			(uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
-	print_ecpt(&ecpt_desc, 0 /* kernel */, 1 /* user */);
+	print_ecpt(ecpt, 0 /* kernel */, 1 /* user */);
 	/* exceed max number of tries */
 	return -3;
 }

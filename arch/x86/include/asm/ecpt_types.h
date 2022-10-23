@@ -25,7 +25,7 @@ typedef struct ecpt_entry{
 
 
 #if ECPT_4K_USER_WAY > 0
-	#define ECPT_4K_PER_WAY_ENTRIES (512 * 8)
+	#define ECPT_4K_PER_WAY_ENTRIES (1024 * 4)
 #else
 	#define ECPT_4K_PER_WAY_ENTRIES (0)
 #endif
