@@ -7,24 +7,23 @@
  * @brief index on compacted pte
  * 
  * @param addr 
- * @return unsigned long 
+ * @return unsigned long index on compacted pte
  */
 
 static inline unsigned long ecpt_pte_index(unsigned long addr) 
 {
-	return (addr >> PAGE_SIZE_4KB) & (ECPT_CLUSTER_FACTOR - 1);
+	return (addr >> PAGE_SHIFT_4KB) & (ECPT_CLUSTER_FACTOR - 1);
 }
 
 static inline unsigned long ecpt_pmd_index(unsigned long addr) 
 {
-	return (addr >> PAGE_SIZE_2MB) & (ECPT_CLUSTER_FACTOR - 1);
+	return (addr >> PAGE_SHIFT_2MB) & (ECPT_CLUSTER_FACTOR - 1);
 }
 
 static inline unsigned long ecpt_pud_index(unsigned long addr)
 {
-	return (addr >> PAGE_SIZE_1GB) & (ECPT_CLUSTER_FACTOR - 1);
+	return (addr >> PAGE_SHIFT_1GB) & (ECPT_CLUSTER_FACTOR - 1);
 }
-
 
 static inline pte_t * pte_offset_from_ecpt_entry(struct ecpt_entry *entry, unsigned long addr) 
 {
@@ -41,6 +40,58 @@ static inline pud_t * pud_offset_from_ecpt_entry(struct ecpt_entry *entry, unsig
 	return (pud_t *) &entry->pte[ecpt_pud_index(addr)];
 }
 
+static inline ecpt_entry_t* get_ecpt_entry_from_ptep(pte_t *ptep, unsigned long addr) 
+{	
+	/**
+	 * start_ptep is a pointer to uint64[ECPT_CLUSTER_FACTOR]
+	 * The pointer type tweaking is necessary to avoid compiler warning
+	 * because container_of expects start_ptep to be the same type with &entry->pte
+	 */
+	uint64_t (*start_ptep)[ECPT_CLUSTER_FACTOR] = 
+				((void *) ptep - ecpt_pte_index(addr) * sizeof(uint64_t));
+	return container_of(start_ptep, struct ecpt_entry, pte);
+}
+
+static inline ecpt_entry_t* get_ecpt_entry_from_pmdp(pmd_t *pmdp, unsigned long addr) 
+{
+	uint64_t (*start_ptep)[ECPT_CLUSTER_FACTOR] = 
+				((void *) pmdp - ecpt_pmd_index(addr) * sizeof(uint64_t));
+	return container_of(start_ptep, struct ecpt_entry, pte);
+}
+
+static inline ecpt_entry_t* get_ecpt_entry_from_pudp(pud_t *pudp, unsigned long addr) 
+{
+	uint64_t (*start_ptep)[ECPT_CLUSTER_FACTOR] = 
+				((void *) pudp - ecpt_pud_index(addr) * sizeof(uint64_t));
+	return container_of(start_ptep, struct ecpt_entry, pte);
+}
+
+static inline void ecpt_entry_set_pte(ecpt_entry_t * e, pte_t pte, unsigned long addr) 
+{
+	e->pte[ecpt_pte_index(addr)] = pte.pte;
+}
+
+static inline void ecpt_entry_set_pmd(ecpt_entry_t * e, pte_t pte, unsigned long addr) 
+{
+	e->pte[ecpt_pmd_index(addr)] = pte.pte;
+}
+
+static inline void ecpt_entry_set_pud(ecpt_entry_t * e, pte_t pte, unsigned long addr) 
+{
+	e->pte[ecpt_pud_index(addr)] = pte.pte;
+}
+
+static inline void ecpt_entry_set_pte_with_pointer
+	(ecpt_entry_t * e, pte_t pte, uint64_t * ptep, unsigned long addr) 
+{
+	WRITE_ONCE(*ptep, pte.pte);
+}
+
+uint64_t * get_ptep_with_gran(struct ecpt_entry *entry, unsigned long vaddr, Granularity g);
+int ecpt_entry_present(ecpt_entry_t * entry, unsigned long addr, Granularity g);
+bool empty_entry(ecpt_entry_t * e);
+
+inline void print_verbose_ecpt_entry(ecpt_entry_t * e);
 
 /*  */
 static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
@@ -57,7 +108,7 @@ static inline pte_t * pte_offset_ecpt(struct mm_struct *mm, unsigned long addr) 
 	// ecpt_entry_t * e = get_hpt_entry(mm->map_desc, addr, &g, &way);
 	ecpt_entry_t * e = ecpt_search_fit(mm->map_desc, addr, g);
 	if (e) 
-		return (pte_t *) &e->pte;
+		return pte_offset_from_ecpt_entry(e, addr);
 	else 
 		return (pte_t *) &pte_default.pte;
 }

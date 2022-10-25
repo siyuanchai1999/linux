@@ -113,10 +113,6 @@ extern ECPT_desc_t ecpt_desc;
 
 extern pte_t pte_default;
 
-static inline bool empty_entry(ecpt_entry_t * e) {
-	return e->VPN_tag == 0 && e->pte == 0;
-}
-
 void load_ECPT_desc(ECPT_desc_t * ecpt);
 // void * map_desc_alloc_default(void);
  
@@ -155,6 +151,7 @@ ecpt_entry_t ecpt_mm_peek(struct mm_struct* mm, uint64_t vaddr, Granularity * gr
 int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);
 int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran);
 
+ecpt_entry_t * get_ecpt_entry_from_mm(struct mm_struct* mm, uint64_t vaddr, Granularity *g);
 ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g, uint32_t * way);
 ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran);
 

@@ -37,6 +37,7 @@
 #include <asm/trace/exceptions.h>
 
 #ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT_interface.h>
 #include <asm/ECPT.h>
 #endif
 
@@ -555,8 +556,8 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		// cr3 = ((uint64_t) __va(read_cr3_pa())) | read_cr3_prot();
 
 		e = ecpt_mm_peek(current->mm, address, &g);
-		pte = (pte_t *) &e.pte;
-
+		// pte = (pte_t *) &e.pte;
+		pte = (pte_t *) get_ptep_with_gran(&e, address, g);
 
 		if (pte && pte_present(*pte) && !pte_exec(*pte))
 			pr_crit("kernel tried to execute NX-protected page - exploit attempt? (uid: %d)\n",
@@ -1077,7 +1078,7 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 	// p4d_t *p4d;
 	// pud_t *pud;
 	// pmd_t *pmd;
-	// pte_t *pte;
+	pte_t *pte;
 	// int ret;
 
 	// ecpt_pmd_t pmd;
@@ -1100,11 +1101,12 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 
 	e = ecpt_mm_peek(&init_mm, address, &g);
 
-	if (!ecpt_entry_present(&e)) {
+	if (!ecpt_entry_present(&e, address, g)) {
 		return 0;
 	}
 
-	ret = spurious_kernel_fault_check(error_code, (pte_t *) &e.pte);
+	pte = (pte_t *)get_ptep_with_gran(&e, address, g);
+	ret = spurious_kernel_fault_check(error_code, pte);
 
 	return ret;
 	// pgd	 = init_mm.pgd + pgd_index(address);

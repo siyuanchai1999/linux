@@ -50,8 +50,8 @@ typedef struct ecpt_entry{
 #define ECPT_2M_WAY_EAGER 0
 #define ECPT_1G_WAY_EAGER 0
 
-#define GET_PTEP_OFFSET(addr) ( sizeof(((ecpt_entry_t *)0)->VPN_tag) )
-#define GET_ECPT_P_FROM_PTEP(ptep, addr) ((ecpt_entry_t *) (((void *) ptep) - GET_PTEP_OFFSET(addr)) )
+// #define GET_PTEP_OFFSET(addr) ( sizeof(((ecpt_entry_t *)0)->VPN_tag) )
+// #define GET_ECPT_P_FROM_PTEP(ptep, addr) ((ecpt_entry_t *) (((void *) ptep) - GET_PTEP_OFFSET(addr)) )
 
 #define IS_KERNEL_MAP(vaddr) (vaddr >= __PAGE_OFFSET)
 
@@ -517,34 +517,13 @@ static inline ecpt_pteval_t ecpt_pte_flags(ecpt_pte_t pte)
 }
 
 
-static inline ecpt_entry_t native_make_ecpt_entry (uint64_t tag, ecpt_pteval_t val)
-{
-	return (ecpt_entry_t) { .VPN_tag = tag,  .pte = val };
-}
-
-
-static inline int ecpt_entry_present(ecpt_entry_t * entry)
-{
-	/*
-	 * Checking for _PAGE_PSE is needed too because
-	 * split_huge_page will temporarily clear the present bit (but
-	 * the _PAGE_PSE flag will remain set at all times while the
-	 * _PAGE_PRESENT bit is clear).
-	 */
-	return entry->pte[0] & _PAGE_PRESENT;
-}
-
 
 /* TODO: concern more about atomicity later */
-static inline void set_ecpt_entry(ecpt_entry_t *entry , ecpt_entry_t e)
-{
-	*entry = e;
-	// WRITE_ONCE(*entry, e);
-}
-
-static inline int ecpt_entry_match_vpn(ecpt_entry_t *entry, uint64_t vpn) {
-	return entry->VPN_tag == vpn;
-}
+// static inline void set_ecpt_entry(ecpt_entry_t *entry , ecpt_entry_t e)
+// {
+// 	*entry = e;
+// 	// WRITE_ONCE(*entry, e);
+// }
 
 
 // static inline ecpt_pteval_t native_ecpt_entry_val(ecpt_entry_t entry)

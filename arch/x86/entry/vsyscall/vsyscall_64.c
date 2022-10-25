@@ -355,31 +355,49 @@ int in_gate_area_no_mm(unsigned long addr)
  * this.
  */
 #ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT_interface.h>
 #include <asm/ECPT.h>
 
 void __init set_vsyscall_pgtable_user_bits(void *desc)
 {
-	int res; 
-	ecpt_pgprot_t prot_with_user;
+	// int res; 
+	// ecpt_pgprot_t prot_with_user;
 	Granularity g = page_4KB;
-	ecpt_entry_t entry = ecpt_peek(
-		(ECPT_desc_t *) desc,
-		VSYSCALL_ADDR,
-		&g /* this should be 4KB since it is from the fixmap */
-	);
+	uint32_t way = 0;
+	pte_t * ptep;
+	pte_t updated_pte;
+	// ecpt_entry_t entry = ecpt_peek(
+	// 	(ECPT_desc_t *) desc,
+	// 	VSYSCALL_ADDR,
+	// 	&g /* this should be 4KB since it is from the fixmap */
+	// );
 
-	if (entry.VPN_tag == 0) {
+	// if (entry.VPN_tag == 0) {
+	// 	pr_warn("%s: WARN empty lookup on %lx\n", __func__, VSYSCALL_ADDR);
+	// 	return;
+	// }
+
+	// prot_with_user = __ecpt_pg(ENTRY_TO_PROT(entry.pte) | _PAGE_USER);
+
+	// res = ecpt_update_prot((ECPT_desc_t *) desc, VSYSCALL_ADDR, prot_with_user, page_4KB);
+	ecpt_entry_t * entry = 
+		get_hpt_entry((ECPT_desc_t *) desc, VSYSCALL_ADDR, &g, &way);
+
+	if (entry == NULL) {
 		pr_warn("%s: WARN empty lookup on %lx\n", __func__, VSYSCALL_ADDR);
 		return;
 	}
 
-	prot_with_user = __ecpt_pg(ENTRY_TO_PROT(entry.pte) | _PAGE_USER);
+	pr_info_verbose("After update user_bits\n");
+	print_verbose_ecpt_entry(entry);
 
-	res = ecpt_update_prot((ECPT_desc_t *) desc, VSYSCALL_ADDR, prot_with_user, page_4KB);
+	ptep = pte_offset_from_ecpt_entry(entry, VSYSCALL_ADDR);\
+	updated_pte.pte = ptep->pte | _PAGE_USER;
 
-	if (res) {
-		pr_warn("%s: WARN res=%d\n", __func__, res);
-	}
+	ecpt_entry_set_pte_with_pointer(entry, updated_pte, (uint64_t *) &ptep->pte, VSYSCALL_ADDR);
+
+	pr_info_verbose("After update user_bits\n");
+	print_verbose_ecpt_entry(entry);
 }	
 
 

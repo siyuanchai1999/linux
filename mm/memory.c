@@ -1324,7 +1324,9 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 	
 	do {
 		entry = ecpt_mm_peek(src_mm, addr, &g);
-		pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
+		// pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
+		pr_info_verbose("addr=%lx\n", addr);
+		print_verbose_ecpt_entry(&entry);
 		if (empty_entry(&entry) || g == page_4KB ) {
 			next = pmd_addr_end(addr, end);
 			if(copy_pte_range(dst_vma, src_vma,
@@ -1540,7 +1542,7 @@ void unmap_page_range(struct mmu_gather *tlb,
 				addr, next, details);
 
 		} else if (g == page_2MB) {
-			pmd_t * pmd = (pmd_t *) &entry.pte;
+			pmd_t * pmd = pmd_offset_from_ecpt_entry(&entry, addr);
 			WARN(1, "2M unmap not implemented yet");
 			next = pmd_addr_end(addr, end);
 			
@@ -1574,7 +1576,7 @@ void unmap_page_range(struct mmu_gather *tlb,
 
 
 		} else if (g == page_1GB) {
-			pud_t * pud = (pud_t *) &entry.pte;
+			pud_t * pud = pud_offset_from_ecpt_entry(&entry, addr);
 			next = pud_addr_end(addr, end);
 			if (pud_trans_huge(*pud) || pud_devmap(*pud)) {
 				if (next - addr != HPAGE_PUD_SIZE) {
@@ -4860,18 +4862,22 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	ecpt_entry_t *entry_p;
 	Granularity g = unknown;	
 	uint32_t way = 0;
-
+	pud_t orig_pud;
 
 
 	spin_lock(&mm->page_table_lock);
 	entry_p = get_hpt_entry(mm->map_desc, address, &g, &way);
 	spin_unlock(&mm->page_table_lock);
 
-	pr_info_verbose("address=%lx .vpn=%llx .pte=%llx\n", 
-		address, 
-		(uint64_t) (entry_p ? entry_p->VPN_tag : 0),
-		(uint64_t) (entry_p ? entry_p->pte : 0)
-	);
+	// pr_info_verbose("address=%lx .vpn=%llx .pte=%llx\n", 
+	// 	address, 
+	// 	(uint64_t) (entry_p ? entry_p->VPN_tag : 0),
+	// 	(uint64_t) (entry_p ? entry_p->pte : 0)
+	// );
+	pr_info_verbose("address=%lx entry_p at %llx\n", address, (uint64_t) entry_p);
+	if (entry_p) {
+		print_verbose_ecpt_entry(entry_p);
+	}
 
 	if (entry_p == NULL) {
 		BUG_ON(g != unknown);
@@ -4904,9 +4910,11 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 
 	if (g == page_1GB) {
 		/* copied from __handle_mm_fault in radix tree implementation */
-		pud_t orig_pud = __pud(entry_p->pte);
-		vmf.pud = (pud_t * )&entry_p->pte;
+		// pud_t orig_pud = __pud(entry_p->pte);
+		// vmf.pud = (pud_t * )&entry_p->pte;
 		
+		vmf.pud =  pud_offset_from_ecpt_entry(entry_p, address);
+		orig_pud = *vmf.pud;
 
 		barrier();
 		if (pud_trans_huge(orig_pud) || pud_devmap(orig_pud)) {
@@ -4927,7 +4935,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	} 
 	
 	if (g == page_2MB) {
-		vmf.pmd = (pmd_t * )&entry_p->pte;
+		vmf.pmd = pmd_offset_from_ecpt_entry(entry_p, address);
 		vmf.orig_pmd = *vmf.pmd;
 		
 		barrier();
@@ -4959,7 +4967,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 		}
 	} 
 
-	vmf.pte = (pte_t * ) &entry_p->pte;
+	vmf.pte = pte_offset_from_ecpt_entry(entry_p, address);
 	vmf.orig_pte = *vmf.pte;
 	ret = handle_pte_fault(&vmf);
 	// print_ecpt(mm->map_desc);

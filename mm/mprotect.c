@@ -378,7 +378,7 @@ static unsigned long change_protection_range(struct vm_area_struct *vma,
 						newprot,
 						cp_flags);
 		} else if (g == page_2MB) {
-			// pmd_t * pmd = (pmd_t *) &entry.pte;
+			pmd_t * pmd __maybe_unused = pmd_offset_from_ecpt_entry(&entry, addr);
 			WARN(1, "2M unmap not implemented yet");
 
 
@@ -395,7 +395,7 @@ static unsigned long change_protection_range(struct vm_area_struct *vma,
 						newprot, cp_flags);
 
 		} else if (g == page_1GB) {
-			pud_t * pud = (pud_t *) &entry.pte;
+			pud_t * pud = pud_offset_from_ecpt_entry(&entry, addr);
 			next = pud_addr_end(addr, end);
 			if (pud_none_or_clear_bad(pud))
 				continue;
