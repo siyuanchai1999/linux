@@ -89,7 +89,7 @@ static inline void ecpt_entry_set_pte_with_pointer
 
 uint64_t * get_ptep_with_gran(struct ecpt_entry *entry, unsigned long vaddr, Granularity g);
 int ecpt_entry_present(ecpt_entry_t * entry, unsigned long addr, Granularity g);
-bool empty_entry(ecpt_entry_t * e);
+inline bool empty_entry(ecpt_entry_t * e);
 
 inline void print_verbose_ecpt_entry(ecpt_entry_t * e);
 

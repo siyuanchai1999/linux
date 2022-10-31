@@ -136,13 +136,27 @@ static inline void ecpt_entry_clear_vpn(ecpt_entry_t * e)
 	e->VPN_tag = 0;
 }
 
+static bool all_pte_empty_in_entry(ecpt_entry_t * e)
+{	
+	int idx = 0;
+	for (; idx < ECPT_CLUSTER_FACTOR; idx++) {
+		if (e->pte[idx] != 0) return false;
+	}
+	return true;
+}
+
+inline bool empty_entry(ecpt_entry_t * e) {	
+	return ecpt_entry_get_vpn(e) == 0 && all_pte_empty_in_entry(e);
+}
+
 static inline void ecpt_entry_clear_ptep(ecpt_entry_t * e,  uint64_t *ptep) 
 {
 	/* TODO: change this when ecpt compaction is implemented */
 	WRITE_ONCE(*ptep, 0);
-	ecpt_entry_clear_vpn(e);
+	if (all_pte_empty_in_entry(e)) {
+		ecpt_entry_clear_vpn(e);
+	}	
 }
-
 
 static inline int ecpt_entry_can_merge(ecpt_entry_t * dest, ecpt_entry_t * src) 
 {	
@@ -213,18 +227,6 @@ int ecpt_entry_present(ecpt_entry_t * entry, unsigned long addr, Granularity g)
 	return (*pte & _PAGE_PRESENT);
 }
 
-bool empty_entry(ecpt_entry_t * e) {
-	int idx = 0;
-	if (ecpt_entry_get_vpn(e) != 0) {
-		return false;
-	}
-	for (; idx < ECPT_CLUSTER_FACTOR; idx++) {
-		if (e->pte[idx] != 0) return false;
-	}
-	return true;
-}
-
-
 #define REP0(X)
 #define REP1(X) X
 #define REP2(X) REP1(X) X
@@ -290,7 +292,7 @@ int early_ecpt_insert(
 	ecpt_entry_t * ecpt_base;
 	ecpt_entry_t * entry_ptr;
 
-	ecpt_entry_t entry, temp;
+	ecpt_entry_t entry = {}, temp = {};
 	static uint16_t way = 0;
 	uint16_t tries = 0;
 
@@ -875,6 +877,7 @@ ecpt_entry_t * get_ecpt_entry_from_mm(struct mm_struct *mm, uint64_t vaddr, Gran
 	uint32_t way;
 	return get_hpt_entry((ECPT_desc_t * ) mm->map_desc, vaddr, g, &way);
 }
+
 
 ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran) {
 

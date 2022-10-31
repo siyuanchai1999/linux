@@ -217,8 +217,8 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		
 
 		/* text and end need to fixup */
-		if (i >= ADDR_TO_PAGE_NUM_2MB(fixup_text) 
-			&& i <= ADDR_TO_PAGE_NUM_2MB(fixup_end)
+		if (i >= ADDR_REMOVE_OFFSET_SHIFT_2MB(fixup_text) 
+			&& i <= ADDR_REMOVE_OFFSET_SHIFT_2MB(fixup_end)
 		) {
 			prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC);
 		} else {
@@ -227,8 +227,8 @@ unsigned long __head __startup_64(unsigned long physaddr,
 			continue;
 		}
 
-		vaddr = vaddr_start + PAGE_NUM_TO_ADDR_2MB(i);
-		paddr = paddr_start + PAGE_NUM_TO_ADDR_2MB(i);
+		vaddr = vaddr_start + SHIFT_TO_ADDR_2MB(i);
+		paddr = paddr_start + SHIFT_TO_ADDR_2MB(i);
 
 		/*
 		* Clear the memory encryption mask from the .bss..decrypted section.
@@ -306,7 +306,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	for (i = 0; i < DIV_ROUND_UP(_end - _text, PMD_SIZE); i++) {
 		
-		paddr = PAGE_NUM_TO_ADDR_2MB(i) + physaddr;
+		paddr = SHIFT_TO_ADDR_2MB(i) + physaddr;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
 			early_ecpt_insert(
@@ -631,7 +631,7 @@ static void __init reset_early_hpt(void)
 
 		/* this should be correct as long as text starts at __PHYSICAL_START */
 
-		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __PHYSICAL_START;
+		paddr = SHIFT_TO_ADDR_2MB(i) + __PHYSICAL_START;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
 			res = early_ecpt_invalidate(
