@@ -4690,6 +4690,14 @@ static vm_fault_t wp_huge_pud(struct vm_fault *vmf, pud_t orig_pud)
 static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 {
 	pte_t entry;
+	
+	/* vmf->pte = NULL to indicate the page hasn't been allocated */
+	/* TODO: pte_none needs redefinition when pte compaction */
+	if (pte_none(vmf->orig_pte)) {
+		pte_unmap(vmf->pte);
+		vmf->pte = NULL;
+	}
+	
 	if (!vmf->pte) {
 		if (vma_is_anonymous(vmf->vma))
 			return do_anonymous_page(vmf);
