@@ -30,6 +30,8 @@
 #define PRINT_ECPT_ENTRY_DEBUG(e) PRINT_ECPT_ENTRY_BASE(e, ECPT_info_verbose)
 #define PRINT_ECPT_ENTRY_INFO(e) PRINT_ECPT_ENTRY_BASE(e, pr_info)
 
+#define IS_KERNEL_MAP(vaddr) (vaddr >= __PAGE_OFFSET)
+
 uint32_t way_to_crN[ECPT_MAX_WAY]= {ECPT_WAY_TO_CR_SEQ};
 pte_t pte_default = {.pte = 0};
 
@@ -54,9 +56,6 @@ static uint64_t early_gen_hash_64(uint64_t vpn, uint64_t size, uint32_t way, uin
 	hash = hash % size;
     return hash;
 }
-
-// #define puthexln(num)
-// #define puthex_tabln(num)
 
  #define puthexln(num) { \
 		debug_puthex(num); \
@@ -183,8 +182,6 @@ static inline void ecpt_entry_clear_ptep(ecpt_entry_t * e,  uint64_t *ptep)
 	}
 
 	WRITE_ONCE(*ptep, CLEAR_PTE_BUT_NOT_VPN(*ptep));
-
-	/* TODO dec when present */
 	
 	if (all_pte_empty_in_entry(e)) {
 		ecpt_entry_clear_vpn(e);
@@ -448,20 +445,6 @@ int early_ecpt_invalidate(ECPT_desc_t * ecpt, uint64_t vaddr) {
 	
 	return 0;
 }
-
-/*
-static Granularity way_to_granularity(uint32_t way) {
-	if (way < ECPT_4K_WAY) {
-		return page_4KB;
-	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
-		return page_2MB;
-	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
-		return page_1GB;
-	} else {
-		return unknown;
-	}
-}
-*/
 
 static uint64_t way_to_vpn(uint32_t way, uint64_t vaddr) {
 	if (way < ECPT_4K_WAY) {
@@ -762,8 +745,6 @@ void pgd_free(struct mm_struct *mm, pgd_t *map_desc) {
 		bytes_need = n_entries * sizeof(ecpt_entry_t);
 		atomic_long_sub(bytes_need,  &mm->pgtables_bytes); 
 	}
-
-
 
 	ecpt_dtor(ecpt);
 	kfree(ecpt);
@@ -1287,160 +1268,6 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 
 }
 
-// int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran) {
-	
-// 	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
-// 	pte_t pte;
-
-// 	uint32_t way_start = 0, way_end, n_way;
-// 	static uint32_t way = 0;
-
-// 	ecpt_entry_t * ecpt_base;
-// 	ecpt_entry_t * entry_ptr;
-// 	ecpt_entry_t entry, temp;
-
-// 	uint16_t tries = 0;
-
-// 	ECPT_info_verbose("ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", (uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
-
-
-// 	if (gran == unknown) {
-// 		WARN(1, KERN_WARNING "gran=%d\n", gran);
-// 		return -1;
-// 	}
-
-// 	select_way(
-// 		vaddr, gran,		/* input */
-// 		&way_start, &way_end, &vpn	/* output */
-// 	);
-// 	n_way = way_end - way_start;
-	
-// 	/* calculate PPN */
-// 	if (gran == page_4KB) 
-// 	{
-// 		pte.pte = ADDR_REMOVE_OFFSET_4KB(paddr);
-// 		pte.pte = pte.pte | ecpt_pgprot_val(prot);
-// 		ecpt_entry_set_pte(&entry, pte, vaddr);	
-// 	} 
-// 	else if (gran == page_2MB) 
-// 	{
-// 		pte.pte = ADDR_REMOVE_OFFSET_2MB(paddr);
-// 		pte.pte = pte.pte | ecpt_pgprot_val(prot);
-// 		pte.pte = pte.pte | _PAGE_PSE;
-// 		ecpt_entry_set_pmd(&entry, pte, vaddr);	
-// 	} 
-// 	else if (gran == page_1GB) 
-// 	{
-// 		pte.pte = ADDR_REMOVE_OFFSET_1GB(paddr);
-// 		pte.pte = pte.pte | ecpt_pgprot_val(prot);
-// 		pte.pte = pte.pte | _PAGE_PSE;
-// 		ecpt_entry_set_pud(&entry, pte, vaddr);	
-// 	} 
-// 	else 
-// 	{
-// 		/* invalid granularity */
-// 		return -1;
-// 	}
-
-// 	if (n_way == 0) {
-
-// 		/* invalid size */
-// 		return -2;
-// 	}
-
-// 	// pte.pte = pte.pte | ecpt_pgprot_val(prot);
-// 	// if (gran == page_2MB || gran == page_1GB) {
-// 	// 	pte.pte = pte.pte | _PAGE_PSE;
-// 	// }
-
-// 	ecpt_entry_set_vpn(&entry, vpn);
-
-// 	way = get_diff_rand(way, n_way);
-// 	// DEBUG_VAR(vaddr);
-
-// 	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
-// 		// puthex_tabln(way);
-		
-// 		cr = ecpt->table[way_start + way];
-// 		// DEBUG_VAR(cr);
-// 		size = GET_HPT_SIZE(cr);
-// 		if (size == 0) {
-// 			fix_lazy_ECPT(ecpt, gran);
-			
-// 			cr = ecpt->table[way_start + way];
-// 			size = GET_HPT_SIZE(cr);
-			
-// 			if (!size) {
-// 				// ECPT_info_verbose("gran=%d way = %d\n", gran, way_start + way);
-// 				BUG_ON(!size);
-// 			}
-// 		}
-
-// 		hash = gen_hash_64(ecpt_entry_get_vpn(&entry), size, way_start + way);
-
-
-// 		if (hash < rehash_ptr) {
-//             /* not supported for resizing now */
-//             /* rehash_ptr MBZ right now */
-//             panic("no rehash support!\n");
-//         } else {
-// 			/* stay with current hash table */
-//             ecpt_base = (ecpt_entry_t * ) GET_HPT_BASE_VIRT(cr);
-// 			// DEBUG_VAR((uint64_t)ecpt_base);
-//             entry_ptr = &ecpt_base[hash];
-
-// 		}
-            
-		
-// 		if (ecpt_entry_can_merge(entry_ptr, &entry)) {
-// 			/* can insert here */
-// 			// ECPT_info_verbose("hash=%llx addr=%llx entry_ptr=%llx pte=%llx\n", 
-// 					// hash, vaddr, (uint64_t) entry_ptr, entry.pte);
-// 			// set_ecpt_entry(entry_ptr, entry);
-
-// 			ecpt_entry_do_merge(entry_ptr, &entry);
-// 			// if (tries > 0) {
-// 			// 	ECPT_info_verbose("set entry={.vpn=%llx .pte=%llx} at %llx\n", entry.VPN_tag, entry.pte, (uint64_t) entry_ptr);
-// 			// }
-// 			print_verbose_ecpt_entry(entry_ptr);
-
-// 			ecpt->occupied[way_start + way] += 1;
-// 			return 0;
-// 		} else {
-// 			/* swap and insert again */
-			
-// 			// temp = *entry_ptr;
-// 			// if (temp.VPN_tag == entry.VPN_tag && temp.pte == entry.pte) {
-// 			// 	/* mapping already established, no need to kick it out */
-// 			// 	return 0;
-// 			// }
-			
-
-// 			// ECPT_info_verbose("kick at %llx ={.vpn=%llx .pte=%llx} with entry={.vpn=%llx .pte=%llx} way=%d hash=%llx\n", 
-// 			// 	(uint64_t) entry_ptr, temp.VPN_tag, temp.pte, entry.VPN_tag, entry.pte, way_start + way, hash);
-// 			// set_ecpt_entry(entry_ptr, entry);
-// 			// entry = temp;
-// 			ecpt_entry_overwrite(&temp, entry_ptr);
-
-// 			ECPT_info_verbose("Kick ");
-// 			print_verbose_ecpt_entry(&temp);
-// 			ECPT_info_verbose("with ");
-// 			print_verbose_ecpt_entry(&entry);
-
-// 			ecpt_entry_overwrite(entry_ptr, &entry);
-// 			ecpt_entry_overwrite(&entry, &temp);
-// 		}	
-		
-// 		way = get_diff_rand(way, n_way);
-
-// 	}
-
-// 	WARN(1, KERN_WARNING"Hash Collision unresolved:\n ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", 
-// 			(uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
-// 	print_ecpt(ecpt, 0 /* kernel */, 1 /* user */);
-// 	/* exceed max number of tries */
-// 	return -3;
-// }
 
 int ecpt_mm_insert(struct mm_struct* mm, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, Granularity gran) {
 	int res = 0;
@@ -1577,16 +1404,20 @@ uint32_t find_way_from_ptep(ECPT_desc_t * ecpt, pte_t *ptep) {
 	return -1;
 }
 
+/**
+ * @brief Note: this function currently only supports set pte for 4KB pages
+ * 		In particular, ecpt_entry_set_pte only supports 4KB pages
+ * @param mm 
+ * @param ptep 
+ * @param pte 
+ * @param addr 
+ * @return int 
+ */
 static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte, unsigned long addr) {
 	ecpt_entry_t * e;
 	// uint64_t * tag_ptr;
 	ECPT_desc_t * ecpt = (ECPT_desc_t *) mm->map_desc;
 	uint32_t way = 0;
-
-	// WRITE_ONCE(*ptep, pte);
-	// e = GET_ECPT_P_FROM_PTEP(ptep, addr);
-	// tag_ptr = (uint64_t *) &e->VPN_tag;
-	// WRITE_ONCE(*tag_ptr, VADDR_TO_PAGE_NUM_4KB(addr));
 	
 	e = get_ecpt_entry_from_ptep(ptep, addr);
 	
@@ -1664,12 +1495,6 @@ static pte_t __ecpt_native_ptep_get_and_clear(struct mm_struct *mm, pte_t *ptep,
 	ECPT_desc_t * ecpt = (ECPT_desc_t *) mm->map_desc;
 	uint32_t way = 0;
 
-	// WRITE_ONCE(*ptep, zero);
-
-	// e = GET_ECPT_P_FROM_PTEP(ptep, addr);
-	// tag_ptr = (uint64_t *) &e->VPN_tag;
-	
-	// WRITE_ONCE(*tag_ptr, 0);
 	e = get_ecpt_entry_from_ptep(ptep, addr);
 	ecpt_entry_clear_ptep(e, (uint64_t *) ptep);
 	
@@ -1723,7 +1548,6 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	ecpt_entry_t * entry = NULL;
 	uint64_t * ptep = NULL;
 	uint32_t way;
-	// DEBUG_VAR(vaddr);
 	entry = get_hpt_entry(ecpt_desc, vaddr, &g, &way);
 	
 	if (entry == NULL) {
@@ -1737,7 +1561,6 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 
 	ECPT_info_verbose("ecpt_invalidate");
 	PRINT_ECPT_ENTRY_DEBUG(entry);
-	// DEBUG_STR("\n");
 
 	return 0;
 }
@@ -1816,20 +1639,13 @@ int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot,
 int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_prot, Granularity gran) {
 
 	int res;
+
 	spin_lock(&mm->page_table_lock);
-
-	// cr3 = (uint64_t) mm->pgd;
-	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
 	res = ecpt_update_prot((ECPT_desc_t *) mm->map_desc, vaddr, new_prot, gran);
-
 	spin_unlock(&mm->page_table_lock);
-	// /* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
-	// return res;
+
 	return 0;
 }
-
-
-/* Why memory clobber here */
 
 /**
  * @brief  ## concatenates symbol together e.g. native_write_cr##N -> native_write_cr1
@@ -1908,10 +1724,9 @@ void load_ECPT_desc(ECPT_desc_t * ecpt) {
 } 
 
 static void print_ecpt_detail(ECPT_desc_t * ecpt, uint32_t way_start, uint32_t way_end) {
-	uint64_t cr, size, vpn;
+	uint64_t cr, size;
 	uint32_t  i, j;
 	ecpt_entry_t * ecpt_base, * e; 
-
 
 	for (i = way_start; i < way_end; i++) {
 		pr_info("\t 0x%x/0x%llx %llx -> cr%d \n",
@@ -1982,8 +1797,3 @@ void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail, bool user_table_de
 	pr_info("End of ECPT at %llx ------------------\n", (uint64_t) ecpt);
 
 }
-
-
-
-
-

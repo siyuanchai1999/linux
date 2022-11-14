@@ -253,29 +253,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 		
 		
-	}
-
-	/* build fixmappping */
-	/**
-	 * TODO: figure out what's the physical address here
-	 * In paging, the kernel code just setup the level2_fixmap_pgt to have its fixmap entries 
-	 * 	point to level1_fixmap_pgt, but level1_fixmap_pgt is not initialized here
-	 */
-
-	// vaddr = __START_KERNEL_map + PUD_PAGE_SIZE; 			/* In paging, last entry of pud table  */
-	// paddr = 0;							
-	// prot = __ecpt_pgprot(_PAGE_TABLE_NOENC);
-
-	// for (i = FIXMAP_PMD_TOP; i > FIXMAP_PMD_TOP - FIXMAP_PMD_NUM; i--) {
-	// 	hpt_insert(
-	// 		early_cr3,
-	// 		vaddr + PAGE_NUM_TO_ADDR_2MB(i),
-	// 		paddr + PAGE_NUM_TO_ADDR_2MB(i),
-	// 		prot 
-	// 	);
-	// }
-	
-
+	}	
 
 	/*
 	 * Set up the identity mapping for the switchover.  These
@@ -692,9 +670,7 @@ static bool __init early_make_hpt(unsigned long address)
 		DEBUG_STR("WARNING!\n");
 		DEBUG_VAR(res);
 	}
-	/* 
-		hpt_insert return 0 as normal, but early_make_hpt needs 1 as normal
-	 */
+
 	return !res;
 }
 

@@ -200,30 +200,22 @@ static uint64_t gen_hash_32(uint32_t vpn, uint64_t size) {
     return hash;
 }
 
-#define HASH_TO_INDEX(h) (h << 3)
-// #define __pa(x)  ((unsigned long)(x))
-// #define __va(x)  ((void *)((unsigned long)(x)))
-
 int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint32_t override) {
 	uint64_t size, hash;
 	uint32_t vpn;
 
-	ecpt_pmd_t *hpt_base, *pmdp;
-	ecpt_pmd_t entry = __ecpt_pmd(0);
+	pmd_t *hpt_base, *pmdp;
 
-	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
+	hpt_base = (pmd_t *) GET_HPT_BASE(cr3);
 	size = GET_HPT_SIZE(cr3);
 	vpn =  VADDR_TO_PAGE_NUM_2MB(vaddr);
 
 	hash = gen_hash_32(vpn, size);
 
-	// hash = gen_hash_64(vpn, size);
-
-
-	/* hpt_base is pointer to ecpt_pmd_t, pointer arithmetic, by default, conside the size of the object*/
+	/* hpt_base is pointer to pmd_t, pointer arithmetic, by default, conside the size of the object*/
 	pmdp = &hpt_base[hash];
 
-	if (ecpt_pmd_present(*pmdp)) {
+	if (pmd_present(*pmdp)) {
 		/* already present */
 		/* warning */
 		if (!override) {	
@@ -231,10 +223,6 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 		}
 	}
 	
-	entry = __ecpt_pmd(PADDR_TO_PTE_2MB(paddr) | ecpt_pgprot_val(prot));
-
-	set_ecpt_pmd(pmdp, entry);
-
+	pmdp->pmd = PADDR_TO_PTE_2MB(paddr) | ecpt_pgprot_val(prot);
 	return 0;
-
 }
