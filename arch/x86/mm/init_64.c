@@ -1705,15 +1705,33 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 	unsigned long next;
 
 	pmd_t pmd;
-	uint64_t pmd_val;
+	uint64_t pmd_val = 0;
 	void *p;
 	int res;
 	Granularity g = unknown;
+	ecpt_entry_t * entry;
+	uint32_t way;
+
+	pr_info("%s: start: %lx end: %lx node: %x altmap: %lx\n",
+		 	__func__,
+			start,
+			end,
+			node,
+			(unsigned long)altmap		
+	);
+	
 	for (addr = start; addr < end; addr = next) {
 		next = pmd_addr_end(addr, end);
 
 		pr_info_verbose("addr=%lx start=%lx", addr, start);
-		pmd_val = ecpt_mm_peek(&init_mm, addr, &g).pte;
+		// pmd_val = ecpt_mm_peek(&init_mm, addr, &g).pte;
+		entry = get_hpt_entry((ECPT_desc_t *) init_mm.map_desc, addr, &g, &way);
+
+		if (entry != NULL) {
+			// if entry is valid, we check if it's a large pmd 
+			// if not this fall through vmemmap_populate_basepages
+			pmd_val = pmd_offset_from_ecpt_entry(entry, addr)->pmd;
+		}
 
 		pmd = __pmd(pmd_val);
 		if (pmd_none(pmd)) {

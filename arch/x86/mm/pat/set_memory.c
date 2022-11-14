@@ -594,7 +594,6 @@ pte_t *__lookup_address(void * desc, unsigned long address,
 	Granularity g = unknown;
 	/* Use get_hpt_entry here to get the pointer to real data 
 		because the function requires a pte pointer to be returned
-	
 	*/
 	ecpt_entry_t * entry_p = get_hpt_entry(ecpt, address, &g, &way_temp);
 
@@ -606,24 +605,25 @@ pte_t *__lookup_address(void * desc, unsigned long address,
 	if (g == page_4KB) 
 	{
 		*level = PG_LEVEL_4K;
+		return (pte_t *) pte_offset_from_ecpt_entry(entry_p, address);
 	} 
 	else if (g == page_2MB) 
 	{
 		*level = PG_LEVEL_2M;
+		return (pte_t *) pmd_offset_from_ecpt_entry(entry_p, address);
 	} 
 	else if (g == page_1GB) 
 	{
 		*level = PG_LEVEL_1G;
+		return (pte_t *) pud_offset_from_ecpt_entry(entry_p, address);
 	} 
 	else 
 	{	
 		WARN(1, KERN_WARNING "unkown granularity after get_hpt_entry\n");
 		/* unknown granularity */
 		*level = PG_LEVEL_NONE;
+		return NULL;
 	}
-
-
-	return (pte_t *) &entry_p->pte;
 }
 
 /*

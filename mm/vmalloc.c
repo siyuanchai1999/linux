@@ -421,21 +421,17 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 		BUG_ON(addr >= end);
 
 		entry = get_hpt_entry((ECPT_desc_t *) init_mm.map_desc, addr, &g, &way);
-		
-		pr_info_verbose("addr=%lx entry at %llx {.vpn=%llx .pte=%llx}\n", 
-			addr,
-			(uint64_t) entry, 
-			entry ? entry->VPN_tag : 0,
-			entry ? entry->pte : 0
-		);
+
+		pr_info_verbose("addr=%lx\n", addr);
 
 		if (entry == NULL) {
 			next = addr + PAGE_SIZE;
 			continue;
 		}
+		PRINT_ECPT_ENTRY_VERBOSE(entry);
 		
 		if (g == page_4KB) {
-			pte_t * pte = (pte_t *) &entry->pte;
+			pte_t * pte = pte_offset_from_ecpt_entry(entry, addr);
 			
 			pte_t ptent = ptep_get_and_clear(&init_mm, addr, pte);
 			WARN_ON(!pte_none(ptent) && !pte_present(ptent));
@@ -443,7 +439,7 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 			next = addr + PAGE_SIZE;
 			mask |= PGTBL_PTE_MODIFIED;
 		} else if (g == page_2MB) {
-			pmd_t * pmd = (pmd_t *) &entry->pte;
+			pmd_t * pmd = pmd_offset_from_ecpt_entry(entry, addr);
 			pmd_t pmdnt = pmdp_huge_get_and_clear(&init_mm, addr, pmd);
 			
 			WARN_ON(!pmd_none(pmdnt) && !pmd_present(pmdnt));
@@ -452,7 +448,7 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 			mask |= PGTBL_PMD_MODIFIED;
 
 		} else if (g == page_1GB) {
-			pud_t * pud = (pud_t *) &entry->pte;
+			pud_t * pud = pud_offset_from_ecpt_entry(entry, addr);
 			pud_t pudnt = pudp_huge_get_and_clear(&init_mm, addr, pud);
 			
 			WARN_ON(!pud_none(pudnt) && !pud_present(pudnt));
@@ -836,17 +832,20 @@ struct page *vmalloc_to_page(const void *vmalloc_addr) {
 	VIRTUAL_BUG_ON(!is_vmalloc_or_module_addr(vmalloc_addr));
 	entry = ecpt_mm_peek(&init_mm, addr, &g);
 	
-	if (entry.pte == 0) {
+	if (empty_entry(&entry)) {
 		/* no such page */
 		return NULL;
 	}
 
 	if (g == page_4KB) {
-		return pte_page(native_make_pte(entry.pte));
+		pte_t* pte = pte_offset_from_ecpt_entry(&entry, addr);
+		return pte_page(native_make_pte(pte->pte));
 	} else if (g == page_2MB) {
-		return pmd_page(native_make_pmd(entry.pte)) + ((addr & ~PMD_MASK) >> PAGE_SHIFT);
+		pmd_t* pmd = pmd_offset_from_ecpt_entry(&entry, addr);
+		return pmd_page(native_make_pmd(pmd->pmd)) + ((addr & ~PMD_MASK) >> PAGE_SHIFT);
 	} else if (g == page_1GB) {
-		return pud_page(native_make_pud(entry.pte)) + ((addr & ~PUD_MASK) >> PAGE_SHIFT);
+		pud_t* pud = pud_offset_from_ecpt_entry(&entry, addr);
+		return pud_page(native_make_pud(pud->pud)) + ((addr & ~PUD_MASK) >> PAGE_SHIFT);
 	} else {
 		/* should not be here */
 		BUG();

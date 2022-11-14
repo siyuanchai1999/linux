@@ -217,8 +217,8 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		
 
 		/* text and end need to fixup */
-		if (i >= ADDR_TO_PAGE_NUM_2MB(fixup_text) 
-			&& i <= ADDR_TO_PAGE_NUM_2MB(fixup_end)
+		if (i >= VADDR_TO_PAGE_NUM_NO_CLUSTER_2MB(fixup_text) 
+			&& i <= VADDR_TO_PAGE_NUM_NO_CLUSTER_2MB(fixup_end)
 		) {
 			prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC);
 		} else {
@@ -227,8 +227,8 @@ unsigned long __head __startup_64(unsigned long physaddr,
 			continue;
 		}
 
-		vaddr = vaddr_start + PAGE_NUM_TO_ADDR_2MB(i);
-		paddr = paddr_start + PAGE_NUM_TO_ADDR_2MB(i);
+		vaddr = vaddr_start + SHIFT_TO_ADDR_2MB(i);
+		paddr = paddr_start + SHIFT_TO_ADDR_2MB(i);
 
 		/*
 		* Clear the memory encryption mask from the .bss..decrypted section.
@@ -253,29 +253,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 		
 		
-	}
-
-	/* build fixmappping */
-	/**
-	 * TODO: figure out what's the physical address here
-	 * In paging, the kernel code just setup the level2_fixmap_pgt to have its fixmap entries 
-	 * 	point to level1_fixmap_pgt, but level1_fixmap_pgt is not initialized here
-	 */
-
-	// vaddr = __START_KERNEL_map + PUD_PAGE_SIZE; 			/* In paging, last entry of pud table  */
-	// paddr = 0;							
-	// prot = __ecpt_pgprot(_PAGE_TABLE_NOENC);
-
-	// for (i = FIXMAP_PMD_TOP; i > FIXMAP_PMD_TOP - FIXMAP_PMD_NUM; i--) {
-	// 	hpt_insert(
-	// 		early_cr3,
-	// 		vaddr + PAGE_NUM_TO_ADDR_2MB(i),
-	// 		paddr + PAGE_NUM_TO_ADDR_2MB(i),
-	// 		prot 
-	// 	);
-	// }
-	
-
+	}	
 
 	/*
 	 * Set up the identity mapping for the switchover.  These
@@ -306,7 +284,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	for (i = 0; i < DIV_ROUND_UP(_end - _text, PMD_SIZE); i++) {
 		
-		paddr = PAGE_NUM_TO_ADDR_2MB(i) + physaddr;
+		paddr = SHIFT_TO_ADDR_2MB(i) + physaddr;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
 			early_ecpt_insert(
@@ -631,7 +609,7 @@ static void __init reset_early_hpt(void)
 
 		/* this should be correct as long as text starts at __PHYSICAL_START */
 
-		paddr = PAGE_NUM_TO_ADDR_2MB(i) + __PHYSICAL_START;
+		paddr = SHIFT_TO_ADDR_2MB(i) + __PHYSICAL_START;
 		for (j = 0; j < 4; j++) {
 			vaddr = paddr + VA_offset[j];
 			res = early_ecpt_invalidate(
@@ -692,9 +670,7 @@ static bool __init early_make_hpt(unsigned long address)
 		DEBUG_STR("WARNING!\n");
 		DEBUG_VAR(res);
 	}
-	/* 
-		hpt_insert return 0 as normal, but early_make_hpt needs 1 as normal
-	 */
+
 	return !res;
 }
 

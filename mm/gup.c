@@ -760,25 +760,34 @@ static struct page *follow_page_mask(struct vm_area_struct *vma,
 	// struct page *page;
 	struct mm_struct *mm = vma->vm_mm;
 	Granularity g = unknown;
-	ecpt_entry_t entry;
-	pte_t pte;
+	ecpt_entry_t *entry;
+	pte_t* pte;
+	pmd_t* pmd;
+	pud_t* pud;
+	// entry = ecpt_mm_peek(mm, address, &g);
+	// pte.pte = entry.pte;
+	// if (!pte_present(pte)) {
+	// 	/* no such page */
+	// 	return no_page_table(vma, flags);
+	// }
+	entry = get_ecpt_entry_from_mm(mm, address, &g);
 
-	entry = ecpt_mm_peek(mm, address, &g);
-	pte.pte = entry.pte;
-	if (!pte_present(pte)) {
+	if (!entry) {
 		/* no such page */
 		return no_page_table(vma, flags);
 	}
+
 	if (g == page_4KB) {
-		pte.pte = entry.pte;
-		return ecpt_follow_page_pte(vma, address, pte, flags, &ctx->pgmap);
+		pte = pte_offset_from_ecpt_entry(entry, address);
+		return ecpt_follow_page_pte(vma, address, *pte, flags, &ctx->pgmap);
 	} else if (g == page_2MB) {
-		pmd_t pmd = {.pmd = entry.pte};
-		return ecpt_follow_pmd_mask(vma, address, pmd, flags, ctx);
+		pmd = pmd_offset_from_ecpt_entry(entry, address);
+		return ecpt_follow_pmd_mask(vma, address, *pmd, flags, ctx);
 		// return pmd_page(native_make_pmd(entry.pte)) + ((addr & ~PMD_MASK) >> PAGE_SHIFT);
 	} else if (g == page_1GB) {
 		// return pud_page(native_make_pud(entry.pte)) + ((addr & ~PUD_MASK) >> PAGE_SHIFT);
-		return ecpt_follow_pud_mask(vma, address, (pud_t *) &entry.pte, flags, ctx);
+		pud = pud_offset_from_ecpt_entry(entry, address);
+		return ecpt_follow_pud_mask(vma, address, pud, flags, ctx);
 	} else {
 		/* should not be here */
 		BUG();

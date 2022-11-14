@@ -38,7 +38,6 @@
 /* - if the user mapped it with PROT_NONE; pte_present gives true */
 #define _PAGE_BIT_PROTNONE	_PAGE_BIT_GLOBAL
 
-#ifndef _ASM_X86_ECPT_DEFS_H			/* temporarily undefine to suppress compiler warning */
 
 #define _PAGE_PRESENT	(_AT(pteval_t, 1) << _PAGE_BIT_PRESENT)
 #define _PAGE_RW	(_AT(pteval_t, 1) << _PAGE_BIT_RW)
@@ -265,8 +264,6 @@ enum page_cache_mode {
 #else
 # include <asm/pgtable_64_types.h>
 #endif
-
-#endif /*  ifndef _ASM_X86_ECPT_DEFS_H*/
 
 
 #ifndef __ASSEMBLY__

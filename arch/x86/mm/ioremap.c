@@ -911,20 +911,14 @@ void __init __early_set_fixmap(enum fixed_addresses idx,
 
 	pgprot_val(flags) &= __supported_pte_mask;
 
-	/**
-	 * TODO: change hpt_insert and early_cr3 here
-	 * 
-	 */
-	// early_cr3 = (uint64_t) &early_hpt[0];
-	// early_cr3 += HPT_NUM_ENTRIES_TO_CR3(EARLY_HPT_ENTRIES);
-
 	if (pgprot_val(flags)) {
-		// pr_info_verbose("addr = %lx phys = %llx\n", addr,(uint64_t) phys);
+		pr_info_verbose("addr = %lx phys = %llx\n", addr,(uint64_t) phys);
 		// res = ecpt_insert(early_cr3, addr, phys, __ecpt_pgprot(flags.pgprot), 1);
 		/* 4KB */
 		res = ecpt_insert(desc, addr, phys,  __ecpt_pgprot(flags.pgprot), page_4KB );
 	} else {
 		/* if flags == 0, we have to clear the entry with overrride */
+		pr_info_verbose("invalidate addr = %lx \n", addr);
 		res = ecpt_invalidate(desc, addr, page_4KB);
 	}
 	
