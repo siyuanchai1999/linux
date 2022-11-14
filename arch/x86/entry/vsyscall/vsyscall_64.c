@@ -389,7 +389,7 @@ void __init set_vsyscall_pgtable_user_bits(void *desc)
 	}
 
 	pr_info_verbose("After update user_bits\n");
-	print_verbose_ecpt_entry(entry);
+	PRINT_ECPT_ENTRY_VERBOSE(entry);
 
 	ptep = pte_offset_from_ecpt_entry(entry, VSYSCALL_ADDR);\
 	updated_pte.pte = ptep->pte | _PAGE_USER;
@@ -397,7 +397,7 @@ void __init set_vsyscall_pgtable_user_bits(void *desc)
 	ecpt_entry_set_pte_with_pointer(entry, updated_pte, (uint64_t *) &ptep->pte, VSYSCALL_ADDR);
 
 	pr_info_verbose("After update user_bits\n");
-	print_verbose_ecpt_entry(entry);
+	PRINT_ECPT_ENTRY_VERBOSE(entry);
 }	
 
 

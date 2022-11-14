@@ -1326,7 +1326,7 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 		entry = ecpt_mm_peek(src_mm, addr, &g);
 		// pr_info_verbose("addr=%lx {.vpn=%llx .pte=%llx}\n", addr, entry.VPN_tag, entry.pte);
 		pr_info_verbose("addr=%lx\n", addr);
-		print_verbose_ecpt_entry(&entry);
+		PRINT_ECPT_ENTRY_VERBOSE(&entry);
 		if (empty_entry(&entry) || g == page_4KB ) {
 			next = pmd_addr_end(addr, end);
 			if(copy_pte_range(dst_vma, src_vma,
@@ -4884,7 +4884,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	// );
 	pr_info_verbose("address=%lx entry_p at %llx\n", address, (uint64_t) entry_p);
 	if (entry_p) {
-		print_verbose_ecpt_entry(entry_p);
+		PRINT_ECPT_ENTRY_VERBOSE(entry_p);
 	}
 
 	if (entry_p == NULL) {

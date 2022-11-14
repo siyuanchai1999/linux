@@ -19,7 +19,6 @@ typedef unsigned long	ecpt_pgprotval_t;
 
 
 typedef struct ecpt_entry{
-	uint64_t VPN_tag;  
 	uint64_t pte[ECPT_CLUSTER_FACTOR];
 } ecpt_entry_t;
 

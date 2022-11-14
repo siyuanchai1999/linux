@@ -1712,6 +1712,14 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 	ecpt_entry_t * entry;
 	uint32_t way;
 
+	pr_info("%s: start: %lx end: %lx node: %x altmap: %lx\n",
+		 	__func__,
+			start,
+			end,
+			node,
+			(unsigned long)altmap		
+	);
+	
 	for (addr = start; addr < end; addr = next) {
 		next = pmd_addr_end(addr, end);
 

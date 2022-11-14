@@ -217,8 +217,8 @@ unsigned long __head __startup_64(unsigned long physaddr,
 		
 
 		/* text and end need to fixup */
-		if (i >= ADDR_REMOVE_OFFSET_SHIFT_2MB(fixup_text) 
-			&& i <= ADDR_REMOVE_OFFSET_SHIFT_2MB(fixup_end)
+		if (i >= VADDR_TO_PAGE_NUM_NO_CLUSTER_2MB(fixup_text) 
+			&& i <= VADDR_TO_PAGE_NUM_NO_CLUSTER_2MB(fixup_end)
 		) {
 			prot = __ecpt_pgprot(__PAGE_KERNEL_LARGE_EXEC);
 		} else {

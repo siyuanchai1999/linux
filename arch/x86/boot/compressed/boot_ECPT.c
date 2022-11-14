@@ -213,7 +213,7 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 
 	hpt_base = (ecpt_pmd_t *) GET_HPT_BASE(cr3);
 	size = GET_HPT_SIZE(cr3);
-	vpn =  ADDR_TO_PAGE_NUM_2MB(vaddr);
+	vpn =  VADDR_TO_PAGE_NUM_2MB(vaddr);
 
 	hash = gen_hash_32(vpn, size);
 
@@ -231,7 +231,7 @@ int hpt_insert(uint64_t cr3, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot,
 		}
 	}
 	
-	entry = __ecpt_pmd(ADDR_REMOVE_OFFSET_2MB(paddr) | ecpt_pgprot_val(prot));
+	entry = __ecpt_pmd(PADDR_TO_PTE_2MB(paddr) | ecpt_pgprot_val(prot));
 
 	set_ecpt_pmd(pmdp, entry);
 

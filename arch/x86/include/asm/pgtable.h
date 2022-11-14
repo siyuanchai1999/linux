@@ -735,7 +735,11 @@ static inline pgd_t pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 
 static inline int pte_none(pte_t pte)
 {
+#ifdef CONFIG_X86_64_ECPT
+	return ecpt_pte_none(pte);
+#else
 	return !(pte.pte & ~(_PAGE_KNL_ERRATUM_MASK));
+#endif
 }
 
 #define __HAVE_ARCH_PTE_SAME
@@ -800,10 +804,14 @@ static inline int pmd_protnone(pmd_t pmd)
 
 static inline int pmd_none(pmd_t pmd)
 {
+#ifdef CONFIG_X86_64_ECPT
+	return ecpt_pmd_none(pmd);
+#else
 	/* Only check low word on 32-bit platforms, since it might be
 	   out of sync with upper half. */
 	unsigned long val = native_pmd_val(pmd);
 	return (val & ~_PAGE_KNL_ERRATUM_MASK) == 0;
+#endif
 }
 
 static inline unsigned long pmd_page_vaddr(pmd_t pmd)
@@ -839,7 +847,12 @@ static inline unsigned long pages_to_mb(unsigned long npg)
 #if CONFIG_PGTABLE_LEVELS > 2
 static inline int pud_none(pud_t pud)
 {
+#ifdef CONFIG_X86_64_ECPT
+	return ecpt_pud_none(pud);
+#else
 	return (native_pud_val(pud) & ~(_PAGE_KNL_ERRATUM_MASK)) == 0;
+#endif
+	
 }
 
 static inline int pud_present(pud_t pud)

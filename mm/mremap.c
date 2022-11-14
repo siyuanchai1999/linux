@@ -544,12 +544,6 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 		entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
 		spin_unlock(&mm->page_table_lock);
 
-		pr_info_verbose("old_addr=%lx .vpn=%llx .pte=%llx\n", 
-			old_addr, 
-			(uint64_t) (entry_p ? entry_p->VPN_tag : 0),
-			(uint64_t) (entry_p ? entry_p->pte : 0)
-		);
-
 		if (entry_p == NULL) {
 			extent = PAGE_SIZE;
 			continue;

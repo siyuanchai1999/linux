@@ -421,22 +421,14 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 		BUG_ON(addr >= end);
 
 		entry = get_hpt_entry((ECPT_desc_t *) init_mm.map_desc, addr, &g, &way);
-		
-		// pr_info_verbose("addr=%lx entry at %llx {.vpn=%llx .pte=%llx}\n", 
-		// 	addr,
-		// 	(uint64_t) entry, 
-		// 	entry ? entry->VPN_tag : 0,
-		// 	entry ? entry->pte : 0
-		// );
 
 		pr_info_verbose("addr=%lx\n", addr);
-		
 
 		if (entry == NULL) {
 			next = addr + PAGE_SIZE;
 			continue;
 		}
-		print_verbose_ecpt_entry(entry);
+		PRINT_ECPT_ENTRY_VERBOSE(entry);
 		
 		if (g == page_4KB) {
 			pte_t * pte = pte_offset_from_ecpt_entry(entry, addr);
