@@ -177,6 +177,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	uint64_t fixup_text, fixup_end;
 
 	ECPT_desc_t * ecpt_desc_ptr;
+	char err[29] = "Inconsistent entry size!!!!\n";
 	// unsigned int *next_pgt_ptr;
 
 	// la57 = check_la57_support(physaddr);
@@ -212,6 +213,12 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	paddr_start = load_delta;
 	fixup_text = (uint64_t) fixup_pointer(_text, physaddr);
 	fixup_end = (uint64_t) fixup_pointer(_end, physaddr);
+
+	if (sizeof(struct ecpt_entry) != EARLY_HPT_ENTRY_SIZE) {
+		debug_putstr(err);
+		return 0;
+	}
+
 	/* build kernel mapping */
 	for (i = 0; i < KERNEL_IMAGE_SIZE/PMD_PAGE_SIZE; i++) {
 		

@@ -119,7 +119,7 @@
 #define ENTRY_TO_ADDR(x) ((x) & PG_ADDRESS_MASK)
 
 #define EARLY_HPT_ENTRIES (512 * 8 * 4)
-#define EARLY_HPT_ENTRY_SIZE (72) /* TODO: change this whenever ecpt_entry_t changed its size */
+#define EARLY_HPT_ENTRY_SIZE (64) /* TODO: change this whenever ecpt_entry_t changed its size */
 #define EARLY_HPT_ENTRY_QUAD_CNT (EARLY_HPT_ENTRY_SIZE / 8)
 #define EARLY_HPT_SIZE (EARLY_HPT_ENTRIES * EARLY_HPT_ENTRY_SIZE)
 #define EARLY_HPT_OFFSET_MASK (EARLY_HPT_ENTRIES - 1)         /* the trailing 12 */

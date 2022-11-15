@@ -698,7 +698,7 @@ void * pgd_alloc(struct mm_struct *mm) {
 	uint32_t n_entries = 0, i = 0, bytes_need;
 
 	WARN(!desc, "map_desc_alloc_default fails\n");
-	
+
 	mm->map_desc = desc;
 
 	/**
