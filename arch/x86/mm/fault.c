@@ -367,7 +367,7 @@ static int bad_address(void *p)
 static void dump_pagetable(unsigned long address)
 {
 
-	print_ecpt(current->mm->map_desc, 1, 1);
+	print_ecpt(current->mm->map_desc, 1, 1, 1 /* print_entry */);
 
 	if (bad_address((void *) current->mm))
 		goto bad;

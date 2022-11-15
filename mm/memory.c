@@ -1532,7 +1532,8 @@ void unmap_page_range(struct mmu_gather *tlb,
 	unsigned long next;
 	Granularity g = unknown;
 	ecpt_entry_t entry;
-
+	/* We don't check kernel page table stats here in user process's page table */
+	check_ecpt_user_detail(vma->vm_mm->map_desc, 0 /* print_entry */);
 	do {
 		entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
 		if (empty_entry(&entry) || g == page_4KB) {

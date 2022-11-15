@@ -2247,6 +2247,7 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 	unsigned long numpages = cpa->numpages;
 	unsigned long rempages = numpages;
 	int ret = 0;
+
 	pr_info_verbose("address=%lx \n", __cpa_addr(cpa, cpa->curpage));
 	while (rempages) {
 		/*
@@ -2282,6 +2283,7 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 		cpa->curpage += cpa->numpages;
 	}
 
+	check_ecpt_kernel_detail(init_mm.map_desc, 0 /* print_entry */);
 out:
 	/* Restore the original numpages */
 	cpa->numpages = numpages;

@@ -619,6 +619,7 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 	} while (addr += PAGE_SIZE, addr != end);
 	mask |= PGTBL_PTE_MODIFIED;
 
+	check_ecpt_kernel_detail(init_mm.map_desc, 0 /* print_entry */);
 
 	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
 		arch_sync_kernel_mappings(start, end);

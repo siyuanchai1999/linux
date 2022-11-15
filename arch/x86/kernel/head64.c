@@ -883,7 +883,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	load_ucode_bsp();
 
 #ifdef CONFIG_X86_64_ECPT
-	print_ecpt(&ecpt_desc, 1 /* kernel */, 0 /* user */);
+	print_ecpt(&ecpt_desc, 1 /* kernel */, 0 /* user */, 1 /* print_entry */);
 #else
 	/* set init_top_pgt kernel high mapping*/
 	init_top_pgt[511] = early_top_pgt[511];

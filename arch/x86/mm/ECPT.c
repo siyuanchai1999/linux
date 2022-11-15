@@ -933,8 +933,8 @@ ecpt_entry_t * get_ecpt_entry_from_mm(struct mm_struct *mm, uint64_t vaddr, Gran
  *  @param status output parameter
  * @return ecpt_entry_t* 
  */
-ecpt_entry_t * ecpt_search_fit_entry(ECPT_desc_t * ecpt, uint64_t vaddr, bool is_insert,
-	Granularity* gran, enum search_entry_status * status) 
+static ecpt_entry_t * ecpt_search_fit_entry(ECPT_desc_t * ecpt, uint64_t vaddr, bool is_insert,
+	Granularity* gran, enum search_entry_status * status, uint32_t * way_found) 
 {
 
 	uint64_t size, hash, vpn, cr, rehash_ptr = 0;
@@ -946,11 +946,13 @@ ecpt_entry_t * ecpt_search_fit_entry(ECPT_desc_t * ecpt, uint64_t vaddr, bool is
 	// ecpt_entry_t entry;
 	/* this m */
 	ecpt_entry_t * empty_slots[ECPT_TOTAL_WAY];
+	uint32_t empty_slots_ways[ECPT_TOTAL_WAY];
 	ecpt_entry_t * evict_slots[ECPT_TOTAL_WAY];
-	uint16_t empty_i = 0, evict_i = 0;
+	uint16_t empty_i = 0, evict_i = 0, pick_i = 0;
 
 	if (gran == unknown && is_insert) {
 		*status = ENTRY_NOT_FOUND;
+		*way_found = -1;
 		pr_err("Invalid arguments for ecpt_search_fit_entry. gran==unkown, is_insert=true");
 		return NULL;
 	}
@@ -990,10 +992,13 @@ ecpt_entry_t * ecpt_search_fit_entry(ECPT_desc_t * ecpt, uint64_t vaddr, bool is
 		if (ecpt_entry_match_vpn(entry_ptr, vpn)) {
 			*status = ENTRY_MATCHED;
 			if (*gran == unknown) *gran = way_to_gran(w);
+			*way_found = w;
 			return entry_ptr;
 		} else if (empty_entry(entry_ptr)){
 			/* not found, but entry empty */
-			empty_slots[empty_i++] = entry_ptr;
+			empty_slots[empty_i] = entry_ptr;
+			empty_slots_ways[empty_i] = w;
+			empty_i++;
 			entry_ptr = NULL;
 		} else {
 			evict_slots[evict_i++] = entry_ptr;	
@@ -1001,26 +1006,37 @@ ecpt_entry_t * ecpt_search_fit_entry(ECPT_desc_t * ecpt, uint64_t vaddr, bool is
 		}
 	}
 
+	/**
+	 *  keep gran unchanged after this.
+	 * 	If gran == unknown, is_inserted must be false
+	 * 		at this point, we cannot find any matched slots, so no point to update gran
+	 * 	If gran == 4K, 2M, or 1G.
+	 * 		is_insert == false, same as previous case
+	 * 		is_insert == true, gran already been specified by the user
+	 * */
 	if (!is_insert) {
 		/* not an insert but no matched entry found */
 		*status = ENTRY_NOT_FOUND;
+		*way_found = -1;
 		return NULL;
 	}
 
 	if (empty_i > 0) {
 		/* no matched entry found return a random empty entry */
-		entry_ptr = empty_slots[get_rand_way(empty_i)];
-		// ECPT_info_verbose("return ptr at %llx vaddr=%llx", (uint64_t) entry_ptr, vaddr);
+		pick_i = get_rand_way(empty_i);
+		entry_ptr = empty_slots[pick_i];
+		*way_found = empty_slots_ways[pick_i];
 		*status = ENTRY_EMPTY;
 		return entry_ptr;
 	}
 
 	if (evict_i > 0) {
 		/* no matched entry found return a random entry to evict*/
-		entry_ptr = evict_slots[get_rand_way(evict_i)];
+		// entry_ptr = evict_slots[get_rand_way(evict_i)];
 		*status = ENTRY_OCCUPIED;
+		*way_found = -1;
 		/* TODO: eviction */
-		return entry_ptr;
+		return NULL;
 	}
 	/* nothing empty and no where to kick. Should not reach here */
 	BUG();
@@ -1147,13 +1163,22 @@ static int kick_to_insert(ECPT_desc_t * ecpt, ecpt_entry_t * to_insert, uint32_t
 
 		}
             
-		if (ecpt_entry_can_merge(entry_ptr, to_insert)) {
-			/* can insert here */
+		if (ecpt_entry_empty_vpn(entry_ptr)) {
+			
 
 			ecpt_entry_do_merge(entry_ptr, to_insert);
 			ECPT_info_verbose("Set ");
 			PRINT_ECPT_ENTRY_DEBUG(entry_ptr);
 
+			ecpt->occupied[way_start + way]++;
+			return 0;
+		}
+		else if (ecpt_entry_vpn_match(entry_ptr, to_insert)) {
+			/* can insert here */
+			ecpt_entry_do_merge(entry_ptr, to_insert);
+			ECPT_info_verbose("Set ");
+			PRINT_ECPT_ENTRY_DEBUG(entry_ptr);
+				
 			return 0;
 		} else {
 			/* swap and insert again */
@@ -1182,7 +1207,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	uint64_t vpn;
 	pte_t pte;
 
-	uint32_t way_start = 0, way_end = 0, n_way;
+	uint32_t way_start = 0, way_end = 0, n_way, entry_way = -1;
 
 	ecpt_entry_t * entry_ptr;
 	ecpt_entry_t entry ={};
@@ -1232,7 +1257,8 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 	}
 	ecpt_entry_set_vpn(&entry, vpn);
 
-	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 1 /* is_insert */, &gran, &status);
+	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 1 /* is_insert */,
+		 								&gran, &status, &entry_way);
 
 	// ECPT_info_verbose("Status=%d\n", status);
 	if (entry_ptr == NULL || status == ENTRY_NOT_FOUND) 
@@ -1246,6 +1272,10 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		WARN(entry_ptr == NULL, "Invalid entry_ptr=%llx returned from ecpt_search_fit_entry\n", (uint64_t) entry_ptr);
 		ecpt_entry_do_merge(entry_ptr, &entry);
 		PRINT_ECPT_ENTRY_DEBUG(entry_ptr);
+
+		if (status == ENTRY_EMPTY) {
+			ecpt->occupied[entry_way]++;
+		}
 	} 
 	else if (status == ENTRY_OCCUPIED) 
 	{
@@ -1254,7 +1284,7 @@ int ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_
 		{
 			WARN(1, KERN_WARNING"Hash Collision unresolved:\n ecpt at %llx vaddr=%llx paddr=%llx prot=%lx gran=%d\n", 
 			(uint64_t) ecpt ,vaddr, paddr, prot.pgprot, gran);
-			print_ecpt(ecpt, 0 /* kernel */, 1 /* user */);
+			print_ecpt(ecpt, 0 /* kernel */, 1 /* user */, 1 /* print_entry */);
 			return ret;
 		}
 	} 
@@ -1418,22 +1448,30 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte, unsigned l
 	// uint64_t * tag_ptr;
 	ECPT_desc_t * ecpt = (ECPT_desc_t *) mm->map_desc;
 	uint32_t way = 0;
-	
+	uint64_t vpn = VADDR_TO_PAGE_NUM_4KB(addr);
+
 	e = get_ecpt_entry_from_ptep(ptep, addr);
 	
-	if (!pte_present(*ptep)) {
+	WARN(!(ecpt_entry_empty_vpn(e) || ecpt_entry_match_vpn(e, vpn)),
+		"Cannot set pte=%lx at %llx", pte.pte, (uint64_t) e);
+	
+	WARN(!pte_present(pte), 
+		"Set pte to be not present pte=%lx at %llx", pte.pte, (uint64_t) e);
+
+	if (!pte_present(*ptep) && pte_present(pte)) {
 		ecpt_entry_inc_valid_pte_num(e);
+
+		if (update_stats && ecpt_entry_get_valid_pte_num(e) == 1) {	
+			/* valid pte count increase from 0 -> 1 */
+			way = find_way_from_ptep(ecpt, ptep);
+			BUG_ON(way == -1);
+			// ECPT_info_verbose("update way at %llx\n", ecpt->table[way]);
+			ecpt->occupied[way] += 1;
+		}
 	}
 
 	ecpt_entry_set_pte(e, pte, addr);
-	ecpt_entry_set_vpn(e, VADDR_TO_PAGE_NUM_4KB(addr));
-
-	if (update_stats) {	
-		way = find_way_from_ptep(ecpt, ptep);
-		BUG_ON(way == -1);
-		// ECPT_info_verbose("update way at %llx\n", ecpt->table[way]);
-		ecpt->occupied[way] += 1;
-	}
+	ecpt_entry_set_vpn(e, vpn);
 
 	PRINT_ECPT_ENTRY_DEBUG(e);
 
@@ -1451,6 +1489,7 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 	} 
 
 	ECPT_info_verbose("  set_pte_at 4KB addr=%lx pte=%lx \n", addr, pte.pte);
+	/* TODO: replace ecpt_insert with kick to insert */
 	res = ecpt_insert(
 		mm->map_desc,
 		addr,
@@ -1487,10 +1526,8 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
 
 static pte_t __ecpt_native_ptep_get_and_clear(struct mm_struct *mm, pte_t *ptep, unsigned long addr) {
 	ecpt_entry_t * e;
-	// uint64_t * tag_ptr;
 
 	pte_t ret = READ_ONCE(*ptep);
-	// pte_t zero = {.pte = 0};
 	
 	ECPT_desc_t * ecpt = (ECPT_desc_t *) mm->map_desc;
 	uint32_t way = 0;
@@ -1498,7 +1535,7 @@ static pte_t __ecpt_native_ptep_get_and_clear(struct mm_struct *mm, pte_t *ptep,
 	e = get_ecpt_entry_from_ptep(ptep, addr);
 	ecpt_entry_clear_ptep(e, (uint64_t *) ptep);
 	
-	if (update_stats) {
+	if (update_stats && ecpt_entry_get_valid_pte_num(e) == 0) {
 		way = find_way_from_ptep(ecpt, ptep);
 		BUG_ON(way == -1);
 		// ECPT_info_verbose("update way at %llx\n", ecpt->table[way]);
@@ -1548,6 +1585,7 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 	ecpt_entry_t * entry = NULL;
 	uint64_t * ptep = NULL;
 	uint32_t way;
+	uint32_t prev_valid_cnt = 0;
 	entry = get_hpt_entry(ecpt_desc, vaddr, &g, &way);
 	
 	if (entry == NULL) {
@@ -1555,9 +1593,15 @@ int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity g) {
 		return -1;
 	}
 
+	prev_valid_cnt = ecpt_entry_get_valid_pte_num(entry);
+
+	/* clear the ptep */
 	ptep = get_ptep_with_gran(entry, vaddr, g);
 	ecpt_entry_clear_ptep(entry, ptep);
-	ecpt_desc->occupied[way] -= 1;
+
+	if (prev_valid_cnt> 0 && ecpt_entry_get_valid_pte_num(entry) == 0) {
+		ecpt_desc->occupied[way] -= 1;
+	}
 
 	ECPT_info_verbose("ecpt_invalidate");
 	PRINT_ECPT_ENTRY_DEBUG(entry);
@@ -1633,6 +1677,7 @@ int ecpt_update_prot(ECPT_desc_t * ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot,
 	pte_val.pte = ENTRY_TO_ADDR(*ptep) | new_prot.pgprot;
 	ecpt_entry_set_pte_with_pointer(entry_p, pte_val, ptep, vaddr);
 
+	PRINT_ECPT_ENTRY_DEBUG(entry_p);
 	return 0;
 }
 
@@ -1723,15 +1768,20 @@ void load_ECPT_desc(ECPT_desc_t * ecpt) {
 	(*f)(ecpt->table[0]);
 } 
 
-static void print_ecpt_detail(ECPT_desc_t * ecpt, uint32_t way_start, uint32_t way_end) {
+static void check_ecpt_detail(ECPT_desc_t * ecpt,
+ 		uint32_t way_start, uint32_t way_end, bool print_entry) {
 	uint64_t cr, size;
 	uint32_t  i, j;
 	ecpt_entry_t * ecpt_base, * e; 
+	uint32_t valid_entries_cnt = 0;
 
 	for (i = way_start; i < way_end; i++) {
-		pr_info("\t 0x%x/0x%llx %llx -> cr%d \n",
-			ecpt->occupied[i], GET_HPT_SIZE(ecpt->table[i]), 
-			ecpt->table[i], way_to_crN[i]);
+		valid_entries_cnt = 0;
+		if (print_entry) {
+			pr_info("\t 0x%x/0x%llx %llx -> cr%d \n",
+				ecpt->occupied[i], GET_HPT_SIZE(ecpt->table[i]), 
+				ecpt->table[i], way_to_crN[i]);
+		}
 
 		cr = ecpt->table[i];
 		size = GET_HPT_SIZE(cr);
@@ -1741,22 +1791,36 @@ static void print_ecpt_detail(ECPT_desc_t * ecpt, uint32_t way_start, uint32_t w
 		for (j = 0; j < size; j++) {
             e = &ecpt_base[j];
 			if (!ecpt_entry_empty_vpn(e)) {
-				PRINT_ECPT_ENTRY_INFO(e);
+				if (print_entry) {
+					PRINT_ECPT_ENTRY_INFO(e);
+				}
+				valid_entries_cnt++;
 			}
 		}
+
+		if (print_entry && valid_entries_cnt == ecpt->occupied[i] ) {
+			pr_info("\t way %d passed check!\n", i);
+		}
+
+		WARN(valid_entries_cnt != ecpt->occupied[i], 
+			"Inconsistent stats way=%d valid_entries_cnt=0x%x occupied=0x%x",
+			i, valid_entries_cnt, ecpt->occupied[i]);
 	}
 }
 
-static inline void print_ecpt_user_detail(ECPT_desc_t * ecpt) {
-	print_ecpt_detail(ecpt, ECPT_KERNEL_WAY, ECPT_TOTAL_WAY);
+inline void check_ecpt_user_detail(ECPT_desc_t * ecpt, bool print_entry) 
+{
+	check_ecpt_detail(ecpt, ECPT_KERNEL_WAY, ECPT_TOTAL_WAY, print_entry);
 }
 
-static inline void print_ecpt_kernel_detail(ECPT_desc_t * ecpt) {
-	print_ecpt_detail(ecpt, 0, ECPT_KERNEL_WAY);
+inline void check_ecpt_kernel_detail(ECPT_desc_t * ecpt, bool print_entry) 
+{
+	check_ecpt_detail(ecpt, 0, ECPT_KERNEL_WAY, print_entry);
 }
 
 
-void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail, bool user_table_detail) {
+void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail,
+	 			bool user_table_detail, bool print_entry) {
 	uint16_t i ;	
 
 	if (ecpt == &ecpt_desc) 
@@ -1789,11 +1853,10 @@ void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail, bool user_table_de
 	pr_info("\t ecpt->lru.prev=%llx\n", (uint64_t)ecpt->lru.prev);
 	
 	if (kernel_table_detail)
-		print_ecpt_kernel_detail(ecpt);
+		check_ecpt_kernel_detail(ecpt, print_entry);
 
 	if (user_table_detail)
-		print_ecpt_user_detail(ecpt);
+		check_ecpt_user_detail(ecpt, print_entry);
 	
 	pr_info("End of ECPT at %llx ------------------\n", (uint64_t) ecpt);
-
 }
