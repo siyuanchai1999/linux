@@ -129,6 +129,10 @@
 #define CR3_TRANSITION_SHIFT (52)
 #define CR3_TRANSITION_BIT (0x0010000000000000ULL)
 
+#define HPT_REHASH_SHIFT (53)
+#define GET_HPT_REHASH_PTR(cr) GET_HPT_SIZE(((uint64_t) cr) >> HPT_REHASH_SHIFT)
+
+
 #define ECPT_4K_WAY 2
 #define ECPT_2M_WAY 2
 #define ECPT_1G_WAY 0
@@ -145,7 +149,12 @@
 #define ECPT_MAX_WAY 9
 
 #if ECPT_4K_USER_WAY > 0
-	#define ECPT_4K_PER_WAY_ENTRIES (512 * 8)
+	#define ECPT_4K_PER_WAY_ENTRIES (512)
+	
+	/* TODO: this is more than what we need. shifted by 3 is divided by 8 */
+	#define ECPT_4K_PER_WAY_REHASH_THRESH_SHIFT 3
+	#define GET_ECPT_4K_REHASH_THRESH(cr) \
+		(GET_HPT_SIZE(cr) >> ECPT_4K_PER_WAY_REHASH_THRESH_SHIFT)
 #else
 	#define ECPT_4K_PER_WAY_ENTRIES (0)
 #endif

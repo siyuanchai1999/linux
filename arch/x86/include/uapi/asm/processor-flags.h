@@ -131,6 +131,10 @@
 #define X86_CR4_PKE_BIT		22 /* enable Protection Keys support */
 #define X86_CR4_PKE		_BITUL(X86_CR4_PKE_BIT)
 
+/* wrapped with ifdef will give checking error leak CONFIG_X86_64_ECPT to user-space */
+#define X86_CR4_ECPT_BIT		25 /* enable Protection Keys support */
+#define X86_CR4_ECPT		_BITUL(X86_CR4_ECPT_BIT)
+
 /*
  * x86-64 Task Priority Register, CR8
  */
