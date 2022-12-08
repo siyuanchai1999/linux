@@ -615,7 +615,7 @@ SYM_DATA(early_recursion_flag, .long 0)
 		loop_fill_ecpt_desc ECPT_KERNEL_WAY
 		
 		/* This is kernel page table, so no allocation for user tables  */
-		.rept ECPT_USER_WAY 
+		.rept ECPT_MAX_WAY - ECPT_KERNEL_WAY
 			.quad 0
 		.endr
 
@@ -623,8 +623,13 @@ SYM_DATA(early_recursion_flag, .long 0)
 		.quad 0		/* struct list_head lru.next */
 		.quad 0		/* struct list_head lru.prev */
 
-		/* uint32_t occupied[ECPT_TOTAL_WAY] */
-		.rept ECPT_TOTAL_WAY 
+		/* uint32_t occupied[ECPT_MAX_WAY] */
+		.rept ECPT_MAX_WAY 
+			.long 0
+		.endr
+
+		/* uint32_t rehash_ptr[ECPT_MAX_WAY] */
+		.rept ECPT_MAX_WAY 
 			.long 0
 		.endr
 

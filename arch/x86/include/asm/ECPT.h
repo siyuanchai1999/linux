@@ -28,10 +28,13 @@ typedef struct ecpt_entry{
 } ecpt_entry_t;
 
 typedef struct ECPT_desc {
-	uint64_t table[ECPT_TOTAL_WAY];
+	uint64_t table[ECPT_MAX_WAY];
 	struct mm_struct * mm;
 	struct list_head lru; /* call it lru which is the same name as page->lru as it was used by radix */
-	uint32_t occupied[ECPT_TOTAL_WAY];
+	uint32_t occupied[ECPT_MAX_WAY];
+
+	/* This should not be neccessary but let's save implementation pain right now */
+	uint32_t rehash_ptr[ECPT_MAX_WAY];
 } ECPT_desc_t;
 
 typedef enum {
@@ -103,5 +106,7 @@ void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail,
 inline void check_ecpt_user_detail(ECPT_desc_t * ecpt, bool print_entry);
 inline void check_ecpt_kernel_detail(ECPT_desc_t * ecpt, bool print_entry);
 
+
+int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way);
 
 #endif /* _ASM_X86_ECPT_HASH_H */

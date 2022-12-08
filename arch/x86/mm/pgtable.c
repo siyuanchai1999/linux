@@ -678,8 +678,11 @@ void native_set_fixmap(unsigned /* enum fixed_addresses */ idx,
 	pgprot_val(flags) &= __default_kernel_pte_mask;
 	address = __fix_to_virt(idx);
 	
+	pr_info_verbose("address=%016lx phys=%016llx flags=%lx idx=%x\n",
+	 	address, phys, flags.pgprot, idx);
+	dump_stack();
+
 	if (pgprot_val(flags)) {
-		pr_info_verbose("address=%016lx phys=%016llx flags=%lx idx=%x\n" , address, phys, flags.pgprot, idx);
 		res = ecpt_mm_insert(&init_mm, address, phys, __ecpt_pgprot(flags.pgprot), page_4KB);
 	} else {
 		WARN(1, "Please invalidate the fixmap");

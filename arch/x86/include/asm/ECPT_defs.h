@@ -130,7 +130,13 @@
 #define CR3_TRANSITION_BIT (0x0010000000000000ULL)
 
 #define HPT_REHASH_SHIFT (53)
+#define REHASH_MASK (~((1ULL << HPT_REHASH_SHIFT) - 1))
 #define GET_HPT_REHASH_PTR(cr) GET_HPT_SIZE(((uint64_t) cr) >> HPT_REHASH_SHIFT)
+
+
+#define REHASH_PTR_MAX (1 << (64 - HPT_REHASH_SHIFT))
+#define REHASH_PTR_TO_CR(ptr) (((uint64_t) ptr) << HPT_REHASH_SHIFT)
+#define GET_CR_WITHOUT_REHASH(cr) (cr & (~REHASH_MASK))
 
 
 #define ECPT_4K_WAY 2
@@ -146,13 +152,25 @@
 
 #define ECPT_TOTAL_WAY (ECPT_KERNEL_WAY + ECPT_USER_WAY)
 /* ECPT_TOTAL_WAY <= ECPT_MAX_WAY*/
-#define ECPT_MAX_WAY 9
+/* gcc 11.3 only supports cr up to cr15. 
+	among them, cr0, cr2, cr4, cr8 are used for other purppose in AMD64
+*/
+#define ECPT_MAX_WAY 12
+
+#define ECPT_REHASH_WAY 3
+#define ECPT_SCALE_FACTOR 2
+#define ECPT_REHASH_GRANULARITY (1 << HPT_SIZE_HIDDEN_BITS)
+#define ECPT_REHASH_N_BATCH (1)
+
+#if ECPT_MAX_WAY < ECPT_TOTAL_WAY + ECPT_REHASH_WAY 
+	#error "ECPT_MAX_WAY exceeded"
+#endif
 
 #if ECPT_4K_USER_WAY > 0
 	#define ECPT_4K_PER_WAY_ENTRIES (512)
 	
 	/* TODO: this is more than what we need. shifted by 3 is divided by 8 */
-	#define ECPT_4K_PER_WAY_REHASH_THRESH_SHIFT 3
+	#define ECPT_4K_PER_WAY_REHASH_THRESH_SHIFT 2
 	#define GET_ECPT_4K_REHASH_THRESH(cr) \
 		(GET_HPT_SIZE(cr) >> ECPT_4K_PER_WAY_REHASH_THRESH_SHIFT)
 #else
@@ -179,6 +197,6 @@
 #define ECPT_2M_WAY_EAGER 0
 #define ECPT_1G_WAY_EAGER 0
 
-#define ECPT_WAY_TO_CR_SEQ 3,1,5,6,7,9,10,11,12
+#define ECPT_WAY_TO_CR_SEQ 3,1,5,6,7,9,10,11,12,13,14,15
 
 #endif /* _ASM_X86_ECPT_DEFS_H */

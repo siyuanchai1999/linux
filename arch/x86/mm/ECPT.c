@@ -24,8 +24,14 @@
 #endif
 
 #define ECPT_WARN(cond, fmt, ...) WARN(cond, fmt, ##__VA_ARGS__)
+
+// #define DEBUG_ECPT 
+
+#ifdef DEBUG_ECPT
+#define ECPT_info_verbose(fmt, ...) printk(KERN_INFO "%s:%d %s " pr_fmt(fmt), __FILE__ , __LINE__ , __func__, ##__VA_ARGS__)
+#else
 #define ECPT_info_verbose(fmt, ...)
-// #define ECPT_info_verbose(fmt, ...) printk(KERN_INFO "%s:%d %s " pr_fmt(fmt), __FILE__ , __LINE__ , __func__, ##__VA_ARGS__)
+#endif
 
 #define PRINT_ECPT_ENTRY_DEBUG(e) PRINT_ECPT_ENTRY_BASE(e, ECPT_info_verbose)
 #define PRINT_ECPT_ENTRY_INFO(e) PRINT_ECPT_ENTRY_BASE(e, pr_info)
@@ -117,9 +123,33 @@ static uint32_t get_rand_way(uint32_t n_way)
 	return way % n_way;
 }
 
+static inline uint16_t ecpt_entry_count_valid_pte_num(ecpt_entry_t *e)
+{
+	uint16_t i = 0, cnt = 0;
+	pte_t pte_val;
+	for (; i < ECPT_CLUSTER_FACTOR; i++) {
+		pte_val.pte = e->pte[i];
+		if (pte_present(pte_val)) {
+			cnt++;
+		}
+	}
+	return cnt;
+}
+
 static inline uint16_t ecpt_entry_get_valid_pte_num(ecpt_entry_t *e)
 {
 	return GET_VALID_PTE_COUNT(e->pte[PTE_IDX_FOR_COUNT]);
+}
+
+static inline void ecpt_entry_check_valid_pte_num(ecpt_entry_t *e)
+{
+	uint16_t count = ecpt_entry_count_valid_pte_num(e);
+	uint16_t stats = ecpt_entry_get_valid_pte_num(e);
+	
+	if (count != stats) {
+		WARN(1, "Inconsistent count=%d and stats=%d!\n", count, stats);
+		PRINT_ECPT_ENTRY_INFO(e);
+	}
 }
 
 static inline void ecpt_entry_set_vpn(ecpt_entry_t *e, uint64_t VPN)
@@ -225,21 +255,31 @@ static int ecpt_entry_do_merge(ecpt_entry_t *dest, ecpt_entry_t *src)
 		src_pte.pte = src->pte[idx];
 		if (pte_present(src_pte)) {
 			if (pte_present(dest_pte)) {
-				PRINT_ECPT_ENTRY_INFO(dest);
-				PRINT_ECPT_ENTRY_INFO(src);
-				WARN(1,
-				     "Potential PTE collision when merging dest_pte=%lx src_pte=%lx \n",
-				     dest_pte.pte, src_pte.pte);
+				if (!pte_same(src_pte, dest_pte)) {
+					PRINT_ECPT_ENTRY_INFO(dest);
+					PRINT_ECPT_ENTRY_INFO(src);
+					WARN(1,
+					     "Potential PTE collision when merging dest_pte=%lx src_pte=%lx \n",
+					     dest_pte.pte, src_pte.pte);
 
-				return -EINVAL;
+					return -EINVAL;
+				} else {
+					/* nothing to do */
+				}
+			} else {
+				ecpt_entry_set_pte_helper(&dest->pte[idx],
+							  src_pte.pte);
+				ecpt_entry_inc_valid_pte_num(dest);
 			}
-
-			ecpt_entry_set_pte_helper(&dest->pte[idx], src_pte.pte);
-			ecpt_entry_inc_valid_pte_num(dest);
 		}
 	}
 
 	return 0;
+}
+
+static inline void ecpt_entry_overwrite(ecpt_entry_t *dest, ecpt_entry_t *src)
+{
+	*dest = *src;
 }
 
 static inline void ecpt_entry_swap(ecpt_entry_t *e1, ecpt_entry_t *e2)
@@ -282,6 +322,7 @@ static Granularity way_to_gran(uint32_t way)
 				 ECPT_1G_USER_WAY) {
 		return page_1GB;
 	} else {
+		pr_info("way=%d\n", way);
 		BUG();
 		return 0;
 	}
@@ -290,8 +331,14 @@ static Granularity way_to_gran(uint32_t way)
 static bool need_rehash(ECPT_desc_t *ecpt, uint32_t way)
 {
 	uint64_t occupancy = 0;
-	Granularity gran = way_to_gran(way);
+	Granularity gran = unknown;
 
+	if (way >= ECPT_TOTAL_WAY && way < ECPT_TOTAL_WAY + ECPT_REHASH_WAY) {
+		/* This way is already being rehashed */
+		return false;
+	}
+
+	gran = way_to_gran(way);
 	if (gran == unknown) {
 		return false;
 	}
@@ -299,8 +346,7 @@ static bool need_rehash(ECPT_desc_t *ecpt, uint32_t way)
 	occupancy = ecpt->occupied[way];
 #if ECPT_4K_USER_WAY > 0
 	if (gran == page_4KB) {
-		if (occupancy >=
-		    GET_ECPT_4K_REHASH_THRESH(ecpt->occupied[way])) {
+		if (occupancy >= GET_ECPT_4K_REHASH_THRESH(ecpt->table[way])) {
 			return true;
 		}
 	}
@@ -329,11 +375,13 @@ static inline void inc_occupancy(ECPT_desc_t *ecpt, uint32_t way)
 {
 	ecpt->occupied[way]++;
 	ECPT_info_verbose("occupied[%d]=%d\n", way, ecpt->occupied[way]);
+
 	check_ecpt_user_detail(ecpt, 0);
 
 	if (need_rehash(ecpt, way)) {
 		pr_info("REHASHING! epct at %llx way=%d occupancy=%x\n",
 			(uint64_t)ecpt, way, ecpt->occupied[way]);
+		WARN(ecpt_rehash_way(ecpt, way), "Rehash Fails!");
 	}
 }
 
@@ -583,7 +631,7 @@ static uint64_t alloc_way_default(uint32_t n_entries)
 			order, nr_pages);
 	}
 
-	addr = __get_free_pages(GFP_PGTABLE_USER, order);
+	addr = __get_free_pages(GFP_PGTABLE_USER | __GFP_ZERO, order);
 
 	if (!addr) {
 		return 0;
@@ -1195,6 +1243,7 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 	ecpt_entry_t *ecpt_base;
 	ecpt_entry_t *entry_ptr;
 	ecpt_entry_t to_insert = *to_insert_ptr;
+	ecpt_entry_t prev_entry = {};
 
 	pr_info("kick_to_insert ");
 	PRINT_ECPT_ENTRY_INFO(&to_insert);
@@ -1218,7 +1267,7 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 			}
 		}
 
-		hash = gen_hash_64(ecpt_entry_get_vpn(to_insert), size,
+		hash = gen_hash_64(ecpt_entry_get_vpn(&to_insert), size,
 				   way_start + way);
 
 		if (hash < rehash_ptr) {
@@ -1236,7 +1285,7 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 			pr_info("Merge ");
 			PRINT_ECPT_ENTRY_INFO(entry_ptr);
 			pr_info("with ");
-			PRINT_ECPT_ENTRY_INFO(to_insert);
+			PRINT_ECPT_ENTRY_INFO(&to_insert);
 
 			ecpt_entry_do_merge(entry_ptr, &to_insert);
 			ECPT_info_verbose("Set ");
@@ -1265,7 +1314,7 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 			pr_info("with ");
 			PRINT_ECPT_ENTRY_INFO(&to_insert);
 
-			ecpt_entry_t prev_entry = *entry_ptr;
+			prev_entry = *entry_ptr;
 
 			ecpt_entry_swap(entry_ptr, &to_insert);
 
@@ -1367,12 +1416,237 @@ int ecpt_insert(ECPT_desc_t *ecpt, uint64_t vaddr, uint64_t paddr,
 				   1 /* print_entry */);
 			return ret;
 		}
+#ifdef DEBUG_ECPT
+		print_ecpt(ecpt, 0, 1, 1);
+#endif
 	} else {
 		/* should not be here */
 		BUG();
 	}
 
 	return 0;
+}
+
+static void load_ecpt_specific_way(ECPT_desc_t *ecpt, uint32_t rehash_way);
+
+static uint64_t alloc_resize_way(uint64_t cr)
+{
+	uint64_t new_size = GET_HPT_SIZE(cr) * ECPT_SCALE_FACTOR;
+	uint64_t new_cr = alloc_way_default(new_size);
+	WARN(!new_cr, "cannot allocate %x entries total size=%lx\n",
+	     ECPT_4K_PER_WAY_ENTRIES,
+	     ECPT_4K_PER_WAY_ENTRIES * sizeof(ecpt_entry_t));
+	return new_cr;
+}
+
+/**
+ * @brief find corresponding way for rehash way w
+ * 	right now, it's simply w + ECPT_TOTAL_WAY
+ * @return uint32_t 
+ */
+
+static inline uint32_t find_rehash_way(uint32_t way)
+{
+	uint32_t base = 0;
+
+	if (way < ECPT_4K_WAY) {
+		base = 0;
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY) {
+		base = ECPT_4K_WAY;
+	} else if (way < ECPT_4K_WAY + ECPT_2M_WAY + ECPT_1G_WAY) {
+		base = ECPT_4K_WAY + ECPT_2M_WAY;
+	} else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY) {
+		base = ECPT_KERNEL_WAY;
+	} else if (way <
+		   ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY) {
+		base = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY;
+	} else if (way < ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY +
+				 ECPT_1G_USER_WAY) {
+		base = ECPT_KERNEL_WAY + ECPT_4K_USER_WAY + ECPT_2M_USER_WAY;
+	} else {
+		BUG();
+		return 0;
+	}
+
+	BUG_ON(way - base >= ECPT_REHASH_WAY);
+	return ECPT_TOTAL_WAY + way - base;
+}
+
+static inline void ecpt_set_rehash(ECPT_desc_t *ecpt, uint32_t way,
+				   uint32_t rehash)
+{
+	WARN_ON(rehash >= REHASH_PTR_MAX);
+	ecpt->rehash_ptr[way] = rehash;
+	// ecpt->table[way] = GET_CR_WITHOUT_REHASH(ecpt->table[way]) |
+	// 		   REHASH_PTR_TO_CR(rehash);
+}
+
+static inline void ecpt_inc_rehash(ECPT_desc_t *ecpt, uint32_t way)
+{
+	ecpt_set_rehash(ecpt, way, ecpt->rehash_ptr[way] + 1);
+}
+
+/**
+ * @brief 
+ * 
+ * @param ecpt 
+ * @param way 
+ * @param new_way 
+ * @param start 
+ * @param rehash_granularity how many entries per increaase of rehash pointer represents
+ * @param n_batch
+ * @return int 
+ */
+static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
+				uint32_t new_way, uint32_t start,
+				uint32_t rehash_granularity, uint32_t n_batch)
+{
+	uint64_t cr = ecpt->table[way], new_cr = ecpt->table[new_way];
+	ecpt_entry_t *old_ptr = NULL;
+	ecpt_entry_t *new_ptr = NULL;
+	ecpt_entry_t *old_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(cr);
+	ecpt_entry_t *new_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(new_cr);
+
+	uint64_t hash = 0;
+	uint32_t old_size = GET_HPT_SIZE(cr);
+	uint32_t new_size = GET_HPT_SIZE(new_cr);
+	uint32_t it = start, migrated_cnt = 0;
+	uint32_t end = start + n_batch * rehash_granularity;
+
+	if (end > old_size) {
+		end = old_size;
+	}
+
+	ECPT_info_verbose("start=%x end=%x\n", start, end);
+
+	for (; it < end; it++) {
+		old_ptr = &old_base[it];
+		if (!ecpt_entry_empty_vpn(old_ptr)) {
+			/**
+			 * here we use old vpn to do hash,
+			 * 	 but moduled over new size because it is inserted in new way 
+			 * 	however, the hash function has to be unchanged, so we give old_way
+			 */
+			hash = gen_hash_64(ecpt_entry_get_vpn(old_ptr),
+					   new_size, way);
+
+			new_ptr = &new_base[hash];
+
+			if (!ecpt_entry_empty_vpn(new_ptr)) {
+				WARN(1, "new_ptr not empty!");
+				PRINT_ECPT_ENTRY_INFO(old_ptr);
+				PRINT_ECPT_ENTRY_INFO(new_ptr);
+			}
+
+			ecpt_entry_overwrite(new_ptr, old_ptr);
+			inc_occupancy(ecpt, new_way);
+		}
+		migrated_cnt++;
+
+		if (migrated_cnt % rehash_granularity == 0) {
+			ecpt_inc_rehash(ecpt, way);
+			if (current->mm->map_desc == ecpt) {
+				load_ecpt_specific_way(ecpt, way);
+			}
+		}
+	}
+
+	ECPT_info_verbose("ecpt->table[%d].rehash=%x\n", way, ecpt->rehash_ptr[way]);
+
+	return it;
+}
+
+static int do_rehash(ECPT_desc_t *ecpt, uint32_t way, uint32_t new_way)
+{
+	uint64_t cr = ecpt->table[way];
+	uint32_t rehash_gran = ECPT_REHASH_GRANULARITY;
+	uint32_t start = 0, next_start;
+	uint32_t old_size = GET_HPT_SIZE(cr);
+
+	if (!(old_size % rehash_gran == 0)) {
+		WARN(1, "Bad old_size=%x rehash_gran=%x\n", old_size,
+		     rehash_gran);
+		return -EINVAL;
+	}
+
+	while (start < old_size) {
+		next_start = do_rehash_range(ecpt, way, new_way, start,
+					     rehash_gran, ECPT_REHASH_N_BATCH);
+		if (next_start <= start) {
+			WARN(1,
+			     "do_rehash_range fails start=%x next_start=%x\n",
+			     start, next_start);
+			return -EINVAL;
+		}
+
+		start = next_start;
+	}
+
+	return 0;
+}
+
+int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way)
+{
+	uint64_t cr = ecpt->table[way], new_cr;
+	Granularity gran = way_to_gran(way);
+	uint32_t new_way = 0;
+
+	int ret = 0;
+
+	BUG_ON(way >= ECPT_TOTAL_WAY);
+
+	new_way = find_rehash_way(way);
+	BUG_ON(new_way >= ECPT_TOTAL_WAY + ECPT_REHASH_WAY);
+
+	pr_info("resize on ecpt at %llx way=%d gran=%d new_way=%d\n",
+		(uint64_t)ecpt, way, gran, new_way);
+
+	// print_ecpt(ecpt, 0, 1, 1);
+	/* allcoate new way. By default it grows */
+	new_cr = alloc_resize_way(cr);
+
+	pr_info("cr=%llx size=%llx new_cr=%llx size=%llx\n", cr,
+		GET_HPT_SIZE(cr), new_cr, GET_HPT_SIZE(new_cr));
+	if (!new_cr) {
+		return -ENOMEM;
+	}
+
+	ecpt->table[new_way] = new_cr;
+
+	/* load new way to register if this the running process*/
+	if (current->mm->map_desc == ecpt) {
+		load_ecpt_specific_way(ecpt, new_way);
+	}
+
+	ret = do_rehash(ecpt, way, new_way);
+
+	if (ret) {
+		goto err_cleanup;
+	}
+
+	ecpt->table[way] = ecpt->table[new_way];
+	ecpt->rehash_ptr[way] = ecpt->rehash_ptr[new_way];
+
+	/* load resized way to register if this the running process*/
+	if (current->mm->map_desc == ecpt) {
+		load_ecpt_specific_way(ecpt, way);
+		load_ecpt_specific_way(ecpt, new_way);
+	}
+
+	ecpt->table[new_way] = 0;
+	ecpt->rehash_ptr[new_way] = 0;
+
+	free_one_way(cr);
+
+	pr_info("Rehash Done!\n");
+	
+#ifdef DEBUG_ECPT
+	print_ecpt(ecpt, 0, 1, 1);
+#endif
+	return 0;
+err_cleanup:
+	free_one_way(ecpt->table[new_way]);
+	return ret;
 }
 
 int ecpt_mm_insert(struct mm_struct *mm, uint64_t vaddr, uint64_t paddr,
@@ -1504,8 +1778,12 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte,
 	ECPT_desc_t *ecpt = (ECPT_desc_t *)mm->map_desc;
 	uint32_t way = 0;
 	uint64_t vpn = VADDR_TO_PAGE_NUM_4KB(addr);
+	pte_t orig_pte = *ptep;
 
 	e = get_ecpt_entry_from_ptep(ptep, addr);
+
+	ECPT_info_verbose("addr=%lx ptep at %llx pte=%llx", addr, (uint64_t) ptep, (uint64_t) pte.pte );
+	PRINT_ECPT_ENTRY_DEBUG(e);
 
 	WARN(!(ecpt_entry_empty_vpn(e) || ecpt_entry_match_vpn(e, vpn)),
 	     "Cannot set pte=%lx at %llx", pte.pte, (uint64_t)e);
@@ -1513,7 +1791,10 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte,
 	WARN(!pte_present(pte), "Set pte to be not present pte=%lx at %llx",
 	     pte.pte, (uint64_t)e);
 
-	if (!pte_present(*ptep) && pte_present(pte)) {
+	ecpt_entry_set_pte(e, pte, addr);
+	ecpt_entry_set_vpn(e, vpn);
+
+	if (!pte_present(orig_pte) && pte_present(pte)) {
 		ecpt_entry_inc_valid_pte_num(e);
 
 		if (update_stats && ecpt_entry_get_valid_pte_num(e) == 1) {
@@ -1525,8 +1806,7 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte,
 		}
 	}
 
-	ecpt_entry_set_pte(e, pte, addr);
-	ecpt_entry_set_vpn(e, vpn);
+	check_ecpt_user_detail(mm->map_desc, 0);
 
 	PRINT_ECPT_ENTRY_DEBUG(e);
 
@@ -1758,32 +2038,80 @@ int ecpt_mm_update_prot(struct mm_struct *mm, uint64_t vaddr,
 		asm volatile("mov %0,%%cr" #N : : "r"(val) : "memory");        \
 	}
 
-DEFINE_native_write_crN(1) DEFINE_native_write_crN(5) DEFINE_native_write_crN(
-	6) DEFINE_native_write_crN(7) DEFINE_native_write_crN(9)
-	DEFINE_native_write_crN(10) DEFINE_native_write_crN(
-		11) DEFINE_native_write_crN(12)
+DEFINE_native_write_crN(1);
+DEFINE_native_write_crN(5);
+DEFINE_native_write_crN(6);
+DEFINE_native_write_crN(7);
+DEFINE_native_write_crN(9);
+DEFINE_native_write_crN(10);
+DEFINE_native_write_crN(11);
+DEFINE_native_write_crN(12);
+DEFINE_native_write_crN(13);
+DEFINE_native_write_crN(14);
+DEFINE_native_write_crN(15);
+// DEFINE_native_write_crN(16);
+// DEFINE_native_write_crN(17);
+// DEFINE_native_write_crN(18);
+// DEFINE_native_write_crN(19);
+// DEFINE_native_write_crN(20);
+// DEFINE_native_write_crN(21);
+// DEFINE_native_write_crN(22);
+// DEFINE_native_write_crN(23);
 
 #define DEFINE_load_crN(N)                                                     \
-	static inline void load_cr##N(uint64_t cr)                             \
+	static inline void load_cr##N(uint64_t cr, uint64_t rehash_ptr)        \
 	{                                                                      \
-		native_write_cr##N(__sme_pa(cr));                              \
+		native_write_cr##N(__sme_pa(cr) |                              \
+				   REHASH_PTR_TO_CR(rehash_ptr));              \
 	}
 
-		DEFINE_load_crN(1) DEFINE_load_crN(5) DEFINE_load_crN(6)
-			DEFINE_load_crN(7) DEFINE_load_crN(9) DEFINE_load_crN(
-				10) DEFINE_load_crN(11) DEFINE_load_crN(12)
+DEFINE_load_crN(1);
+DEFINE_load_crN(5);
+DEFINE_load_crN(6);
+DEFINE_load_crN(7);
+DEFINE_load_crN(9);
+DEFINE_load_crN(10);
+DEFINE_load_crN(11);
+DEFINE_load_crN(12);
+DEFINE_load_crN(13);
+DEFINE_load_crN(14);
+DEFINE_load_crN(15);
+/**
+ *  adding register 16 - 23 will make the
+ * assembler throws error Error: bad register name `%cr16'
+ * it seems like gcc 11.3 supports cr up to 15.
+ *   */
+// DEFINE_load_crN(16);
+// DEFINE_load_crN(17);
+// DEFINE_load_crN(18);
+// DEFINE_load_crN(19);
+// DEFINE_load_crN(20);
+// DEFINE_load_crN(21);
+// DEFINE_load_crN(22);
+// DEFINE_load_crN(23);
 
-				static inline void load_cr3_ECPT(uint64_t cr)
+static inline void load_cr3_ECPT(uint64_t cr, uint64_t rehash_ptr)
 {
-	write_cr3(__sme_pa(cr) | CR3_TRANSITION_BIT);
+	write_cr3(__sme_pa(cr) | CR3_TRANSITION_BIT |
+		  REHASH_PTR_TO_CR(rehash_ptr));
 }
 
-typedef void (*load_cr_func)(uint64_t);
+typedef void (*load_cr_func)(uint64_t, uint64_t);
 
-static load_cr_func load_funcs[9] = { &load_cr3_ECPT, &load_cr1,  &load_cr5,
-				      &load_cr6,      &load_cr7,  &load_cr9,
-				      &load_cr10,     &load_cr11, &load_cr12 };
+static load_cr_func load_funcs[ECPT_MAX_WAY] = {
+	&load_cr3_ECPT, &load_cr1,  &load_cr5,	&load_cr6,  &load_cr7,
+	&load_cr9,	&load_cr10, &load_cr11, &load_cr12, &load_cr13,
+	&load_cr14,	&load_cr15
+	// ,&load_cr16, &load_cr17, &load_cr18,
+	// &load_cr19,	&load_cr20, &load_cr21, &load_cr22, &load_cr23
+};
 
+/* load a specific way */
+static inline void load_ecpt_specific_way(ECPT_desc_t *ecpt, uint32_t way)
+{
+	load_cr_func f = load_funcs[way];
+	(*f)(ecpt->table[way], ecpt->rehash_ptr[way]);
+}
 /**
  * @brief load ECPT desc tables -> corresponding control registers
  * 
@@ -1792,18 +2120,15 @@ static load_cr_func load_funcs[9] = { &load_cr3_ECPT, &load_cr1,  &load_cr5,
 void load_ECPT_desc(ECPT_desc_t *ecpt)
 {
 	uint16_t i;
-	load_cr_func f;
 	BUG_ON(ECPT_TOTAL_WAY > ECPT_MAX_WAY);
 
 	/* load ecpt table -> control registers */
-	for (i = 1; i < ECPT_TOTAL_WAY; i++) {
-		f = load_funcs[i];
-		(*f)(ecpt->table[i]);
+	for (i = 1; i < ECPT_TOTAL_WAY + ECPT_REHASH_WAY; i++) {
+		load_ecpt_specific_way(ecpt, i);
 	}
 
 	/* load cr3 in the end because it it will flush TLB */
-	f = load_funcs[0];
-	(*f)(ecpt->table[0]);
+	load_ecpt_specific_way(ecpt, 0);
 }
 
 static void check_ecpt_detail(ECPT_desc_t *ecpt, uint32_t way_start,
@@ -1835,6 +2160,7 @@ static void check_ecpt_detail(ECPT_desc_t *ecpt, uint32_t way_start,
 				}
 				valid_entries_cnt++;
 			}
+			ecpt_entry_check_valid_pte_num(e);
 		}
 
 		WARN(valid_entries_cnt != ecpt->occupied[i],

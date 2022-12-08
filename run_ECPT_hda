@@ -20,7 +20,7 @@ qemu_args=(
 	"-m" "4096M"
 	"-display" "none"
 	"-boot" "c"
-	"-hda" "../targets/ubuntu22.04/image.ext4"
+	"-hda" "../targets/ubuntu_22.04/image.ext4"
 	# "-hda" "rootfs.ext4"
 	# "-initrd" "ramdisk.img"
 	"-serial" "stdio"
