@@ -633,6 +633,10 @@ SYM_DATA(early_recursion_flag, .long 0)
 			.long 0
 		.endr
 
+		/* uint32_t queued_for_rehash[ECPT_MAX_WAY] */
+		.rept ECPT_MAX_WAY 
+			.byte 0
+		.endr
 	SYM_DATA_END(ecpt_desc)
 
 #endif

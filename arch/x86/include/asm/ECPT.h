@@ -27,7 +27,7 @@ typedef struct ecpt_entry{
 	uint64_t pte[ECPT_CLUSTER_FACTOR];
 } ecpt_entry_t;
 
-typedef struct ECPT_desc {
+typedef struct __attribute__((__packed__)) ECPT_desc {
 	uint64_t table[ECPT_MAX_WAY];
 	struct mm_struct * mm;
 	struct list_head lru; /* call it lru which is the same name as page->lru as it was used by radix */
@@ -35,6 +35,7 @@ typedef struct ECPT_desc {
 
 	/* This should not be neccessary but let's save implementation pain right now */
 	uint32_t rehash_ptr[ECPT_MAX_WAY];
+	uint8_t queued_for_rehash[ECPT_MAX_WAY];
 } ECPT_desc_t;
 
 typedef enum {
@@ -60,6 +61,8 @@ extern ECPT_desc_t ecpt_desc;
 
 extern pte_t pte_default;
 
+void ecpt_init(void);
+
 void load_ECPT_desc(ECPT_desc_t * ecpt);
 
 int early_ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);
@@ -75,7 +78,6 @@ int ecpt_mm_insert_range(
 	uint64_t paddr_end,
 	ecpt_pgprot_t prot
 );
-
 
 int ecpt_invalidate(ECPT_desc_t * ecpt_desc, uint64_t vaddr, Granularity gran);
 int ecpt_mm_invalidate(struct mm_struct* mm, uint64_t vaddr, Granularity gran);
@@ -106,7 +108,8 @@ void print_ecpt(ECPT_desc_t * ecpt, bool kernel_table_detail,
 inline void check_ecpt_user_detail(ECPT_desc_t * ecpt, bool print_entry);
 inline void check_ecpt_kernel_detail(ECPT_desc_t * ecpt, bool print_entry);
 
+int ecpt_rehash_way_sync(ECPT_desc_t *ecpt, uint32_t way);
+int ecpt_rehash_way_async(ECPT_desc_t *ecpt, uint32_t way);
 
-int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way);
 
 #endif /* _ASM_X86_ECPT_HASH_H */

@@ -79,6 +79,10 @@
 #include "shuffle.h"
 #include "page_reporting.h"
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
 /* Free Page Internal flags: for internal, non-pcp variants of free_pages(). */
 typedef int __bitwise fpi_t;
 
@@ -2236,6 +2240,14 @@ void __init page_alloc_init_late(void)
 
 	for_each_populated_zone(zone)
 		set_zone_contiguous(zone);
+
+#ifdef CONFIG_X86_64_ECPT
+	/**
+	 * We add ecpt_init which needs to setup workqueue
+	 * page_alloc_init_late runs after workqueue_init
+	 */
+	ecpt_init();
+#endif
 }
 
 #ifdef CONFIG_CMA

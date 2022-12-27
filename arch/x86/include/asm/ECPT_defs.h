@@ -37,6 +37,11 @@
 #define ECPT_CLUSTER_NBITS 3
 #define ECPT_CLUSTER_FACTOR (1 << ECPT_CLUSTER_NBITS)
 
+
+/**
+ *  Here we use available bits in pte from 52-58.
+ *  Note that Bit 58 already taken by Linux as _PAGE_BIT_DEVMAP
+ */
 #define PTE_REPROPOSE_VPN_BITS 5
 
 #if (PTE_REPROPOSE_VPN_BITS * ECPT_CLUSTER_FACTOR) < (48 - PAGE_SHIFT_4KB - ECPT_CLUSTER_NBITS)
@@ -135,7 +140,7 @@
 
 
 #define REHASH_PTR_MAX (1 << (64 - HPT_REHASH_SHIFT))
-#define REHASH_PTR_TO_CR(ptr) (((uint64_t) ptr) << HPT_REHASH_SHIFT)
+#define REHASH_PTR_TO_CR(ptr) (((uint64_t) ptr >> HPT_SIZE_HIDDEN_BITS) << HPT_REHASH_SHIFT)
 #define GET_CR_WITHOUT_REHASH(cr) (cr & (~REHASH_MASK))
 
 

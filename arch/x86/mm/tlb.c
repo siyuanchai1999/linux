@@ -662,7 +662,7 @@ void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
 	} else {
 		/* The new ASID is already up to date. */
 		#ifdef CONFIG_X86_64_ECPT
-			load_new_mm_cr3(next->map_desc, new_asid, true);
+			load_new_mm_cr3(next->map_desc, new_asid, false);
 		#else
 			load_new_mm_cr3(next->pgd, new_asid, false);
 		#endif
