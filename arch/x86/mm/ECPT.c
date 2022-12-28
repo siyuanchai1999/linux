@@ -11,6 +11,7 @@
 #include <linux/slab.h>
 
 #include "ecpt_crc.h"
+#include "ecpt_murmur64.h"
 #include "ecpt_special_inst.h"
 
 #ifdef CONFIG_DEBUG_BEFORE_CONSOLE
@@ -65,9 +66,22 @@ static bool check_ecpt_way_loaded_in_cr(ECPT_desc_t *ecpt, uint32_t way);
 		debug_putstr(line_break);                                      \
 	}
 
+struct hash_combinator {
+	uint64_t vpn;
+	uint64_t size;
+	uint32_t way;	
+} __attribute__((__packed__));
+
 static uint64_t gen_hash_64(uint64_t vpn, uint64_t size, uint32_t way)
 {
-	uint64_t hash = ecpt_crc64_hash(vpn, way);
+	// uint64_t hash = ecpt_crc64_hash(vpn + size, way);
+
+	struct hash_combinator hash_combo = { .vpn = vpn,
+					      .size = size,
+					      .way = way };
+	uint64_t hash =
+		MurmurHash64(&hash_combo, sizeof(struct hash_combinator), 0);
+
 	hash = hash % size;
 
 	return hash;
@@ -76,10 +90,11 @@ static uint64_t gen_hash_64(uint64_t vpn, uint64_t size, uint32_t way)
 static uint64_t early_gen_hash_64(uint64_t vpn, uint64_t size, uint32_t way,
 				  uint64_t kernel_start, uint64_t physaddr)
 {
-	uint64_t hash;
-	hash = ecpt_crc64_hash_early(vpn, way, kernel_start, physaddr);
-	hash = hash % size;
-	return hash;
+	// uint64_t hash;
+	// hash = ecpt_crc64_hash_early(vpn + size, way, kernel_start, physaddr);
+	// hash = hash % size;
+	// return hash;
+	return gen_hash_64(vpn, size, way);
 }
 
 #define puthexln(num)                                                          \
@@ -390,7 +405,7 @@ static bool need_rehash(ECPT_desc_t *ecpt, uint32_t way)
 static inline void inc_occupancy(ECPT_desc_t *ecpt, uint32_t way)
 {
 	ecpt->occupied[way]++;
-	ECPT_info_verbose("occupied[%d]=%d\n", way, ecpt->occupied[way]);
+	// ECPT_info_verbose("occupied[%d]=%d\n", way, ecpt->occupied[way]);
 
 	check_ecpt_user_detail(ecpt, 0);
 
@@ -485,9 +500,16 @@ int early_ecpt_insert(ECPT_desc_t *ecpt, uint64_t vaddr, uint64_t paddr,
 			BUG();
 		}
 
-		hash = early_gen_hash_64(ecpt_entry_get_vpn(&entry), size, w,
-					 kernel_start, physaddr);
-
+		hash = gen_hash_64(vpn, size, w);
+		// hash = early_gen_hash_64(ecpt_entry_get_vpn(&entry), size, w,
+					//  kernel_start, physaddr);
+		puthex_tabln(vpn);
+		puthex_tabln(ecpt_entry_get_vpn(&entry));
+		puthex_tabln(size);
+		puthex_tabln(w);
+		puthex_tabln(hash);
+		debug_putstr(line_break);
+		
 		/* stay with current hash table */
 		ecpt_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(cr);
 		entry_ptr = &ecpt_base[hash];
@@ -517,8 +539,11 @@ int early_ecpt_insert(ECPT_desc_t *ecpt, uint64_t vaddr, uint64_t paddr,
 		/* should not be here early ecpt should not invoke kicking */
 	}
 
+
 	puthex_tabln((uint64_t)entry_ptr);
 	puthex_tabln(way);
+	puthex_tabln(ecpt_fixed->table[way]);
+
 	if (ecpt_entry_empty_vpn(entry_ptr)) {
 		debug_putstr(occupied_plus);
 		inc_occupancy(ecpt_fixed, way);
@@ -559,11 +584,32 @@ int early_ecpt_invalidate(ECPT_desc_t *ecpt, uint64_t vaddr)
 			BUG();
 		}
 
-		hash = gen_hash_64(vpn, size, w);
+		DEBUG_VAR(vpn);
+		DEBUG_VAR(size);
+		DEBUG_VAR(w);
 
+		// hash = early_gen_hash_64(vpn, size, w, 0, 0);
+		hash = gen_hash_64(vpn, size, w);
+		
+		DEBUG_VAR(hash);
 		/* stay with current hash table */
 		ecpt_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(cr);
 		entry_ptr = &ecpt_base[hash];
+
+		// ECPT_info_verbose("vaddr=%llx vpn=%llx size=%llx w=%x hash=%llx entry_ptr at %llx\n",
+		// 	vaddr, vpn, size, w, hash, (uint64_t) entry_ptr
+		// );
+		// PRINT_ECPT_ENTRY_DEBUG(entry_ptr);
+		// DEBUG_VAR(cr);
+		
+
+		
+		DEBUG_VAR((uint64_t) (entry_ptr));
+		DEBUG_VAR(ecpt_entry_get_vpn(entry_ptr));
+		ptr = (uint64_t *)entry_ptr;
+		for (i = 0; i * sizeof(uint64_t) < sizeof(ecpt_entry_t); i++) {
+			DEBUG_VAR(ptr[i]);
+		}
 
 		if (ecpt_entry_match_vpn(entry_ptr, vpn)) {
 			// DEBUG_VAR((uint64_t)entry_ptr);
@@ -1103,7 +1149,7 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 		}
 
 		hash = gen_hash_64(vpn, size, w);
-		
+
 		rehash_ptr = ecpt_get_rehash(ecpt, w);
 
 		if (hash < rehash_ptr) {
@@ -1116,7 +1162,8 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 			/* TODO: change the hash function with size as seed */
 			rehash_hash = gen_hash_64(vpn, rehash_size, w);
 
-			ecpt_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(rehash_cr);
+			ecpt_base =
+				(ecpt_entry_t *)GET_HPT_BASE_VIRT(rehash_cr);
 			entry_ptr = &ecpt_base[rehash_hash];
 
 		} else {
@@ -1193,9 +1240,10 @@ ecpt_entry_t *get_hpt_entry(ECPT_desc_t *ecpt, uint64_t vaddr, Granularity *g,
 
 	if (status == ENTRY_MATCHED) {
 		return entry_ptr;
-	} else if (status == ENTRY_EMPTY || status == ENTRY_OCCUPIED || status == ENTRY_NOT_FOUND) {
+	} else if (status == ENTRY_EMPTY || status == ENTRY_OCCUPIED ||
+		   status == ENTRY_NOT_FOUND) {
 		ECPT_info_verbose("vaddr=%llx entry not found status=%d\n",
-		 		vaddr, status);
+				  vaddr, status);
 		*way = -1;
 		return NULL;
 	} else {
@@ -1204,8 +1252,9 @@ ecpt_entry_t *get_hpt_entry(ECPT_desc_t *ecpt, uint64_t vaddr, Granularity *g,
 	}
 }
 
-ecpt_entry_t *ecpt_search_fit(ECPT_desc_t *ecpt, uint64_t vaddr, Granularity gran)
-{	
+ecpt_entry_t *ecpt_search_fit(ECPT_desc_t *ecpt, uint64_t vaddr,
+			      Granularity gran)
+{
 	ecpt_entry_t *entry_ptr;
 	enum search_entry_status status = ENTRY_NOT_FOUND;
 	uint32_t entry_way = -1;
@@ -1247,8 +1296,8 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 	for (tries = 0; tries < ECPT_INSERT_MAX_TRIES; tries++) {
 		// puthex_tabln(way);
 		rehash_ptr = 0;
-		rehash_cr = 0; 
-		rehash_size = 0; 
+		rehash_cr = 0;
+		rehash_size = 0;
 		rehash_hash = 0;
 		rehash_way = 0;
 
@@ -1273,7 +1322,6 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 		rehash_ptr = ecpt_get_rehash(ecpt, way_start + way);
 
 		if (hash < rehash_ptr) {
-			
 			/* not supported for resizing now */
 			rehash_way = find_rehash_way(way_start + way);
 			rehash_cr = ecpt->table[rehash_way];
@@ -1281,10 +1329,12 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 
 			/* we use the original way's hash function now */
 			/* TODO: change the hash function with size as seed */
-			rehash_hash = gen_hash_64(ecpt_entry_get_vpn(&to_insert),
-				 	rehash_size, way_start + way);
+			rehash_hash =
+				gen_hash_64(ecpt_entry_get_vpn(&to_insert),
+					    rehash_size, way_start + way);
 
-			ecpt_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(rehash_cr);
+			ecpt_base =
+				(ecpt_entry_t *)GET_HPT_BASE_VIRT(rehash_cr);
 			entry_ptr = &ecpt_base[rehash_hash];
 		} else {
 			/* stay with current hash table */
@@ -1478,8 +1528,8 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 	uint32_t it = start, migrated_cnt = 0;
 	uint32_t end = start + n_batch * rehash_granularity;
 
-	spinlock_t * src_ptl = NULL;
-	spinlock_t * dest_ptl = NULL;
+	spinlock_t *src_ptl = NULL;
+	spinlock_t *dest_ptl = NULL;
 
 	if (end > old_size) {
 		end = old_size;
@@ -1519,7 +1569,7 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 			inc_occupancy(ecpt, new_way);
 		}
 		migrated_cnt++;
-				
+
 		ecpt_inc_rehash(ecpt, way);
 		if (migrated_cnt % rehash_granularity == 0) {
 			if (check_ecpt_way_loaded_in_cr(ecpt, way)) {
@@ -1619,7 +1669,6 @@ int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way)
 	ecpt->rehash_ptr[way] = ecpt->rehash_ptr[new_way];
 	ecpt->occupied[way] = ecpt->occupied[new_way];
 
-
 	ecpt->table[new_way] = 0;
 	ecpt->rehash_ptr[new_way] = 0;
 	ecpt->occupied[new_way] = 0;
@@ -1646,10 +1695,10 @@ err_cleanup:
 }
 
 static void ecpt_rehash_work_exit(struct ecpt_reshash_work *rehash_work)
-{	
+{
 	/* mark it as done with rehashing */
 	uint32_t way = rehash_work->way;
-	uint8_t * queued = &rehash_work->ecpt->queued_for_rehash[way];
+	uint8_t *queued = &rehash_work->ecpt->queued_for_rehash[way];
 	WRITE_ONCE(*queued, 0);
 
 	kfree(rehash_work);
@@ -1706,7 +1755,7 @@ int ecpt_rehash_way_async(ECPT_desc_t *ecpt, uint32_t way)
 {
 	int ret = 0;
 	struct ecpt_reshash_work *ecpt_rehash_work;
-	uint8_t * queued_ptr = &ecpt->queued_for_rehash[way];
+	uint8_t *queued_ptr = &ecpt->queued_for_rehash[way];
 
 	if (READ_ONCE(*queued_ptr)) {
 		/*  */
@@ -1734,13 +1783,12 @@ int ecpt_rehash_way_async(ECPT_desc_t *ecpt, uint32_t way)
 	print_curr_ecpt_crs();
 	/* ecpt_rehash_work_wrapper */
 	queue_work(rehash_wq, &ecpt_rehash_work->rehash_work);
-	
+
 	/* indicate that resizing has already been queued */
 	WRITE_ONCE(*queued_ptr, 1);
 
 	return 0;
 }
-
 
 int ecpt_mm_insert(struct mm_struct *mm, uint64_t vaddr, uint64_t paddr,
 		   ecpt_pgprot_t prot, Granularity gran)
@@ -2108,7 +2156,7 @@ int ecpt_update_prot(ECPT_desc_t *ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot,
 	return 0;
 }
 
-void ecpt_init(void) 
+void ecpt_init(void)
 {
 	int ret = 0;
 	ret = init_rehash_workqueue();
@@ -2213,11 +2261,11 @@ static bool check_ecpt_way_loaded_in_cr(ECPT_desc_t *ecpt, uint32_t way)
 }
 
 static void print_curr_ecpt_crs(void)
-{	
+{
 	uint16_t i = 0;
 	for (i = 0; i < ECPT_MAX_WAY; i++) {
-		pr_info("way %d -> cr%d : %lx \n",
-		 	i, way_to_crN[i], read_curr_ecpt_cr(i));
+		pr_info("way %d -> cr%d : %lx \n", i, way_to_crN[i],
+			read_curr_ecpt_cr(i));
 	}
 }
 
