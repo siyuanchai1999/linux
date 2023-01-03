@@ -1477,6 +1477,18 @@ config X86_64_ECPT
 	help
 	  ECPT is a experimental virtual translation framework proposed as a substitute for paging.
 
+choice
+	prompt "Hash function for ECPT"
+	default X86_64_ECPT_MURMUR64
+	depends on X86_64_ECPT
+	help
+	  Select the hash function for Elastic cuckoo page table
+
+	config X86_64_ECPT_MURMUR64
+		bool "Murmur64 hash function. Default choice"
+	config X86_64_ECPT_CRC64
+		bool "CRC64 hash function."
+endchoice
 
 config X86_5LEVEL
 	bool "Enable 5-level page tables support"

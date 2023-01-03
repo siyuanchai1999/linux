@@ -57,8 +57,8 @@ obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= mem_encrypt_identity.o
 obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= mem_encrypt_boot.o
 
 obj-$(CONFIG_X86_64_ECPT)	+= ECPT.o
-obj-$(CONFIG_X86_64_ECPT)	+= ecpt_murmur64.o
-obj-y	+= ecpt_crc.o
+obj-$(CONFIG_X86_64_ECPT_MURMUR64)	+= ecpt_murmur64.o
+obj-$(CONFIG_X86_64_ECPT_CRC64)	+= ecpt_crc.o
 
 hostprogs		:= ecpt_gen_crc64table
 clean-files		:= ecpt_crc64table.h
