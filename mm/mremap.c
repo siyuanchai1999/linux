@@ -519,8 +519,10 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 	unsigned long extent, old_end;
 	struct mmu_notifier_range range;
 	pmd_t *old_pmd = NULL, *new_pmd = NULL;
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	// pud_t *old_pud = NULL, *new_pud = NULL; 
-	
+#endif
 	ecpt_entry_t *entry_p;
 	Granularity g = unknown;	
 	uint32_t way = 0;
@@ -550,9 +552,10 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 		}
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 		if (g == page_1GB) {
-			extent = get_extent(NORMAL_PUD, old_addr, old_end, new_addr);
+			WARN(1, "move_page_tables page_1GB not implented with ECPT\n");
+			// extent = get_extent(NORMAL_PUD, old_addr, old_end, new_addr);
 
-			old_pud = (pud_t *) &entry_p->pte;
+			// old_pud = (pud_t *) &entry_p->pte;
 			// old_pud = get_old_pud(vma->vm_mm, old_addr);
 			// if (!old_pud)
 			// 	continue;
@@ -567,19 +570,19 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 			// 		continue;
 			// 	}
 			// } 
-			if (extent == HPAGE_PUD_SIZE) {
-				move_pgt_entry(HPAGE_PUD, vma, old_addr, new_addr,
-						old_pud, new_pud, need_rmap_locks);
-				/* We ignore and continue on error? */
-				continue;
-			}
+			// if (extent == HPAGE_PUD_SIZE) {
+			// 	move_pgt_entry(HPAGE_PUD, vma, old_addr, new_addr,
+			// 			old_pud, new_pud, need_rmap_locks);
+			// 	/* We ignore and continue on error? */
+			// 	continue;
+			// }
 			
 			/* if the entire 1G memory cannot be moved, split and fall through to 2MB case */
-			split_huge_pud(vma, old_pud, old_addr);
+			// split_huge_pud(vma, old_pud, old_addr);
 
-			spin_lock(&mm->page_table_lock);
-			entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
-			spin_unlock(&mm->page_table_lock);
+			// spin_lock(&mm->page_table_lock);
+			// entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
+			// spin_unlock(&mm->page_table_lock);
 			/* no actiont to move normal PUD in EPCT */
 			// else if (IS_ENABLED(CONFIG_HAVE_MOVE_PUD) && extent == PUD_SIZE) {
 
@@ -591,9 +594,10 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 		} 
 		
 		if (g == page_2MB) {
-			extent = get_extent(NORMAL_PMD, old_addr, old_end, new_addr);
+			WARN(1, "move_page_tables page_2MB not implented with ECPT\n");
+			// extent = get_extent(NORMAL_PMD, old_addr, old_end, new_addr);
 			
-			old_pmd = (pmd_t *) &entry_p->pte;
+			// old_pmd = (pmd_t *) &entry_p->pte;
 
 			// old_pmd = get_old_pmd(vma->vm_mm, old_addr);
 			// if (!old_pmd)
@@ -621,20 +625,20 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 			// 			old_pmd, new_pmd, true))
 			// 		continue;
 			// }
-			if (extent == HPAGE_PMD_SIZE &&
-					move_pgt_entry(HPAGE_PMD, vma, old_addr, new_addr,
-						old_pmd, new_pmd, need_rmap_locks))
-					continue;
+			// if (extent == HPAGE_PMD_SIZE &&
+			// 		move_pgt_entry(HPAGE_PMD, vma, old_addr, new_addr,
+			// 			old_pmd, new_pmd, need_rmap_locks))
+			// 		continue;
 			
-			/* If we cannot move the entire 2MB, fall through to 4KB case */
-			split_huge_pmd(vma, old_pmd, old_addr);
+			// /* If we cannot move the entire 2MB, fall through to 4KB case */
+			// split_huge_pmd(vma, old_pmd, old_addr);
 		
-			spin_lock(&mm->page_table_lock);
-			entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
-			spin_unlock(&mm->page_table_lock);
+			// spin_lock(&mm->page_table_lock);
+			// entry_p = get_hpt_entry(mm->map_desc, old_addr, &g, &way);
+			// spin_unlock(&mm->page_table_lock);
 
-			if (pmd_trans_unstable(old_pmd))
-					continue;
+			// if (pmd_trans_unstable(old_pmd))
+			// 		continue;
 		}
 #endif		
 		BUG_ON(g != page_4KB);

@@ -1898,6 +1898,76 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 
 
 #ifdef CONFIG_HAVE_BOOTMEM_INFO_NODE
+#ifdef CONFIG_X86_64_ECPT
+void register_page_bootmem_memmap(unsigned long section_nr,
+				  struct page *start_page, unsigned long nr_pages)
+{
+	unsigned long addr = (unsigned long)start_page;
+	unsigned long end = (unsigned long)(start_page + nr_pages);
+	unsigned long next;
+
+	Granularity g = unknown;
+	ecpt_entry_t * entry;
+	uint32_t way;
+
+	unsigned int nr_pmd_pages, nr_pud_pages;
+	struct page *page;
+	pud_t * pud;
+	pmd_t * pmd;
+	pte_t * pte;
+
+	pr_info_verbose("section_nr=%lx addr=%lx nr_pages=%lx end=%lx\n",
+	 	section_nr, addr, nr_pages, end);
+	for (; addr < end; addr = next) {
+		entry = get_hpt_entry((ECPT_desc_t *) init_mm.map_desc, addr, &g, &way);
+
+		if (g == unknown) {
+			next = (addr + PAGE_SIZE) & PAGE_MASK;
+			continue;
+		}
+		PRINT_ECPT_ENTRY_VERBOSE(entry);
+		
+		if (g == page_4KB) {
+			next = (addr + PAGE_SIZE) & PAGE_MASK;
+			pte = pte_offset_from_ecpt_entry(entry, addr);
+			
+			if (pte_none(*pte))
+				continue;
+			get_page_bootmem(section_nr, pte_page(*pte),
+					 SECTION_INFO);
+
+		} else if (g == page_2MB) {
+			next = pmd_addr_end(addr, end);
+			pmd = pmd_offset_from_ecpt_entry(entry, addr);
+			
+			if (pmd_none(*pmd))
+				continue;
+			
+			nr_pmd_pages = 1 << get_order(PMD_SIZE);
+			page = pmd_page(*pmd);
+			while (nr_pmd_pages--)
+				get_page_bootmem(section_nr, page++,
+						 SECTION_INFO);
+
+		} else if (g == page_1GB) {
+			next = pud_addr_end(addr, end);
+			pud = pud_offset_from_ecpt_entry(entry, addr);
+			
+			if (pud_none(*pud))
+				continue;
+			
+			nr_pud_pages = 1 << get_order(PUD_SIZE);
+			page = pud_page(*pud);
+			while (nr_pud_pages--)
+				get_page_bootmem(section_nr, page++,
+						 SECTION_INFO);
+		} else {
+			/* should not be here */
+			BUG();
+		}
+	}
+}
+#else
 void register_page_bootmem_memmap(unsigned long section_nr,
 				  struct page *start_page, unsigned long nr_pages)
 {
@@ -1963,6 +2033,7 @@ void register_page_bootmem_memmap(unsigned long section_nr,
 		}
 	}
 }
+#endif
 #endif
 
 void __meminit vmemmap_populate_print_last(void)
