@@ -3891,7 +3891,8 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 	struct page *page;
 	vm_fault_t ret = 0;
 	pte_t entry;
-	pr_info_verbose("vmf at %llx\n", (uint64_t) vmf);
+	pr_info_verbose("vmf at %llx addr=%llx\n", (uint64_t)vmf,
+			(uint64_t)vmf->address);
 	/* File mapping without ->vm_ops ? */
 	if (vma->vm_flags & VM_SHARED)
 		return VM_FAULT_SIGBUS;
@@ -4333,7 +4334,8 @@ static vm_fault_t do_read_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	vm_fault_t ret = 0;
-	pr_info_verbose("addr=%lx map_pages at%llx\n", vmf->address, (uint64_t) vma->vm_ops->map_pages);
+	pr_info_verbose("addr=%lx map_pages at%llx\n", vmf->address,
+			(uint64_t)vma->vm_ops->map_pages);
 	/*
 	 * Let's call ->map_pages() first and use ->fault() as fallback
 	 * if page by the offset is not ready to be mapped (cold cache or
@@ -4692,8 +4694,11 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 {
 	pte_t entry;
 	
+	vmf->pte = pte_offset_map(vmf->vma->vm_mm, vmf->address);
+	vmf->orig_pte = *vmf->pte;
+	pr_info_verbose("addr=%lx orig_pte=%llx pte at %llx pte_default at %llx\n",
+			vmf->address, (uint64_t) vmf->orig_pte.pte, (uint64_t) vmf->pte, (uint64_t)&pte_default);
 	/* vmf->pte = NULL to indicate the page hasn't been allocated */
-	/* TODO: pte_none needs redefinition when pte compaction */
 	if (pte_none(vmf->orig_pte)) {
 		pte_unmap(vmf->pte);
 		vmf->pte = NULL;
@@ -4855,7 +4860,7 @@ unlock:
 
 #ifdef CONFIG_X86_64_ECPT
 static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
-		unsigned long address, unsigned int flags)
+				    unsigned long address, unsigned int flags)
 {
 	struct vm_fault vmf = {
 		.vma = vma,
@@ -4866,68 +4871,34 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	};
 	unsigned int dirty = flags & FAULT_FLAG_WRITE;
 	struct mm_struct *mm = vma->vm_mm;
+	pgd_t *pgd;
+	p4d_t *p4d;
 	vm_fault_t ret;
-	// pte_t pte;
-	ecpt_entry_t *entry_p;
-	Granularity g = unknown;	
-	uint32_t way = 0;
-	pud_t orig_pud;
 
+#ifdef CONFIG_X86_64_ECPT
+	pgd = NULL;
+#else
+	pgd = pgd_offset(mm, address); 
+#endif
+	/* return default for ECPT */
+	p4d = p4d_alloc(mm, pgd, address); 
+	if (!p4d)
+		return VM_FAULT_OOM;
 
-	spin_lock(&mm->page_table_lock);
-	entry_p = get_hpt_entry(mm->map_desc, address, &g, &way);
-	spin_unlock(&mm->page_table_lock);
-
-	// pr_info_verbose("address=%lx .vpn=%llx .pte=%llx\n", 
-	// 	address, 
-	// 	(uint64_t) (entry_p ? entry_p->VPN_tag : 0),
-	// 	(uint64_t) (entry_p ? entry_p->pte : 0)
-	// );
-	pr_info_verbose("address=%lx entry_p at %llx\n", address, (uint64_t) entry_p);
-	if (entry_p) {
-		PRINT_ECPT_ENTRY_VERBOSE(entry_p);
-	}
-
-	if (entry_p == NULL) {
-		BUG_ON(g != unknown);
-		/* no such page */
-		
-		vmf.pud = NULL;
-		vmf.pmd = NULL;
-		vmf.pte = NULL;
-
-		// print_ecpt(mm->map_desc);
-
-		if (__transparent_hugepage_enabled(vma)) {
-			pr_info_verbose("__transparent_hugepage_enabled\n");
-			// vmf.pud = (pud_t * )&entry.pte;
-			vmf.pud = NULL;
-			ret = create_huge_pud(&vmf);
-			if (!(ret & VM_FAULT_FALLBACK))
-				return ret;
-			
-			/* fall back try PMD */
-			ret = create_huge_pmd(&vmf);
-			if (!(ret & VM_FAULT_FALLBACK))
-				return ret;
-		}
-
-		ret = handle_pte_fault(&vmf);
-		// print_ecpt(mm->map_desc);
-		return ret;
-	}
-
-	if (g == page_1GB) {
-		/* copied from __handle_mm_fault in radix tree implementation */
-		// pud_t orig_pud = __pud(entry_p->pte);
-		// vmf.pud = (pud_t * )&entry_p->pte;
-		
-		vmf.pud =  pud_offset_from_ecpt_entry(entry_p, address);
-		orig_pud = *vmf.pud;
+	/* lookup pud */
+	vmf.pud = pud_alloc(mm, p4d, address); 
+	if (!vmf.pud)
+		return VM_FAULT_OOM;
+retry_pud:
+	if (pud_none(*vmf.pud) && __transparent_hugepage_enabled(vma)) {
+		ret = create_huge_pud(&vmf);
+		if (!(ret & VM_FAULT_FALLBACK))
+			return ret;
+	} else {
+		pud_t orig_pud = *vmf.pud;
 
 		barrier();
 		if (pud_trans_huge(orig_pud) || pud_devmap(orig_pud)) {
-
 			/* NUMA case for anonymous PUDs would go here */
 
 			if (dirty && !pud_write(orig_pud)) {
@@ -4938,33 +4909,38 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 				huge_pud_set_accessed(&vmf, orig_pud);
 				return 0;
 			}
-		} else {
-			WARN(1, "error page encoding orig_pud=%lx\n", orig_pud.pud);
 		}
-	} 
-	
-	if (g == page_2MB) {
-		vmf.pmd = pmd_offset_from_ecpt_entry(entry_p, address);
+	}
+
+	vmf.pmd = pmd_alloc(mm, vmf.pud, address);
+	if (!vmf.pmd)
+		return VM_FAULT_OOM;
+
+	/* Huge pud page fault raced with pmd_alloc? */
+	if (pud_trans_unstable(vmf.pud))
+		goto retry_pud;
+
+	if (pmd_none(*vmf.pmd) && __transparent_hugepage_enabled(vma)) {
+		ret = create_huge_pmd(&vmf);
+		pr_info_verbose("create_huge_pmd ret = %x\n", ret);
+		if (!(ret & VM_FAULT_FALLBACK))
+			return ret;
+	} else {
 		vmf.orig_pmd = *vmf.pmd;
-		
+
 		barrier();
 		if (unlikely(is_swap_pmd(vmf.orig_pmd))) {
 			VM_BUG_ON(thp_migration_supported() &&
-					  !is_pmd_migration_entry(vmf.orig_pmd));
-			if (is_pmd_migration_entry(vmf.orig_pmd)){
-				WARN(1, "pmd migration not implemented\n");
+				  !is_pmd_migration_entry(vmf.orig_pmd));
+			if (is_pmd_migration_entry(vmf.orig_pmd))
 				pmd_migration_entry_wait(mm, vmf.pmd);
-			}
-				
 			return 0;
 		}
-
 		if (pmd_trans_huge(vmf.orig_pmd) || pmd_devmap(vmf.orig_pmd)) {
-			if (pmd_protnone(vmf.orig_pmd) && vma_is_accessible(vma)){
-				WARN(1, "do_huge_pmd_numa_page not implemented\n");
+			if (pmd_protnone(vmf.orig_pmd) &&
+			    vma_is_accessible(vma))
 				return do_huge_pmd_numa_page(&vmf);
-			}
-			
+
 			if (dirty && !pmd_write(vmf.orig_pmd)) {
 				ret = wp_huge_pmd(&vmf);
 				if (!(ret & VM_FAULT_FALLBACK))
@@ -4974,13 +4950,9 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 				return 0;
 			}
 		}
-	} 
+	}
 
-	vmf.pte = pte_offset_from_ecpt_entry(entry_p, address);
-	vmf.orig_pte = *vmf.pte;
-	ret = handle_pte_fault(&vmf);
-	// print_ecpt(mm->map_desc);
-	return ret;
+	return handle_pte_fault(&vmf);
 }
 
 #else 
@@ -5148,8 +5120,10 @@ vm_fault_t handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 			   unsigned int flags, struct pt_regs *regs)
 {
 	vm_fault_t ret;
-	pr_info_verbose("vma at %llx vma->pgd=%llx vma->vm_flags=%lx address=%lx flags=%x\n",
-	  	(uint64_t) vma, (uint64_t) vma->vm_mm->map_desc,  vma->vm_flags , address, flags);
+	pr_info_verbose(
+		"start=%llx end=%llx vma->pgd=%llx vma->vm_flags=%lx address=%lx flags=%x\n",
+		(uint64_t)vma->vm_start, (uint64_t)vma->vm_end,
+		(uint64_t)vma->vm_mm->map_desc, vma->vm_flags, address, flags);
 	__set_current_state(TASK_RUNNING);
 
 	count_vm_event(PGFAULT);

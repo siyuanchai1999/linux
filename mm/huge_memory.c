@@ -35,6 +35,10 @@
 #include <linux/numa.h>
 #include <linux/page_owner.h>
 
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
 #include "internal.h"
@@ -1901,28 +1905,18 @@ void __split_huge_pud(struct vm_area_struct *vma, pud_t *pud,
 {
 	spinlock_t *ptl;
 	struct mmu_notifier_range range;
-	// WARN(1, "__split_huge_pud not implemented with ECPT\n");
+
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma, vma->vm_mm,
 				address & HPAGE_PUD_MASK,
 				(address & HPAGE_PUD_MASK) + HPAGE_PUD_SIZE);
 	mmu_notifier_invalidate_range_start(&range);
-
-#ifdef CONFIG_X86_64_ECPT
-	/* This could happen since ECPT doesn't know  */	
-	if (!pud)
-		goto out;	
-#else
 	ptl = pud_lock(vma->vm_mm, pud);
-#endif
 	if (unlikely(!pud_trans_huge(*pud) && !pud_devmap(*pud)))
 		goto out;
 	__split_huge_pud_locked(vma, pud, range.start);
 
 out:
-#ifndef CONFIG_X86_64_ECPT
 	spin_unlock(ptl);
-#endif
-	
 	/*
 	 * No need to double call mmu_notifier->invalidate_range() callback as
 	 * the above pudp_huge_clear_flush_notify() did already call it.
@@ -1947,6 +1941,7 @@ static void __split_huge_zero_page_pmd(struct vm_area_struct *vma,
 	 *
 	 * See Documentation/vm/mmu_notifier.rst
 	 */
+	WARN(1, "__split_huge_zero_page_pmd not checked!\n");
 	pmdp_huge_clear_flush(vma, haddr, pmd);
 
 	pgtable = pgtable_trans_huge_withdraw(mm, pmd);
@@ -1983,6 +1978,9 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 				&& !pmd_devmap(*pmd));
 
 	count_vm_event(THP_SPLIT_PMD);
+
+	pr_info_verbose("anonymous=%d huge_zero=%d\n",
+		vma_is_anonymous(vma), is_huge_zero_pmd(*pmd));
 
 	if (!vma_is_anonymous(vma)) {
 		old_pmd = pmdp_huge_clear_flush_notify(vma, haddr, pmd);
@@ -2159,11 +2157,14 @@ void __split_huge_pmd(struct vm_area_struct *vma, pmd_t *pmd,
 	struct mmu_notifier_range range;
 	bool do_unlock_page = false;
 	pmd_t _pmd;
-	WARN(1, "__split_huge_pmd not implemented with ECPT\n");
+	
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma, vma->vm_mm,
 				address & HPAGE_PMD_MASK,
 				(address & HPAGE_PMD_MASK) + HPAGE_PMD_SIZE);
 	mmu_notifier_invalidate_range_start(&range);
+	
+	pr_info_verbose("pmd at %llx pmd=%lx\n", (uint64_t) pmd, pmd->pmd);
+
 	ptl = pmd_lock(vma->vm_mm, pmd);
 
 	/*
@@ -2231,6 +2232,20 @@ out:
 	mmu_notifier_invalidate_range_only_end(&range);
 }
 
+#ifdef CONFIG_X86_64_ECPT
+void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
+		bool freeze, struct page *page)
+{
+	pmd_t *pmd;
+
+	pr_info_verbose("Split vma->vm_start=%lx vma->vm_end=%lx address=%lx page at %llx\n",
+		vma->vm_start, vma->vm_end, address, (uint64_t) page);
+	pmd = pmd_offset_ecpt(vma->vm_mm, address);
+
+	__split_huge_pmd(vma, pmd, address, freeze, page);
+}
+
+#else
 void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 		bool freeze, struct page *page)
 {
@@ -2254,6 +2269,7 @@ void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 
 	__split_huge_pmd(vma, pmd, address, freeze, page);
 }
+#endif
 
 static inline void split_huge_pmd_if_needed(struct vm_area_struct *vma, unsigned long address)
 {

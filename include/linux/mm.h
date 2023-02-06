@@ -2154,25 +2154,34 @@ int __pte_alloc_kernel(pmd_t *pmd);
 
 #if defined(CONFIG_MMU)
 
+#ifndef __ARCH_HAS_PUD_ALLOC
+#define __ARCH_HAS_P4D_ALLOC
 static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 		unsigned long address)
 {
 	return (unlikely(pgd_none(*pgd)) && __p4d_alloc(mm, pgd, address)) ?
 		NULL : p4d_offset(pgd, address);
 }
+#endif
 
+#ifndef __ARCH_HAS_PUD_ALLOC
+#define __ARCH_HAS_PUD_ALLOC
 static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
 		unsigned long address)
 {
 	return (unlikely(p4d_none(*p4d)) && __pud_alloc(mm, p4d, address)) ?
 		NULL : pud_offset(p4d, address);
 }
+#endif
 
+#ifndef __ARCH_HAS_PMD_ALLOC
+#define __ARCH_HAS_PMD_ALLOC
 static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
 	return (unlikely(pud_none(*pud)) && __pmd_alloc(mm, pud, address))?
 		NULL: pmd_offset(pud, address);
 }
+#endif
 #endif /* CONFIG_MMU */
 
 #if USE_SPLIT_PTE_PTLOCKS
@@ -2308,10 +2317,23 @@ static struct page *pmd_to_page(pmd_t *pmd)
 	return virt_to_page((void *)((unsigned long) pmd & mask));
 }
 
+#ifdef CONFIG_X86_64_ECPT
+static inline spinlock_t *default_pmd_lockptr(struct mm_struct *mm, pmd_t *pmd)
+{
+	return ptlock_ptr(pmd_to_page(pmd));
+}
+
+#ifndef pmd_lockptr
+#define pmd_lockptr(_mm, _pmd) default_pmd_lockptr(_mm, _pmd)
+#endif
+
+#else
 static inline spinlock_t *pmd_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {
 	return ptlock_ptr(pmd_to_page(pmd));
 }
+#define pmd_lockptr(_mm, _pmd) pmd_lockptr(_mm, _pmd)
+#endif
 
 static inline bool pmd_ptlock_init(struct page *page)
 {

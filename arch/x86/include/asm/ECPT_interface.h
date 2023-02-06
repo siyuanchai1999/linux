@@ -174,7 +174,11 @@ static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
 }
 #define pte_lockptr pte_lockptr
 
-
+static inline spinlock_t *ecpt_pmd_lockptr(struct mm_struct *mm, pmd_t *pmd)
+{
+	return &mm->page_table_lock;
+}
+#define pmd_lockptr ecpt_pmd_lockptr
 
 static inline pte_t * pte_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
 	Granularity g = page_4KB;
@@ -185,6 +189,24 @@ static inline pte_t * pte_offset_ecpt(struct mm_struct *mm, unsigned long addr) 
 		return pte_offset_from_ecpt_entry(e, addr);
 	else 
 		return (pte_t *) &pte_default.pte;
+}
+
+static inline pmd_t * pmd_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
+	Granularity g = page_2MB;
+	ecpt_entry_t * e = ecpt_search_fit(mm->map_desc, addr, g);
+	if (e) 
+		return pmd_offset_from_ecpt_entry(e, addr);
+	else 
+		return (pmd_t *) &pte_default.pte;
+}
+
+static inline pud_t * pud_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
+	Granularity g = page_1GB;
+	ecpt_entry_t * e = ecpt_search_fit(mm->map_desc, addr, g);
+	if (e) 
+		return pud_offset_from_ecpt_entry(e, addr);
+	else 
+		return (pud_t *) &pte_default.pte;
 }
 
 /* override definition in linux/pgtable.h */
@@ -211,51 +233,44 @@ static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 #define pte_alloc(mm, pmd) (NULL)
 #define __ARCH_HAS_PTE_ALLOC
 
+#define __ARCH_HAS_PUD_ALLOC
+static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
+		unsigned long address)
+{
+	return (p4d_t * ) &pte_default;
+}
+
+#define __ARCH_HAS_PUD_ALLOC
+static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
+		unsigned long address)
+{
+	return pud_offset_ecpt(mm, address);
+}
+
+#define __ARCH_HAS_PMD_ALLOC
+static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+{
+	return pmd_offset_ecpt(mm, address);
+}
+
 int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte);
 
+void ecpt_set_pmd_at(struct mm_struct *mm, unsigned long addr,
+			      pmd_t *pmdp, pmd_t pmd);
 
-static inline void ecpt_set_pmd_at(struct mm_struct *mm, unsigned long addr,
-			      pmd_t *pmdp, pmd_t pmd)
-{
-	int res = ecpt_mm_insert(
-		mm,
-		addr,
-		ENTRY_TO_ADDR(pmd.pmd),
-		__ecpt_pgprot(ENTRY_TO_PROT(pmd.pmd)),
-		page_2MB
-	);
-
-	WARN(res, "Error when insert %lx as 2MB page\n", addr);
-}
-
-static inline void ecpt_set_pud_at(struct mm_struct *mm, unsigned long addr,
-			      pud_t *pudp, pud_t pud)
-{
-	int res = ecpt_mm_insert(
-		mm,
-		addr,
-		ENTRY_TO_ADDR(pud.pud),
-		__ecpt_pgprot(ENTRY_TO_PROT(pud.pud)),
-		page_1GB
-	);
-
-	WARN(res, "Error when insert %lx as 1GB page\n", addr);
-}
+void ecpt_set_pud_at(struct mm_struct *mm, unsigned long addr,
+			      pud_t *pudp, pud_t pud);
 
 pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm,
 					unsigned long addr, pte_t *ptep);
 
 
-static inline pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm,
-					unsigned long addr, pmd_t *pmdp)
-{
-	pmd_t ret = *pmdp;
-	int res = ecpt_mm_invalidate(mm, addr, page_2MB);
-	
-	WARN(res, "Fail to invalid 2MB page %lx \n", addr);
-	return ret;
-}
+pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm, unsigned long addr,
+				     pmd_t *pmdp);
+
+pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
+				     pud_t *pudp);
 
 static inline pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm,
 					unsigned long addr, pud_t *pudp)

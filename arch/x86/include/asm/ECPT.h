@@ -45,6 +45,13 @@ typedef enum {
 	page_1GB
 } Granularity ; 
 
+struct ecpt_lookup_ret {
+	Granularity g;
+	pte_t * ptep;
+	pmd_t * pmdp;
+	pud_t * pudp;
+};
+
 enum search_entry_status {
 	ENTRY_NOT_FOUND,
 	ENTRY_MATCHED,
@@ -99,6 +106,9 @@ int ecpt_mm_update_prot(struct mm_struct* mm, uint64_t vaddr, ecpt_pgprot_t new_
 
 ecpt_entry_t * get_ecpt_entry_from_mm(struct mm_struct* mm, uint64_t vaddr, Granularity *g);
 ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g, uint32_t * way);
+
+/* get all entries  */
+pte_t * get_ptep_ecpt(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g);
 ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran);
 // ecpt_entry_t * ecpt_search_fit_entry(ECPT_desc_t * ecpt, uint64_t vaddr, bool is_write,
 	// Granularity* gran, enum search_entry_status * status);

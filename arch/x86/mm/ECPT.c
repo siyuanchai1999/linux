@@ -1271,6 +1271,46 @@ ecpt_entry_t *get_hpt_entry(ECPT_desc_t *ecpt, uint64_t vaddr, Granularity *g,
 	}
 }
 
+int get_ptep_ecpt_all_gran(ECPT_desc_t * ecpt, uint64_t vaddr,
+				struct ecpt_lookup_ret * lookup) 
+{	
+	uint32_t dummy_way;
+	ecpt_entry_t *entry_ptr = get_hpt_entry(ecpt, vaddr, &lookup->g, &dummy_way);
+
+	if (entry_ptr == NULL) {
+		lookup->g = unknown;
+		lookup->ptep = &pte_default;
+		lookup->pmdp = (pmd_t *) &pte_default;
+		lookup->pudp = (pud_t *) &pte_default;
+		return 0;
+	}
+
+	switch (lookup->g)
+	{
+	case page_4KB:
+		lookup->ptep = pte_offset_from_ecpt_entry(entry_ptr, vaddr);
+		lookup->pmdp = (pmd_t *) &pte_default;
+		lookup->pudp = (pud_t *) &pte_default;
+		break;
+	case page_2MB:
+		lookup->ptep = &pte_default;
+		lookup->pmdp = pmd_offset_from_ecpt_entry(entry_ptr, vaddr);
+		lookup->pudp = (pud_t *) &pte_default;
+		break;
+	case page_1GB:
+		lookup->ptep = &pte_default;
+		lookup->pmdp = (pmd_t *) &pte_default;
+		lookup->pudp = pud_offset_from_ecpt_entry(entry_ptr, vaddr);
+		break;
+	case unknown:
+		BUG();
+	default:
+		BUG();
+	}
+	return 0;
+}	
+
+
 ecpt_entry_t *ecpt_search_fit(ECPT_desc_t *ecpt, uint64_t vaddr,
 			      Granularity gran)
 {
@@ -2047,13 +2087,14 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 {
 	int res = 0;
 
+	pr_info(
+		"  set_pte_at 4KB addr=%lx pte=%lx ptep=%llx pte_default at %llx\n",
+		addr, pte.pte, (uint64_t)ptep, (uint64_t)&pte_default);
+
 	if (ptep != NULL && ptep != (pte_t *)&pte_default) {
 		return ecpt_set_pte(mm, ptep, pte, addr);
 	}
-
-	ECPT_info_verbose(
-		"  set_pte_at 4KB addr=%lx pte=%lx ptep=%llx pte_default at %llx\n",
-		addr, pte.pte, (uint64_t)ptep, (uint64_t)&pte_default);
+	
 	/* TODO: replace ecpt_insert with kick to insert */
 	res = ecpt_insert(mm->map_desc, addr, ENTRY_TO_ADDR(pte.pte),
 			  __ecpt_pgprot(ENTRY_TO_PROT(pte.pte)), page_4KB);
@@ -2061,6 +2102,53 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 	WARN(res, "Error when insert %lx as 4KB page\n", addr);
 	return res;
 }
+
+void ecpt_set_pmd_at(struct mm_struct *mm, unsigned long addr,
+			      pmd_t *pmdp, pmd_t pmd)
+{
+	int res = 0;
+
+	pr_info("  ecpt_set_pmd_at 2MB addr=%lx pmd=%lx pmdp=%llx pte_default at %llx\n",
+		addr, pmd.pmd, (uint64_t)pmdp, (uint64_t)&pte_default);
+
+	// if (pmdp != NULL && pmdp != (pmd_t *)&pte_default) {
+	// 	return ecpt_set_pte(mm, pmdp, pmd, addr);
+	// }
+
+	res = ecpt_insert(
+		mm->map_desc,
+		addr,
+		ENTRY_TO_ADDR(pmd.pmd),
+		__ecpt_pgprot(ENTRY_TO_PROT(pmd.pmd)),
+		page_2MB
+	);
+
+	WARN(res, "Error when insert %lx as 2MB page\n", addr);
+}
+
+void ecpt_set_pud_at(struct mm_struct *mm, unsigned long addr,
+			      pud_t *pudp, pud_t pud)
+{
+	int res = 0;
+
+	pr_info("  ecpt_set_pud_at 1GB addr=%lx pud=%lx pudp=%llx pte_default at %llx\n",
+		addr, pud.pud, (uint64_t)pudp, (uint64_t)&pte_default);
+
+	// if (pudp != NULL && pudp != (pud_t *)&pte_default) {
+	// 	return ecpt_set_pte(mm, pudp, pud, addr);
+	// }
+
+	res = ecpt_insert(
+		mm->map_desc,
+		addr,
+		ENTRY_TO_ADDR(pud.pud),
+		__ecpt_pgprot(ENTRY_TO_PROT(pud.pud)),
+		page_1GB
+	);
+
+	WARN(res, "Error when insert %lx as 1GB page\n", addr);
+}
+
 
 int ptep_set_access_flags(struct vm_area_struct *vma, unsigned long address,
 			  pte_t *ptep, pte_t entry, int dirty)
@@ -2129,6 +2217,58 @@ pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	WARN(res, "Fail to invalid 4KB page %lx \n", addr);
 	return ret;
 }
+
+pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm, unsigned long addr,
+				     pmd_t *pmdp)
+{
+	pmd_t ret;
+	pte_t pte_fmt_ret;
+	int res;
+	if (pmdp != NULL && pmdp != (pmd_t *) &pte_default) {
+		/* cast is safe here since native_get_and_clear doesn't differentiate between pmd, pud and pte */
+		pte_fmt_ret = __ecpt_native_ptep_get_and_clear(mm, (pte_t *) pmdp, addr);
+		ret.pmd = pte_fmt_ret.pte;
+		return ret;
+	}
+
+	ret = READ_ONCE(*pmdp);
+	res = ecpt_invalidate(mm->map_desc, addr, page_2MB);
+	pr_info("Invalidate 2MB addr=%lx\n", addr);
+	WARN(res, "Fail to invalid 4KB page %lx \n", addr);
+	return ret;
+}
+
+pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
+				     pud_t *pudp)
+{
+	pud_t ret;
+	int res;
+	pte_t pte_fmt_ret;
+
+	if (pudp != NULL && pudp != (pud_t *) &pte_default) {
+		/* cast is safe here since native_get_and_clear doesn't differentiate between pmd, pud and pte */
+		pte_fmt_ret = __ecpt_native_ptep_get_and_clear(mm, (pte_t *)  pudp, addr);
+		ret.pud = pte_fmt_ret.pte;
+		return ret;
+	}
+
+	ret = READ_ONCE(*pudp);
+	res = ecpt_invalidate(mm->map_desc, addr, page_1GB);
+	pr_info("Invalidate 1GB addr=%lx\n", addr);
+	WARN(res, "Fail to invalid 4KB page %lx \n", addr);
+	return ret;
+}
+
+inline int pmd_trans_unstable(pmd_t *pmd)
+{
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+	// return (pmd != ((pmd_t *) &pte_default)) && pmd_none_or_trans_huge_or_clear_bad(pmd);
+	return (pmd != ((pmd_t *) &pte_default)) && pmd_trans_huge(*pmd);
+#else
+	return 0;
+#endif
+}
+
 
 uint64_t *get_ptep_with_gran(struct ecpt_entry *entry, unsigned long vaddr,
 			     Granularity g)
