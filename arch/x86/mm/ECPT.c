@@ -66,6 +66,7 @@ struct ecpt_reshash_work {
 /* TODO: move to util */
 static void print_curr_ecpt_crs(void);
 static bool check_ecpt_way_loaded_in_cr(ECPT_desc_t *ecpt, uint32_t way);
+static bool check_ecpt_all_way_loaded(ECPT_desc_t *ecpt);
 
 #define puthex_tabtabln(num)                                                   \
 	{                                                                      \
@@ -405,7 +406,7 @@ static bool need_rehash(ECPT_desc_t *ecpt, uint32_t way)
 
 #if ECPT_2M_USER_WAY > 0
 	if (gran == page_2MB) {
-		if (occupancy >= ECPT_2M_REHASH_THRESH) {
+		if (occupancy >= GET_ECPT_2M_REHASH_THRESH(ecpt->table[way])) {
 			return true;
 		}
 	}
@@ -1018,7 +1019,7 @@ static void fix_lazy_ECPT(ECPT_desc_t *ecpt, Granularity gran)
 	uint64_t (*way_allocator)(void);
 	uint32_t way_start, way_end, way;
 	uint64_t tmp;
-
+	bool ecpt_loaded = false;
 	if (gran == page_4KB) {
 		way_allocator = &alloc_4K_way_default;
 	} else if (gran == page_2MB) {
@@ -1035,11 +1036,17 @@ static void fix_lazy_ECPT(ECPT_desc_t *ecpt, Granularity gran)
 		   gran, &way_start, &way_end, &tmp /* place holder */
 	);
 
-	ECPT_info_verbose("fixup for way_start=%x way_end=%x\n", way_start,
+	pr_info("fixup for way_start=%x way_end=%x\n", way_start,
 			  way_end);
+	ecpt_loaded = check_ecpt_all_way_loaded(ecpt);
 	for (way = way_start; way < way_end; way++) {
 		ecpt->table[way] = way_allocator();
 	}
+	if (ecpt_loaded) {
+		pr_info("loading current ecpt");
+		load_ECPT_desc(ecpt);
+	}
+	print_ecpt(ecpt, 0, 0, 0);
 }
 
 /**
@@ -1109,7 +1116,8 @@ ecpt_entry_t *get_ecpt_entry_from_mm(struct mm_struct *mm, uint64_t vaddr,
  * @param is_write 
  * @param gran  
  * 	When is_write = true, gran must be specified as  page_4KB, page_2MB or page_1GB
- * 		the entries are found in the corresponding ways. 
+ * 		the entries are found in the corresponding ways.
+ * 		If no way has been allocated, return status=ENTRY_NOT_FOUND
  * 		If no match is found, return an empty entry for insertion.
  * 		If no empty entry, return an entry to be evicted.
  * 	When is_write = false, gran can be unknown as welle the granularity above.
@@ -1242,8 +1250,11 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 		/* TODO: eviction */
 		return NULL;
 	}
-	/* nothing empty and no where to kick. Should not reach here */
-	BUG();
+	/* nothing empty and no where to kick.*/
+
+	entry_ptr = NULL;
+	*status = ENTRY_NOT_FOUND;
+	*way_found = -1;
 	return entry_ptr;
 }
 
@@ -1515,10 +1526,12 @@ int ecpt_insert(ECPT_desc_t *ecpt, uint64_t vaddr, uint64_t paddr,
 
 	ECPT_info_verbose("Status=%d entry_ptr at %llx\n", status,
 			  (uint64_t)entry_ptr);
-	if (status == ENTRY_NOT_FOUND) {
-		pr_err("Cannot find any matched entry!");
-		return -EINVAL;
-	} else if (status == ENTRY_EMPTY || status == ENTRY_MATCHED) {
+	// if (status == ENTRY_NOT_FOUND) {
+	// 	pr_err("Cannot find any matched entry!");
+	// 	WARN(1, "can insert if this is a huge page because of lazy way creation");
+	// 	return -EINVAL;
+	// } else 
+	if (status == ENTRY_EMPTY || status == ENTRY_MATCHED) {
 		/* match or empty entry we can just insert */
 		WARN(entry_ptr == NULL,
 		     "Invalid entry_ptr=%llx returned from ecpt_search_fit_entry\n",
@@ -1529,7 +1542,7 @@ int ecpt_insert(ECPT_desc_t *ecpt, uint64_t vaddr, uint64_t paddr,
 		if (status == ENTRY_EMPTY) {
 			inc_occupancy(ecpt, entry_way);
 		}
-	} else if (status == ENTRY_OCCUPIED) {
+	} else if (status == ENTRY_OCCUPIED || status == ENTRY_NOT_FOUND) {
 		ret = kick_to_insert(ecpt, &entry, way_start, way_end);
 		if (ret) {
 			WARN(1,
@@ -1635,7 +1648,7 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 				*failed_entry_cnt = *failed_entry_cnt + 1;
 				// PRINT_ECPT_ENTRY_INFO(new_ptr);
 			} else {
-				pr_info("it=%x old_ptr at %llx hash=%llx new_ptr at %llx\n",
+				ECPT_info_verbose("it=%x old_ptr at %llx hash=%llx new_ptr at %llx\n",
 				it, (uint64_t) old_ptr, hash, (uint64_t) new_ptr);
 				ecpt_entry_overwrite(new_ptr, old_ptr);
 				inc_occupancy(ecpt, new_way);
@@ -1658,7 +1671,7 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 		spin_unlock(dest_ptl);
 	}
 
-	pr_info("ecpt->table[%d].rehash=%x\n", way, ecpt->rehash_ptr[way]);
+	ECPT_info_verbose("ecpt->table[%d].rehash=%x\n", way, ecpt->rehash_ptr[way]);
 
 	return it;
 }
@@ -1802,7 +1815,7 @@ int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way)
 
 	/* load resized way to register if this the running process*/
 	if (ecpt_curr_loaded) {
-		pr_info("load way=%d new_way=%d\n", way, new_way);
+		ECPT_info_verbose("load way=%d new_way=%d\n", way, new_way);
 		load_ecpt_specific_way(ecpt, way);
 		load_ecpt_specific_way(ecpt, new_way);
 	}
@@ -2485,6 +2498,17 @@ static bool check_ecpt_way_loaded_in_cr(ECPT_desc_t *ecpt, uint32_t way)
 	unsigned long cr_pa = read_curr_ecpt_cr_pa(way);
 	uint64_t virt_base = GET_HPT_BASE_VIRT(ecpt->table[way]);
 	return __pa(virt_base) == cr_pa;
+}
+
+static bool check_ecpt_all_way_loaded(ECPT_desc_t *ecpt)
+{
+	uint16_t i = 0;
+	for (i = 0; i < ECPT_TOTAL_WAY; i++) {
+		if(!check_ecpt_way_loaded_in_cr(ecpt, i)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 static void print_curr_ecpt_crs(void)
