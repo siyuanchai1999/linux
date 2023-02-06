@@ -1241,6 +1241,8 @@ static inline int pud_none_or_trans_huge_or_dev_or_clear_bad(pud_t *pud)
 	return 0;
 }
 
+#ifndef __HAVE_ARCH_PUD_TRANS_UNSTABLE
+#define __HAVE_ARCH_PUD_TRANS_UNSTABLE
 /* See pmd_trans_unstable for discussion. */
 static inline int pud_trans_unstable(pud_t *pud)
 {
@@ -1251,6 +1253,7 @@ static inline int pud_trans_unstable(pud_t *pud)
 	return 0;
 #endif
 }
+#endif
 
 #ifndef pmd_read_atomic
 static inline pmd_t pmd_read_atomic(pmd_t *pmdp)
@@ -1345,6 +1348,8 @@ static inline int pmd_none_or_trans_huge_or_clear_bad(pmd_t *pmd)
  * split_huge_pmd returns (because it may have run when the pmd become
  * null, but then a page fault can map in a THP and not a regular page).
  */
+#ifndef __HAVE_ARCH_PMD_TRANS_UNSTABLE
+#define __HAVE_ARCH_PMD_TRANS_UNSTABLE
 static inline int pmd_trans_unstable(pmd_t *pmd)
 {
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
@@ -1353,6 +1358,7 @@ static inline int pmd_trans_unstable(pmd_t *pmd)
 	return 0;
 #endif
 }
+#endif
 
 /*
  * the ordering of these checks is important for pmds with _page_devmap set.

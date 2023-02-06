@@ -272,14 +272,17 @@ pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 				     pud_t *pudp);
 
-static inline pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm,
-					unsigned long addr, pud_t *pudp)
+#define __HAVE_ARCH_PMD_TRANS_UNSTABLE
+inline int pmd_trans_unstable(pmd_t *pmd);
+
+#define __HAVE_ARCH_PUD_TRANS_UNSTABLE
+static inline int pud_trans_unstable(pud_t *pud)
 {
-	pud_t ret = *pudp;
-	int res = ecpt_mm_invalidate(mm, addr, page_1GB);
-
-	WARN(res, "Fail to invalid 1GB page %lx \n", addr);
-	return ret;
+#if defined(CONFIG_TRANSPARENT_HUGEPAGE) &&			\
+	defined(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
+	return 0;
+#else
+	return 0;
+#endif
 }
-
 #endif /* _ASM_X86_ECPT_INTERFACE_H */

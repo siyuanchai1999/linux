@@ -68,28 +68,56 @@ static inline void __pte_free_tlb(struct mmu_gather *tlb, struct page *pte,
 	___pte_free_tlb(tlb, pte);
 }
 
+#ifdef CONFIG_X86_64_ECPT
+static inline void pmd_populate_kernel(struct mm_struct *mm,
+				       pmd_t *pmd, pte_t *pte)
+{
+	/* For ecpt no pte page should be connected to pmd */
+	WARN(1, "pmd_populate_kernel not implemented with ECPT!\n");
+}
+#else
 static inline void pmd_populate_kernel(struct mm_struct *mm,
 				       pmd_t *pmd, pte_t *pte)
 {
 	paravirt_alloc_pte(mm, __pa(pte) >> PAGE_SHIFT);
+	WARN(1, "pmd_populate_kernel not implemented with ECPT!\n");
 	set_pmd(pmd, __pmd(__pa(pte) | _PAGE_TABLE));
 }
+#endif
 
+#ifdef CONFIG_X86_64_ECPT
+static inline void pmd_populate_kernel_safe(struct mm_struct *mm,
+				       pmd_t *pmd, pte_t *pte)
+{
+	/* For ecpt no pte page should be connected to pmd */
+	WARN(1, "pmd_populate_kernel_safe not implemented with ECPT!\n");
+}
+#else
 static inline void pmd_populate_kernel_safe(struct mm_struct *mm,
 				       pmd_t *pmd, pte_t *pte)
 {
 	paravirt_alloc_pte(mm, __pa(pte) >> PAGE_SHIFT);
+	WARN(1, "pmd_populate_kernel_safe not implemented with ECPT!\n");
 	set_pmd_safe(pmd, __pmd(__pa(pte) | _PAGE_TABLE));
 }
+#endif
 
+#ifdef CONFIG_X86_64_ECPT
+static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
+				struct page *pte)
+{
+	/* For ecpt no pte page should be connected to pmd */
+}
+#else
 static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 				struct page *pte)
 {
 	unsigned long pfn = page_to_pfn(pte);
-
+	WARN(1, "pmd_populate not implemented with ECPT!\n");
 	paravirt_alloc_pte(mm, pfn);
 	set_pmd(pmd, __pmd(((pteval_t)pfn << PAGE_SHIFT) | _PAGE_TABLE));
 }
+#endif
 
 #if CONFIG_PGTABLE_LEVELS > 2
 extern void ___pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmd);
