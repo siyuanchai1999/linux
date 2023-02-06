@@ -36,6 +36,9 @@ void p4d_clear_bad(p4d_t *p4d)
 void pud_clear_bad(pud_t *pud)
 {
 	pud_ERROR(*pud);
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "clear pud at %llx may trigger wrong ECPT stats!\n", (uint64_t) pud);
+#endif
 	pud_clear(pud);
 }
 #endif
@@ -48,6 +51,9 @@ void pud_clear_bad(pud_t *pud)
 void pmd_clear_bad(pmd_t *pmd)
 {
 	pmd_ERROR(*pmd);
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "clear pmd at %llx may trigger wrong ECPT stats!\n", (uint64_t) pmd);
+#endif
 	pmd_clear(pmd);
 }
 
@@ -195,6 +201,7 @@ pmd_t pmdp_invalidate(struct vm_area_struct *vma, unsigned long address,
 		     pmd_t *pmdp)
 {
 	pmd_t old = pmdp_establish(vma, address, pmdp, pmd_mkinvalid(*pmdp));
+	WARN(1, "pmdp_invalidate not implemented with ECPT\n");
 	flush_pmd_tlb_range(vma, address, address + HPAGE_PMD_SIZE);
 	return old;
 }

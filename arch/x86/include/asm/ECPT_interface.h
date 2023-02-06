@@ -276,13 +276,6 @@ pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 inline int pmd_trans_unstable(pmd_t *pmd);
 
 #define __HAVE_ARCH_PUD_TRANS_UNSTABLE
-static inline int pud_trans_unstable(pud_t *pud)
-{
-#if defined(CONFIG_TRANSPARENT_HUGEPAGE) &&			\
-	defined(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
-	return 0;
-#else
-	return 0;
-#endif
-}
+inline int pud_trans_unstable(pud_t *pud);
+
 #endif /* _ASM_X86_ECPT_INTERFACE_H */

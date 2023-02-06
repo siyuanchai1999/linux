@@ -2275,13 +2275,56 @@ pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 inline int pmd_trans_unstable(pmd_t *pmd)
 {
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
-	// return (pmd != ((pmd_t *) &pte_default)) && pmd_none_or_trans_huge_or_clear_bad(pmd);
-	return (pmd != ((pmd_t *) &pte_default)) && pmd_trans_huge(*pmd);
+	pmd_t pmdval = pmd_read_atomic(pmd);
+	barrier();
+	
+	if (pmd == ((pmd_t *) &pte_default) || pmd_none(pmdval))  {
+		/* pmd actually not in ECPT */
+		return 0;
+	}
+
+	/* For ECPT case, it's unstable if it's trans_huge or bad */
+	if (pmd_trans_huge(*pmd)) {
+		return 1;
+	}
+
+	if (unlikely(pmd_bad(pmdval))) {
+		pmd_clear_bad(pmd);
+		return 1;
+	}
+
+	return 0;
 #else
 	return 0;
 #endif
 }
 
+inline int pud_trans_unstable(pud_t *pud)
+{
+#if defined(CONFIG_TRANSPARENT_HUGEPAGE) &&			\
+	defined(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
+	pud_t pudval = READ_ONCE(*pud);
+
+	if (pud == ((pud_t *) &pte_default) || pud_none(pudval))  {
+		/* pmd actually not in ECPT */
+		return 0;
+	}
+
+	/**
+	 * copied from pud_none_or_trans_huge_or_dev_or_clear_bad 
+	 * but allow pud to be none since default case is none
+	 * */
+	if (pud_trans_huge(pudval) || pud_devmap(pudval))
+		return 1;
+	if (unlikely(pud_bad(pudval))) {
+		pud_clear_bad(pud);
+		return 1;
+	}
+	return 0;
+#else
+	return 0;
+#endif
+}
 
 uint64_t *get_ptep_with_gran(struct ecpt_entry *entry, unsigned long vaddr,
 			     Granularity g)
