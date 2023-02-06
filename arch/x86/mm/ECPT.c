@@ -52,6 +52,7 @@
 
 uint32_t way_to_crN[ECPT_MAX_WAY] = { ECPT_WAY_TO_CR_SEQ };
 pte_t pte_default = { .pte = 0 };
+struct page * pte_page_default = NULL;
 
 static struct workqueue_struct *rehash_wq = NULL;
 #define ECPT_REHASH_WQ_NAME "ecpt_rehash_wq"
@@ -173,6 +174,14 @@ static uint32_t get_rand_way(uint32_t n_way)
 	}
 
 	return way % n_way;
+}
+
+static void init_pte_page_default(gfp_t gfp) 
+{
+	pte_page_default = alloc_page(gfp);
+	if (!pte_page_default){
+		WARN(1, "init_pte_page_default Fail!\n");
+	}
 }
 
 static inline uint16_t ecpt_entry_count_valid_pte_num(ecpt_entry_t *e)
@@ -953,6 +962,12 @@ void pgd_free(struct mm_struct *mm, pgd_t *map_desc)
 	ecpt_dtor(ecpt);
 	kfree(ecpt);
 }
+
+pgtable_t pte_alloc_one(struct mm_struct *mm)
+{
+	return pte_page_default;
+}
+
 /**
  * @brief based on vaddr and granularity
  * 	select all possible ways that can contain such entries
@@ -2272,60 +2287,6 @@ pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	return ret;
 }
 
-inline int pmd_trans_unstable(pmd_t *pmd)
-{
-#ifdef CONFIG_TRANSPARENT_HUGEPAGE
-	pmd_t pmdval = pmd_read_atomic(pmd);
-	barrier();
-	
-	if (pmd == ((pmd_t *) &pte_default) || pmd_none(pmdval))  {
-		/* pmd actually not in ECPT */
-		return 0;
-	}
-
-	/* For ECPT case, it's unstable if it's trans_huge or bad */
-	if (pmd_trans_huge(*pmd)) {
-		return 1;
-	}
-
-	if (unlikely(pmd_bad(pmdval))) {
-		pmd_clear_bad(pmd);
-		return 1;
-	}
-
-	return 0;
-#else
-	return 0;
-#endif
-}
-
-inline int pud_trans_unstable(pud_t *pud)
-{
-#if defined(CONFIG_TRANSPARENT_HUGEPAGE) &&			\
-	defined(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
-	pud_t pudval = READ_ONCE(*pud);
-
-	if (pud == ((pud_t *) &pte_default) || pud_none(pudval))  {
-		/* pmd actually not in ECPT */
-		return 0;
-	}
-
-	/**
-	 * copied from pud_none_or_trans_huge_or_dev_or_clear_bad 
-	 * but allow pud to be none since default case is none
-	 * */
-	if (pud_trans_huge(pudval) || pud_devmap(pudval))
-		return 1;
-	if (unlikely(pud_bad(pudval))) {
-		pud_clear_bad(pud);
-		return 1;
-	}
-	return 0;
-#else
-	return 0;
-#endif
-}
-
 uint64_t *get_ptep_with_gran(struct ecpt_entry *entry, unsigned long vaddr,
 			     Granularity g)
 {
@@ -2444,6 +2405,7 @@ void ecpt_init(void)
 	int ret = 0;
 	ret = init_rehash_workqueue();
 	WARN(ret, "Fail to init rehash workqueue\n");
+	init_pte_page_default(__userpte_alloc_gfp);
 }
 
 int ecpt_mm_update_prot(struct mm_struct *mm, uint64_t vaddr,

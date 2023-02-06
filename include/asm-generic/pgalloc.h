@@ -91,6 +91,7 @@ static inline pgtable_t pte_alloc_one(struct mm_struct *mm)
  * done with a reference count in struct page.
  */
 
+#ifndef __HAVE_ARCH_PTE_FREE
 /**
  * pte_free - free PTE-level user page table page
  * @mm: the mm_struct of the current context
@@ -101,7 +102,7 @@ static inline void pte_free(struct mm_struct *mm, struct page *pte_page)
 	pgtable_pte_page_dtor(pte_page);
 	__free_page(pte_page);
 }
-
+#endif
 
 #if CONFIG_PGTABLE_LEVELS > 2
 

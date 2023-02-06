@@ -233,6 +233,22 @@ static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 #define pte_alloc(mm, pmd) (NULL)
 #define __ARCH_HAS_PTE_ALLOC
 
+#define __HAVE_ARCH_PTE_FREE
+/**
+ * pte_free - free PTE-level user page table page. 
+ * ECPT should not be expected to execute this.
+ * @mm: the mm_struct of the current context
+ * @pte_page: the `struct page` representing the page table
+ */
+static inline void pte_free(struct mm_struct *mm, struct page *pte_page)
+{
+	if (pte_page != pte_page_default) {
+		WARN(1, "free page at %llx\n", (uint64_t) pte_page);
+		pgtable_pte_page_dtor(pte_page);
+		__free_page(pte_page);
+	}
+}
+
 #define __ARCH_HAS_PUD_ALLOC
 static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 		unsigned long address)
@@ -277,5 +293,18 @@ inline int pmd_trans_unstable(pmd_t *pmd);
 
 #define __HAVE_ARCH_PUD_TRANS_UNSTABLE
 inline int pud_trans_unstable(pud_t *pud);
+
+#define __HAVE_ARCH_PMD_OFF_SAFE
+static inline pmd_t *pmd_off_safe(struct mm_struct *mm, unsigned long va)
+{
+	return pmd_offset_ecpt(mm, va);
+}
+
+#define __HAVE_ARCH_PGTABLE_DEPOSIT
+void pgtable_trans_huge_deposit(struct mm_struct *mm, pmd_t *pmdp,
+				pgtable_t pgtable);
+
+#define __HAVE_ARCH_PGTABLE_WITHDRAW
+pgtable_t pgtable_trans_huge_withdraw(struct mm_struct *mm, pmd_t *pmdp);
 
 #endif /* _ASM_X86_ECPT_INTERFACE_H */

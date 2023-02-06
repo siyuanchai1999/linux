@@ -3,6 +3,7 @@
 
 #include <asm/ECPT_defs.h>
 #include <linux/types.h>
+#include <asm/pgtable_types.h>
 
 #define pgprot_encrypted(prot)	__pgprot(__sme_set(pgprot_val(prot)))
 #define pgprot_decrypted(prot)	__pgprot(__sme_clr(pgprot_val(prot)))
@@ -67,6 +68,8 @@ extern uint32_t way_to_crN[ECPT_MAX_WAY];
 extern ECPT_desc_t ecpt_desc;
 
 extern pte_t pte_default;
+
+extern struct page *pte_page_default;
 
 void ecpt_init(void);
 
