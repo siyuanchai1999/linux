@@ -190,7 +190,7 @@ static inline uint16_t ecpt_entry_count_valid_pte_num(ecpt_entry_t *e)
 	pte_t pte_val;
 	for (; i < ECPT_CLUSTER_FACTOR; i++) {
 		pte_val.pte = e->pte[i];
-		if (pte_present(pte_val)) {
+		if (!pte_none(pte_val)) {
 			cnt++;
 		}
 	}
@@ -275,7 +275,7 @@ inline bool empty_entry(ecpt_entry_t *e)
 static inline void ecpt_entry_clear_ptep(ecpt_entry_t *e, uint64_t *ptep)
 {
 	pte_t pte = { .pte = *ptep };
-	if (pte_present(pte)) {
+	if (!pte_none(pte)) {
 		ecpt_entry_dec_valid_pte_num(e);
 	}
 
@@ -314,8 +314,8 @@ static int ecpt_entry_do_merge(ecpt_entry_t *dest, ecpt_entry_t *src)
 	for (; idx < ECPT_CLUSTER_FACTOR; idx++) {
 		dest_pte.pte = dest->pte[idx];
 		src_pte.pte = src->pte[idx];
-		if (pte_present(src_pte)) {
-			if (pte_present(dest_pte)) {
+		if (!pte_none(src_pte)) {
+			if (!pte_none(dest_pte)) {
 				if (!pte_same(src_pte, dest_pte)) {
 					PRINT_ECPT_ENTRY_INFO(dest);
 					PRINT_ECPT_ENTRY_INFO(src);
@@ -2091,7 +2091,7 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte,
 	ecpt_entry_set_pte(e, pte, addr);
 	ecpt_entry_set_vpn(e, vpn);
 
-	if (!pte_present(orig_pte) && pte_present(pte)) {
+	if (pte_none(orig_pte) && !pte_none(pte)) {
 		ecpt_entry_inc_valid_pte_num(e);
 
 		if (update_stats && ecpt_entry_get_valid_pte_num(e) == 1) {
