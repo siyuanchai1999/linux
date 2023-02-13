@@ -2098,24 +2098,43 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte,
 	pte_t orig_pte = *ptep;
 	uint32_t way;
 
+	BUG_ON(gran != page_4KB && gran != page_2MB && gran != page_1GB);
+
 	find_way_vpn_from_ptep(mm->map_desc, ptep, addr, gran, &way, &vpn);
 	if (way == -1) {
 		WARN(1, "update ptep at %llx not in ecpt", (uint64_t) ptep);
 		return -1;
 	}
 
-	e = get_ecpt_entry_from_ptep(ptep, addr);
-
-	ECPT_info_verbose("addr=%lx ptep at %llx pte=%llx", addr,
-			  (uint64_t)ptep, (uint64_t)pte.pte);
-	PRINT_ECPT_ENTRY_DEBUG(e);
-
-	WARN(!(ecpt_entry_empty_vpn(e) || ecpt_entry_match_vpn(e, vpn)),
-	     "Cannot set pte=%lx at %llx", pte.pte, (uint64_t)e);
 	WARN(!pte_present(pte), "Set pte to be not present pte=%lx at %llx",
 	     pte.pte, (uint64_t)e);
+	
+	if (gran == page_4KB) {
+		e = get_ecpt_entry_from_ptep(ptep, addr);
+		WARN(!(ecpt_entry_empty_vpn(e) || ecpt_entry_match_vpn(e, vpn)),
+	     		"Cannot set pte=%lx at %llx", pte.pte, (uint64_t)e);
+		ecpt_entry_set_pte(e, pte, addr);
+	} else if (gran == page_2MB) {
+		e = get_ecpt_entry_from_pmdp((pmd_t *) ptep, addr);
 
-	ecpt_entry_set_pte(e, pte, addr);
+		WARN(!(ecpt_entry_empty_vpn(e) || ecpt_entry_match_vpn(e, vpn)),
+	     		"Cannot set pte=%lx at %llx", pte.pte, (uint64_t)e);
+
+		pte.pte = pte.pte | _PAGE_PSE;
+		ecpt_entry_set_pmd(e, pte, addr);
+	} else if (gran == page_1GB) {
+		e = get_ecpt_entry_from_pudp((pud_t *) ptep, addr);
+
+		WARN(!(ecpt_entry_empty_vpn(e) || ecpt_entry_match_vpn(e, vpn)),
+	     		"Cannot set pte=%lx at %llx", pte.pte, (uint64_t)e);
+
+		pte.pte = pte.pte | _PAGE_PSE;
+		ecpt_entry_set_pud(e, pte, addr);
+	} else {
+		/* invalid granularity */
+		return -EINVAL;
+	}
+	
 	ecpt_entry_set_vpn(e, vpn);
 
 	if (pte_none(orig_pte) && !pte_none(pte)) {
