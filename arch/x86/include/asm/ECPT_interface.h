@@ -236,6 +236,44 @@ static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 	__pte;						\
 })
 
+static inline pte_t * ptep_get_next(struct mm_struct *mm, pte_t * ptep, unsigned long addr) {
+	if (ptep == &pte_default) {
+		return &pte_default;
+	}
+	
+	if (ecpt_pte_index(addr) < ECPT_CLUSTER_FACTOR - 1) {
+		return ptep + 1;
+	} else {
+		return pte_offset_ecpt(mm, addr + PAGE_SIZE);
+	}
+}
+
+static inline pmd_t * pmdp_get_next(struct mm_struct *mm, pmd_t *pmdp, unsigned long addr) {
+	if (pmdp == (pmd_t *) &pte_default) {
+		return (pmd_t *) &pte_default;
+	}
+
+	if (ecpt_pmd_index(addr) < ECPT_CLUSTER_FACTOR - 1) {
+		return pmdp + 1;
+	} else {
+		return pmd_offset_ecpt(mm, addr + PAGE_SIZE_2MB);
+	}
+}
+
+static inline pud_t * pudp_get_next(struct mm_struct *mm, pud_t *pudp, unsigned long addr) {
+	if (pudp == (pud_t *) &pte_default) {
+		return (pud_t *) &pte_default;
+	}
+
+	if (ecpt_pud_index(addr) < ECPT_CLUSTER_FACTOR - 1) {
+		return pudp + 1;
+	} else {
+		return pud_offset_ecpt(mm, addr + PAGE_SIZE_1GB);
+	}
+}
+
+
+
 // #define pte_unmap_unlock(pte, ptl)	do {} while (0)
 
 #define pte_alloc(mm, pmd) (NULL)
@@ -252,8 +290,6 @@ static inline void pte_free(struct mm_struct *mm, struct page *pte_page)
 {
 	if (pte_page != pte_page_default) {
 		WARN(1, "free page at %llx\n", (uint64_t) pte_page);
-		pgtable_pte_page_dtor(pte_page);
-		__free_page(pte_page);
 	}
 }
 

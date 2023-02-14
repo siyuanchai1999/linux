@@ -113,7 +113,9 @@ ecpt_entry_t * get_ecpt_entry_from_mm(struct mm_struct* mm, uint64_t vaddr, Gran
 ecpt_entry_t * get_hpt_entry(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g, uint32_t * way);
 
 /* get all entries  */
-pte_t * get_ptep_ecpt(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g);
+// pte_t * get_ptep_ecpt(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity *g);
+int get_ptep_ecpt_all_gran(ECPT_desc_t * ecpt, uint64_t vaddr,
+				struct ecpt_lookup_ret * lookup);
 ecpt_entry_t * ecpt_search_fit(ECPT_desc_t * ecpt, uint64_t vaddr, Granularity gran);
 // ecpt_entry_t * ecpt_search_fit_entry(ECPT_desc_t * ecpt, uint64_t vaddr, bool is_write,
 	// Granularity* gran, enum search_entry_status * status);

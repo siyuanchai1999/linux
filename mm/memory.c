@@ -85,6 +85,7 @@
 
 #ifdef CONFIG_X86_64_ECPT
 #include <asm/ECPT.h>
+#include <asm/ECPT_interface.h>
 #endif
 
 #include "pgalloc-track.h"
@@ -1370,8 +1371,10 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 	return ret;
 }
 
+
+#ifdef CONFIG_X86_64_ECPT
 static unsigned long zap_pte_range(struct mmu_gather *tlb,
-				struct vm_area_struct *vma, pmd_t *pmd,
+				struct vm_area_struct *vma, pmd_t *pmd, pte_t * pte_pre_lookup,
 				unsigned long addr, unsigned long end,
 				struct zap_details *details
 )
@@ -1389,9 +1392,7 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	pr_info_verbose("addr=%lx end=%lx\n", addr, end);
 again:
 	init_rss_vec(rss);
-
-	start_pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
-
+	start_pte = pte_offset_map_lock(mm, pmd, addr, &ptl);	
 
 	pte = start_pte;
 	flush_tlb_batched_pending(mm);
@@ -1487,13 +1488,11 @@ again:
 			print_bad_pte(vma, addr, ptent, NULL);
 		pte_clear_not_present_full(mm, addr, pte, tlb->fullmm);
 	}
-#ifdef CONFIG_X86_64_ECPT
-	while (((addr += PAGE_SIZE)) &&
-			(addr != end) &&
-		 	(pte = pte_offset_map(mm, addr)) );
-#else
-	while (pte++, addr += PAGE_SIZE, addr != end);
-#endif
+	while((addr += PAGE_SIZE, addr != end) 
+		&& (pte = ptep_get_next(mm, pte, addr - PAGE_SIZE)));
+	/* Attention: this is executed in order */
+	/* we need to increment addr first as later goto again needs addr != end */
+
 	add_mm_rss_vec(mm, rss);
 	arch_leave_lazy_mmu_mode();
 
@@ -1521,80 +1520,139 @@ again:
 	return addr;
 }
 
+static inline unsigned long zap_pmd_range(struct mmu_gather *tlb,
+				struct vm_area_struct *vma, pud_t *pud, pmd_t * pmd,
+				unsigned long addr, unsigned long end,
+				struct zap_details *details)
+{
+	unsigned long next;
 
+	if (pmd == NULL) {
+		pmd = pmd_offset_map_with_mm(vma->vm_mm, pud, addr);
+	}
+	pr_info_verbose("addr=%lx end=%lx\n", addr, end);
+	do {
+		next = pmd_addr_end(addr, end);
+		if (is_swap_pmd(*pmd) || pmd_trans_huge(*pmd) || pmd_devmap(*pmd)) {
+			if (next - addr != HPAGE_PMD_SIZE){
+				__split_huge_pmd(vma, pmd, addr, false, NULL);
+			}
+			else if (zap_huge_pmd(tlb, vma, pmd, addr))
+				goto next;
+			/* fall through */
+		} else if (details && details->single_page &&
+			   PageTransCompound(details->single_page) &&
+			   next - addr == HPAGE_PMD_SIZE && pmd_none(*pmd)) {
+			spinlock_t *ptl = pmd_lock(tlb->mm, pmd);
+			/*
+			 * Take and drop THP pmd lock so that we cannot return
+			 * prematurely, while zap_huge_pmd() has cleared *pmd,
+			 * but not yet decremented compound_mapcount().
+			 */
+			spin_unlock(ptl);
+		}
 
-#ifdef CONFIG_X86_64_ECPT
+		/*
+		 * Here there can be other concurrent MADV_DONTNEED or
+		 * trans huge page faults running, and if the pmd is
+		 * none or trans huge it can change under us. This is
+		 * because MADV_DONTNEED holds the mmap_lock in read
+		 * mode.
+		 */
+		// if (pmd_none_or_trans_huge_or_clear_bad(pmd))
+		// 	goto next;
+		if (pmd_trans_unstable(pmd)) {
+			goto next;
+		}
+		next = zap_pte_range(tlb, vma, pmd, NULL, addr, next, details);
+next:
+		cond_resched();
+	}
+	while((next != end) 
+		&& (pmd = pmdp_get_next(vma->vm_mm, pmd, addr), addr = next));
+
+	return addr;
+}
+
+static inline unsigned long zap_pud_range(struct mmu_gather *tlb,
+				struct vm_area_struct *vma, p4d_t *p4d, pud_t * pud,
+				unsigned long addr, unsigned long end,
+				struct zap_details *details)
+{
+	unsigned long next;
+
+	if (pud == NULL) {
+		pud = pud_offset_map_with_mm(vma->vm_mm, p4d, addr);
+	}
+	do {
+		next = pud_addr_end(addr, end);
+		if (pud_trans_huge(*pud) || pud_devmap(*pud)) {
+			if (next - addr != HPAGE_PUD_SIZE) {
+				mmap_assert_locked(tlb->mm);
+				split_huge_pud(vma, pud, addr);
+			} else if (zap_huge_pud(tlb, vma, pud, addr))
+				goto next;
+			/* fall through */
+		}
+		// if (pud_none_or_clear_bad(pud))
+		// 	continue;
+		if (pud_trans_unstable(pud)) {
+			continue;
+		}
+		next = zap_pmd_range(tlb, vma, pud, NULL /* pmd */,
+		 		addr, next, details);
+next:
+		cond_resched();
+	} 
+	while((next != end) 
+		&& (pud = pudp_get_next(vma->vm_mm, pud, addr), addr = next));
+	// while (pud++, addr = next, addr != end);
+
+	return addr;
+}
+
 void unmap_page_range(struct mmu_gather *tlb,
 			     struct vm_area_struct *vma,
 			     unsigned long addr, unsigned long end,
 			     struct zap_details *details)
 {	
 	unsigned long next;
-	Granularity g = unknown;
-	ecpt_entry_t entry;
+	// Granularity g = unknown;
+	// ecpt_entry_t entry;
+	struct ecpt_lookup_ret lookup_ret;
+
 	/* We don't check kernel page table stats here in user process's page table */
+	pr_info_verbose("addr=%lx end=%lx\n", addr, end);
 	check_ecpt_user_detail(vma->vm_mm->map_desc, 0 /* print_entry */);
+
+	memset(&lookup_ret, 0, sizeof(struct ecpt_lookup_ret));
+	lookup_ret.g = unknown;
+	
 	do {
-		entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
-		if (empty_entry(&entry) || g == page_4KB) {
+		// entry = ecpt_mm_peek(vma->vm_mm, addr, &g);
+		get_ptep_ecpt_all_gran(vma->vm_mm->map_desc, addr, &lookup_ret);
+		if (lookup_ret.g == unknown) {
+			next = cluster_pte_addr_end(addr, end);
+		} else if (lookup_ret.g == page_4KB) {
 			next = pmd_addr_end(addr, end);
 			next = zap_pte_range(tlb, vma, 
-				NULL,	/* pmd */
+				NULL, lookup_ret.ptep,
 				addr, next, details);
 
-		} else if (g == page_2MB) {
-			pmd_t * pmd = pmd_offset_from_ecpt_entry(&entry, addr);
-			WARN(1, "2M unmap not implemented yet");
-			next = pmd_addr_end(addr, end);
-			
-			if (is_swap_pmd(*pmd) || pmd_trans_huge(*pmd) || pmd_devmap(*pmd)) {
-				if (next - addr != HPAGE_PMD_SIZE)
-					__split_huge_pmd(vma, pmd, addr, false, NULL);
-				else if (zap_huge_pmd(tlb, vma, pmd, addr))
-					goto next;
-				/* fall through */
-			} else if (details && details->single_page &&
-				PageTransCompound(details->single_page) &&
-				next - addr == HPAGE_PMD_SIZE && pmd_none(*pmd)) {
-				spinlock_t *ptl = pmd_lock(tlb->mm, pmd);
-				/*
-				* Take and drop THP pmd lock so that we cannot return
-				* prematurely, while zap_huge_pmd() has cleared *pmd,
-				* but not yet decremented compound_mapcount().
-				*/
-				spin_unlock(ptl);
-			}
+		} else if (lookup_ret.g == page_2MB) {
+			next = cluster_pmd_addr_end(addr, end);
+			next = zap_pmd_range(tlb, vma, 
+				NULL, lookup_ret.pmdp,
+				addr, next, details);
 
-			/*
-			* Here there can be other concurrent MADV_DONTNEED or
-			* trans huge page faults running, and if the pmd is
-			* none or trans huge it can change under us. This is
-			* because MADV_DONTNEED holds the mmap_lock in read
-			* mode.
-			*/
-			if (pmd_none_or_trans_huge_or_clear_bad(pmd))
-			goto next;
-
-
-		} else if (g == page_1GB) {
-			pud_t * pud = pud_offset_from_ecpt_entry(&entry, addr);
-			next = pud_addr_end(addr, end);
-			if (pud_trans_huge(*pud) || pud_devmap(*pud)) {
-				if (next - addr != HPAGE_PUD_SIZE) {
-					mmap_assert_locked(tlb->mm);
-					split_huge_pud(vma, pud, addr);
-				} else if (zap_huge_pud(tlb, vma, pud, addr))
-					goto next;
-				/* fall through */
-			}
-			if (pud_none_or_clear_bad(pud))
-				continue;
-
+		} else if (lookup_ret.g == page_1GB) {
+			next = cluster_pud_addr_end(addr, end);
+			next = zap_pud_range(tlb, vma, 
+				NULL, lookup_ret.pudp,
+				addr, next, details);
 		} else {
 			BUG();
 		}
-
-next:
 		cond_resched();
 	} while (addr = next, addr != end);
 
@@ -4608,7 +4666,7 @@ out_map:
 
 static inline vm_fault_t create_huge_pmd(struct vm_fault *vmf)
 {	
-	pr_info_verbose("is_anonymous=%d \n", vma_is_anonymous(vmf->vma));
+	pr_info_verbose("is_anonymous=%d pmdp at %llx\n", vma_is_anonymous(vmf->vma), (uint64_t) vmf->pmd);
 	if (vma_is_anonymous(vmf->vma))
 		return do_huge_pmd_anonymous_page(vmf);
 	pr_info_verbose("huge_fault at %llx \n", (uint64_t) vmf->vma->vm_ops->huge_fault);
@@ -4919,7 +4977,7 @@ retry_pud:
 	/* Huge pud page fault raced with pmd_alloc? */
 	if (pud_trans_unstable(vmf.pud))
 		goto retry_pud;
-
+	
 	if (pmd_none(*vmf.pmd) && __transparent_hugepage_enabled(vma)) {
 		ret = create_huge_pmd(&vmf);
 		pr_info_verbose("create_huge_pmd ret = %x\n", ret);
