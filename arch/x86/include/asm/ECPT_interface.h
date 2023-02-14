@@ -217,6 +217,14 @@ static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 
 #define pte_offset_kernel pte_offset_kernel
 
+#define __ARCH_HAS_PTE_OFFSET_MAP_WITH_MM
+#define pte_offset_map_with_mm(mm, dir, addr) pte_offset_ecpt((mm), (addr))
+
+#define __ARCH_HAS_PMD_OFFSET_MAP_WITH_MM
+#define pmd_offset_map_with_mm(mm, dir, addr) pmd_offset_ecpt((mm), (addr))
+
+#define __ARCH_HAS_PUD_OFFSET_MAP_WITH_MM
+#define pud_offset_map_with_mm(mm, dir, addr) pud_offset_ecpt((mm), (addr))
 
 /* return address of default entry if it doesn't exit */
 #define pte_offset_map_lock(mm, pmd, address, ptlp)	\

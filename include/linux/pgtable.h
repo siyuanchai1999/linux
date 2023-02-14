@@ -102,6 +102,10 @@ static inline pte_t *pte_offset_kernel(pmd_t *pmd, unsigned long address)
 #define pte_unmap(pte) ((void)(pte))	/* NOP */
 #endif
 
+#ifndef	 __ARCH_HAS_PTE_OFFSET_MAP_WITH_MM
+#define pte_offset_map_with_mm(mm, dir, addr) pte_offset_kernel((dir), (address))
+#endif
+
 /* Find an entry in the second-level page table.. */
 #ifndef pmd_offset
 static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
@@ -111,12 +115,20 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
 #define pmd_offset pmd_offset
 #endif
 
+#ifndef	 __ARCH_HAS_PMD_OFFSET_MAP_WITH_MM
+#define pmd_offset_map_with_mm(mm, pud, addr) pmd_offset((pud), (address))
+#endif
+
 #ifndef pud_offset
 static inline pud_t *pud_offset(p4d_t *p4d, unsigned long address)
 {
 	return p4d_pgtable(*p4d) + pud_index(address);
 }
 #define pud_offset pud_offset
+#endif
+
+#ifndef	 __ARCH_HAS_PUD_OFFSET_MAP_WITH_MM
+#define pud_offset_map_with_mm(mm, p4d, addr) pmd_offset((p4d), (address))
 #endif
 
 static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
@@ -143,6 +155,32 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
  */
 #ifndef pgd_offset_k
 #define pgd_offset_k(address)		pgd_offset(&init_mm, (address))
+#endif
+
+#ifndef __HAVE_ARCH_PMD_OFF_SAFE
+static inline pmd_t *pmd_off_safe(struct mm_struct *mm, unsigned long va)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd = NULL;
+	
+	pgd = pgd_offset(mm, va);
+	if (!pgd_present(*pgd))
+		return NULL;
+
+	p4d = p4d_offset(pgd, va);
+	if (!p4d_present(*p4d))
+		return NULL;
+
+	pud = pud_offset(p4d, va);
+	if (!pud_present(*pud))
+		return NULL;
+
+	pmd = pmd_offset(pud, va);
+
+	return
+}
 #endif
 
 /*

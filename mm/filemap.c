@@ -3209,7 +3209,11 @@ static bool filemap_map_pmd(struct vm_fault *vmf, struct page *page)
 		vmf->ptl = pmd_lock(mm, vmf->pmd);
 		if (likely(pmd_none(*vmf->pmd))) {
 			mm_inc_nr_ptes(mm);
+#ifdef CONFIG_X86_64_ECPT			
+			pmd_mk_pte_accessible(mm, vmf->pmd, vmf->address ,vmf->prealloc_pte);
+#else
 			pmd_populate(mm, vmf->pmd, vmf->prealloc_pte);
+#endif
 			vmf->prealloc_pte = NULL;
 		}
 		spin_unlock(vmf->ptl);

@@ -83,3 +83,18 @@ pgtable_t pgtable_trans_huge_withdraw(struct mm_struct *mm, pmd_t *pmdp)
 {
 	return pte_page_default;
 }
+
+inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd, 
+	unsigned long addr, struct page *pte)
+{
+	pr_info_verbose("make accessible pmdp at %llx addr= %lx\n",
+	 	(uint64_t) pmd, addr);
+	if (pmd == NULL) {
+		/* do nothing */
+	} else if  (pmd == (pmd_t *) &pte_default || ptep_is_in_ecpt(mm->map_desc, pmd, addr, page_2MB) ) {
+		ecpt_native_pmdp_get_and_clear(mm, addr, pmd);
+	} else {
+		/* x86 pmd clear. clear pmd to be zero */
+		native_pmd_clear(pmd);
+	}
+}
