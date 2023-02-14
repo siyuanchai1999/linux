@@ -607,6 +607,8 @@ static vm_fault_t __do_huge_pmd_anonymous_page(struct vm_fault *vmf,
 
 	VM_BUG_ON_PAGE(!PageCompound(page), page);
 
+	pr_info_verbose("addr=%lx pmdp at %llx\n", vmf->address, (uint64_t) vmf->pmd);
+	
 	if (mem_cgroup_charge(page, vma->vm_mm, gfp)) {
 		put_page(page);
 		count_vm_event(THP_FAULT_FALLBACK);
@@ -731,7 +733,7 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 	gfp_t gfp;
 	struct page *page;
 	unsigned long haddr = vmf->address & HPAGE_PMD_MASK;
-	pr_info_verbose("addr=%lx\n", vmf->address);
+	pr_info_verbose("addr=%lx pmdp at %llx\n", vmf->address, (uint64_t) vmf->pmd);
 	if (!transhuge_vma_suitable(vma, haddr))
 		return VM_FAULT_FALLBACK;
 	if (unlikely(anon_vma_prepare(vma)))
@@ -1587,6 +1589,7 @@ int zap_huge_pmd(struct mmu_gather *tlb, struct vm_area_struct *vma,
 	pmd_t orig_pmd;
 	spinlock_t *ptl;
 
+	pr_info_verbose("addr=%lx\n", addr);
 	tlb_change_page_size(tlb, HPAGE_PMD_SIZE);
 
 	ptl = __pmd_trans_huge_lock(pmd, vma);
@@ -1941,23 +1944,35 @@ static void __split_huge_zero_page_pmd(struct vm_area_struct *vma,
 	 *
 	 * See Documentation/vm/mmu_notifier.rst
 	 */
-	WARN(1, "__split_huge_zero_page_pmd not checked!\n");
 	pmdp_huge_clear_flush(vma, haddr, pmd);
 
 	pgtable = pgtable_trans_huge_withdraw(mm, pmd);
+#ifdef CONFIG_X86_64_ECPT
+	pmd_mk_pte_accessible(mm, &_pmd, haddr, pgtable);
+#else
 	pmd_populate(mm, &_pmd, pgtable);
+#endif
 
 	for (i = 0; i < HPAGE_PMD_NR; i++, haddr += PAGE_SIZE) {
 		pte_t *pte, entry;
 		entry = pfn_pte(my_zero_pfn(haddr), vma->vm_page_prot);
 		entry = pte_mkspecial(entry);
-		pte = pte_offset_map(&_pmd, haddr);
+#ifdef CONFIG_X86_64_ECPT
+		pte = pte_offset_map_with_mm(mm, &_pmd, haddr);
+#else
+		pte = pte_offset_map(&_pmd, addr);
+#endif
 		VM_BUG_ON(!pte_none(*pte));
 		set_pte_at(mm, haddr, pte, entry);
 		pte_unmap(pte);
 	}
 	smp_wmb(); /* make pte visible before pmd */
+#ifdef CONFIG_X86_64_ECPT
+	pmd_mk_pte_accessible(mm, pmd, haddr, pgtable);
+#else
 	pmd_populate(mm, pmd, pgtable);
+#endif
+	
 }
 
 static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
@@ -2072,7 +2087,11 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 	 * This's critical for some architectures (Power).
 	 */
 	pgtable = pgtable_trans_huge_withdraw(mm, pmd);
+#ifdef CONFIG_X86_64_ECPT
+	pmd_mk_pte_accessible(mm, &_pmd, haddr, pgtable);
+#else
 	pmd_populate(mm, &_pmd, pgtable);
+#endif
 
 	for (i = 0, addr = haddr; i < HPAGE_PMD_NR; i++, addr += PAGE_SIZE) {
 		pte_t entry, *pte;
@@ -2106,7 +2125,13 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 			if (uffd_wp)
 				entry = pte_mkuffd_wp(entry);
 		}
+
+#ifdef CONFIG_X86_64_ECPT
+		pte = pte_offset_map_with_mm(mm, &_pmd, addr);
+#else
 		pte = pte_offset_map(&_pmd, addr);
+#endif
+	
 		BUG_ON(!pte_none(*pte));
 		set_pte_at(mm, addr, pte, entry);
 		if (!pmd_migration)
@@ -2140,7 +2165,11 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 	}
 
 	smp_wmb(); /* make pte visible before pmd */
+#ifdef CONFIG_X86_64_ECPT
+	pmd_mk_pte_accessible(mm, pmd, haddr, pgtable);
+#else
 	pmd_populate(mm, pmd, pgtable);
+#endif
 
 	if (freeze) {
 		for (i = 0; i < HPAGE_PMD_NR; i++) {
@@ -2240,7 +2269,7 @@ void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 
 	pr_info_verbose("Split vma->vm_start=%lx vma->vm_end=%lx address=%lx page at %llx\n",
 		vma->vm_start, vma->vm_end, address, (uint64_t) page);
-	pmd = pmd_offset_ecpt(vma->vm_mm, address);
+	pmd = pmd_off_safe(vma->vm_mm, address);
 
 	__split_huge_pmd(vma, pmd, address, freeze, page);
 }

@@ -102,13 +102,6 @@ static inline void pmd_populate_kernel_safe(struct mm_struct *mm,
 }
 #endif
 
-#ifdef CONFIG_X86_64_ECPT
-static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
-				struct page *pte)
-{
-	/* For ecpt no pte page should be connected to pmd */
-}
-#else
 static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 				struct page *pte)
 {
@@ -117,7 +110,6 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 	paravirt_alloc_pte(mm, pfn);
 	set_pmd(pmd, __pmd(((pteval_t)pfn << PAGE_SHIFT) | _PAGE_TABLE));
 }
-#endif
 
 #if CONFIG_PGTABLE_LEVELS > 2
 extern void ___pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmd);
