@@ -726,6 +726,45 @@ unsigned long page_address_in_vma(struct page *page, struct vm_area_struct *vma)
 	return vma_address(page, vma);
 }
 
+#ifdef CONFIG_X86_64_ECPT
+pmd_t *mm_find_pmd(struct mm_struct *mm, unsigned long address)
+{
+	pmd_t *pmd = NULL;
+	pmd_t pmde;
+
+	pr_info_verbose("mm at %llx addr=%lx\n", (uint64_t) mm, address);
+
+	// pgd = pgd_offset(mm, address);
+	// if (!pgd_present(*pgd))
+	// 	goto out;
+
+	// p4d = p4d_offset(pgd, address);
+	// if (!p4d_present(*p4d))
+	// 	goto out;
+
+	// pud = pud_offset(p4d, address);
+	// if (!pud_present(*pud))
+	// 	goto out;
+
+	// pmd = pmd_offset(pud, address);
+	pmd = pmd_off_safe(mm, address);
+
+	/*
+	 * Some THP functions use the sequence pmdp_huge_clear_flush(), set_pmd_at()
+	 * without holding anon_vma lock for write.  So when looking for a
+	 * genuine pmde (in which to find pte), test present and !THP together.
+	 */
+	pmde = *pmd;
+	barrier();
+	if (!pmd_present(pmde) || pmd_trans_huge(pmde))
+		pmd = NULL;
+	/* we omit the !present case here since for ecpt, not exist means "walkable" */
+	// if (pmd_trans_huge(pmde))
+	// 	pmd = NULL;
+
+	return pmd;
+}
+#else
 pmd_t *mm_find_pmd(struct mm_struct *mm, unsigned long address)
 {
 	pgd_t *pgd;
@@ -759,6 +798,8 @@ pmd_t *mm_find_pmd(struct mm_struct *mm, unsigned long address)
 out:
 	return pmd;
 }
+
+#endif
 
 struct page_referenced_arg {
 	int mapcount;
