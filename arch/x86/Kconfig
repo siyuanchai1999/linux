@@ -1477,6 +1477,12 @@ config X86_64_ECPT
 	help
 	  ECPT is a experimental virtual translation framework proposed as a substitute for paging.
 
+config PGTABLE_OP_GENERALIZABLE
+	bool "Generalizable range operations"
+	depends on X86_64
+	help
+	  make common code operations generalizable for both HPT and radix tree design
+
 choice
 	prompt "Hash function for ECPT"
 	default X86_64_ECPT_MURMUR64

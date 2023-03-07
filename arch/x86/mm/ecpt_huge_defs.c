@@ -6,6 +6,74 @@
 #include <linux/spinlock.h>
 #include <linux/panic.h>
 
+inline int pgd_next_level_not_accessible(pgd_t *pgd) 
+{	
+	if ((pgd == (pgd_t *) &pte_default) || pgd_none(*pgd))
+		return 0;
+	if (unlikely(pgd_bad(*pgd))) {
+		pgd_clear_bad(pgd);
+		return 1;
+	}
+	return 0;
+}
+
+inline int p4d_next_level_not_accessible(p4d_t *p4d) 
+{
+	if (p4d == (p4d_t *) &pte_default || p4d_none(*p4d))
+		return 0;
+	if (unlikely(p4d_bad(*p4d))) {
+		p4d_clear_bad(p4d);
+		return 1;
+	}
+	return 0;
+}
+
+inline int pud_next_level_not_accessible(pud_t *pud) 
+{
+	pud_t pudval = READ_ONCE(*pud);
+
+	if (pud == ((pud_t *) &pte_default) || pud_none(pudval))  {
+		/* pmd actually not in ECPT */
+		return 0;
+	}
+
+	/**
+	 * copied from pud_none_or_trans_huge_or_dev_or_clear_bad 
+	 * but allow pud to be none since default case is none
+	 * */
+	if (pud_trans_huge(pudval) || pud_devmap(pudval))
+		return 1;
+	if (unlikely(pud_bad(pudval))) {
+		pud_clear_bad(pud);
+		return 1;
+	}
+	return 0;
+}
+
+inline int pmd_next_level_not_accessible(pmd_t *pmd) 
+{
+	pmd_t pmdval = pmd_read_atomic(pmd);
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE	
+	barrier();
+#endif
+	if (pmd == ((pmd_t *) &pte_default) || pmd_none(pmdval))  {
+		/* pmd actually not in ECPT */
+		return 0;
+	}
+
+	/* For ECPT case, it's unstable if it's trans_huge or bad */
+	if (pmd_trans_huge(*pmd)) {
+		return 1;
+	}
+
+	if (unlikely(pmd_bad(pmdval))) {
+		pmd_clear_bad(pmd);
+		return 1;
+	}
+
+	return 0;
+}
+/* TODO: fix pmd_trans_unstable and pud_trans_unstable */
 inline int pmd_trans_unstable(pmd_t *pmd)
 {
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE

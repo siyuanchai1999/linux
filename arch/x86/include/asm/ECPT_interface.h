@@ -209,6 +209,17 @@ static inline pud_t * pud_offset_ecpt(struct mm_struct *mm, unsigned long addr) 
 		return (pud_t *) &pte_default.pte;
 }
 
+/* ECPT has no support for P4D level page right now */
+static inline p4d_t * p4d_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
+	return (p4d_t *) &pte_default.pte;
+}
+
+/* ECPT has no support for PGD level page right now */
+static inline pgd_t * pgd_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
+	return (pgd_t *) &pte_default.pte;
+}
+
+/* TODO replace with pte_offset_map_with_mm */
 /* override definition in linux/pgtable.h */
 static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 {
@@ -226,6 +237,12 @@ static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 #define __ARCH_HAS_PUD_OFFSET_MAP_WITH_MM
 #define pud_offset_map_with_mm(mm, dir, addr) pud_offset_ecpt((mm), (addr))
 
+#define __ARCH_HAS_P4D_OFFSET_MAP_WITH_MM
+#define p4d_offset_map_with_mm(mm, dir, addr) p4d_offset_ecpt((mm), (addr))
+
+#define __ARCH_HAS_PGD_OFFSET_MAP_WITH_MM
+#define pgd_offset_map_with_mm(mm, addr) pgd_offset_ecpt((mm), (addr))
+
 /* return address of default entry if it doesn't exit */
 #define pte_offset_map_lock(mm, pmd, address, ptlp)	\
 ({							\
@@ -236,6 +253,7 @@ static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
 	__pte;						\
 })
 
+#define __ARCH_HAS_PTEP_GET_NEXT
 static inline pte_t * ptep_get_next(struct mm_struct *mm, pte_t * ptep, unsigned long addr) {
 	if (ptep == &pte_default) {
 		return &pte_default;
@@ -248,6 +266,7 @@ static inline pte_t * ptep_get_next(struct mm_struct *mm, pte_t * ptep, unsigned
 	}
 }
 
+#define __ARCH_HAS_PMDP_GET_NEXT
 static inline pmd_t * pmdp_get_next(struct mm_struct *mm, pmd_t *pmdp, unsigned long addr) {
 	if (pmdp == (pmd_t *) &pte_default) {
 		return (pmd_t *) &pte_default;
@@ -260,6 +279,7 @@ static inline pmd_t * pmdp_get_next(struct mm_struct *mm, pmd_t *pmdp, unsigned 
 	}
 }
 
+#define __ARCH_HAS_PUDP_GET_NEXT
 static inline pud_t * pudp_get_next(struct mm_struct *mm, pud_t *pudp, unsigned long addr) {
 	if (pudp == (pud_t *) &pte_default) {
 		return (pud_t *) &pte_default;
@@ -272,6 +292,32 @@ static inline pud_t * pudp_get_next(struct mm_struct *mm, pud_t *pudp, unsigned 
 	}
 }
 
+#define __ARCH_HAS_P4DP_GET_NEXT
+/* ECPT doesn't support p4dp */
+static inline p4d_t * p4dp_get_next(struct mm_struct *mm, p4d_t *p4dp, unsigned long addr) 
+{
+	return (p4d_t *) &pte_default;
+}
+
+#define __ARCH_HAS_PGDP_GET_NEXT
+/* ECPT doesn't support pgdp page */
+static inline pgd_t * pgdp_get_next(struct mm_struct *mm, pgd_t *pgdp, unsigned long addr) 
+{
+	return (pgd_t *) &pte_default;
+}
+
+#define __ARCH_HAS_PGD_NEXT_LEVEL_NOT_ACCESSIBLE
+inline int pgd_next_level_not_accessible(pgd_t *pgd);
+
+#define __ARCH_HAS_P4D_NEXT_LEVEL_NOT_ACCESSIBLE
+inline int p4d_next_level_not_accessible(p4d_t *p4d);
+
+#define __ARCH_HAS_PUD_NEXT_LEVEL_NOT_ACCESSIBLE
+inline int pud_next_level_not_accessible(pud_t *pud);
+
+#define __ARCH_HAS_PMD_NEXT_LEVEL_NOT_ACCESSIBLE
+/* see pmd_none_or_trans_huge_or_clear_bad for reference */
+inline int pmd_next_level_not_accessible(pmd_t *pmd);
 
 
 // #define pte_unmap_unlock(pte, ptl)	do {} while (0)
