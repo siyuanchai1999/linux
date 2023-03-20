@@ -144,14 +144,6 @@ static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
 }
 #endif
 
-#ifndef __HAVE_ARCH_MK_PTE_ACCESSSIBLE
-static inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd, 
-	unsigned long addr, struct page *pte)
-{
-	pmd_populate(mm, pmd, pte);
-}
-#endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE  */
-
 #endif /* CONFIG_PGTABLE_LEVELS > 2 */
 
 #if CONFIG_PGTABLE_LEVELS > 3

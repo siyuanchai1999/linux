@@ -2,6 +2,7 @@
 #include <asm/ECPT_defs.h>
 #include <asm/ECPT_interface.h>
 
+#include <asm/page.h>
 #include <asm/pgalloc.h>
 #include <linux/spinlock.h>
 #include <linux/panic.h>
@@ -152,6 +153,18 @@ pgtable_t pgtable_trans_huge_withdraw(struct mm_struct *mm, pmd_t *pmdp)
 	return pte_page_default;
 }
 
+inline void pud_mk_pmd_accessible(struct mm_struct *mm, pud_t *pud, 
+	unsigned long addr, pmd_t *pmd)
+{
+	pr_info_verbose("make accessible pud at %llx addr= %lx\n",
+	 	(uint64_t) pud, addr);
+	if (ECPT_1G_WAY > 0 || ECPT_1G_USER_WAY > 0) {
+		ecpt_native_pudp_get_and_clear(mm, addr, pud);
+	} else {
+		/* ECPT doesn't have 1G way setup */
+	}
+}
+
 inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd, 
 	unsigned long addr, struct page *pte)
 {
@@ -165,4 +178,10 @@ inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd,
 		/* x86 pmd clear. clear pmd to be zero */
 		native_pmd_clear(pmd);
 	}
+}
+
+inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd, 
+	unsigned long addr, pte_t *pte) 
+{
+	pmd_mk_pte_accessible(mm, pmd, addr, virt_to_page((void *) pte));
 }

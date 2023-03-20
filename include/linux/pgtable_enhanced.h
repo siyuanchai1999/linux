@@ -4,7 +4,7 @@
 #include <linux/pgtable.h>
 
 #ifndef	 __ARCH_HAS_PTE_OFFSET_MAP_WITH_MM
-#define pte_offset_map_with_mm(mm, dir, addr) pte_offset_kernel((dir), (addr))
+#define pte_offset_map_with_mm(mm, pmd, addr) pte_offset_kernel((pmd), (addr))
 #endif
 
 #ifndef	 __ARCH_HAS_PMD_OFFSET_MAP_WITH_MM
@@ -86,5 +86,47 @@ static inline int pmd_next_level_not_accessible(pmd_t *pmd)
 	return pmd_none_or_trans_huge_or_clear_bad(pmd)
 }
 #endif
+
+#ifndef __HAVE_ARCH_MK_P4D_ACCESSSIBLE
+static inline void pgd_mk_p4d_accessible(struct mm_struct *mm, pgd_t *pgd, unsigned long addr, p4d_t *p4d)
+{
+	pgd_populate(mm, pgd, p4d);
+}
+#endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE  */
+
+#ifndef __HAVE_ARCH_MK_PUD_ACCESSSIBLE
+static inline void p4d_mk_pud_accessible(struct mm_struct *mm, p4d_t *p4d, unsigned long addr, pud_t *pud)
+{
+	p4d_populate(mm, p4d, pud);
+}
+#endif /* __HAVE_ARCH_MK_PUD_ACCESSSIBLE  */
+
+#ifndef __HAVE_ARCH_MK_PMD_ACCESSSIBLE
+static inline void pud_mk_pmd_accessible(struct mm_struct *mm, pud_t *pud, 
+	unsigned long addr, pmd_t *pmd)
+{
+	pud_populate(mm, pud, pmd);
+}
+#endif /* __HAVE_ARCH_MK_PMD_ACCESSSIBLE  */
+
+#ifndef __HAVE_ARCH_MK_PTE_ACCESSSIBLE
+static inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd, 
+	unsigned long addr, struct page *pte)
+{
+	pmd_populate(mm, pmd, pte);
+}
+#endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE  */
+
+#ifndef __HAVE_ARCH_MK_PTE_ACCESSSIBLE_KERNEL
+static inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd, 
+	unsigned long addr, pte_t *pte)
+{
+	pmd_populate_kernel(mm, pmd, pte);
+}
+#endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE  */
+
+
+int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long addr);
+int __pte_alloc_kernel(pmd_t *pmd, unsigned long addr);
 
 #endif /* _LINUX_PGTABLE_ENHANCED_H */

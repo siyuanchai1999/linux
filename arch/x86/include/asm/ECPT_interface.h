@@ -222,36 +222,28 @@ static inline pgd_t * pgd_offset_ecpt(struct mm_struct *mm, unsigned long addr) 
 /* TODO replace with pte_offset_map_with_mm */
 /* override definition in linux/pgtable.h */
 static inline pte_t *pte_offset_kernel(void *mm, unsigned long address)
-{
+{	
+	WARN(1, "obslete interface!\n");
 	return pte_offset_ecpt((struct mm_struct *)mm, address);
 }
 
 #define pte_offset_kernel pte_offset_kernel
 
 #define __ARCH_HAS_PTE_OFFSET_MAP_WITH_MM
-#define pte_offset_map_with_mm(mm, dir, addr) pte_offset_ecpt((mm), (addr))
+#define pte_offset_map_with_mm(mm, pmd, addr) pte_offset_ecpt((mm), (addr))
 
 #define __ARCH_HAS_PMD_OFFSET_MAP_WITH_MM
-#define pmd_offset_map_with_mm(mm, dir, addr) pmd_offset_ecpt((mm), (addr))
+#define pmd_offset_map_with_mm(mm, pud, addr) pmd_offset_ecpt((mm), (addr))
 
 #define __ARCH_HAS_PUD_OFFSET_MAP_WITH_MM
-#define pud_offset_map_with_mm(mm, dir, addr) pud_offset_ecpt((mm), (addr))
+#define pud_offset_map_with_mm(mm, p4d, addr) pud_offset_ecpt((mm), (addr))
 
 #define __ARCH_HAS_P4D_OFFSET_MAP_WITH_MM
-#define p4d_offset_map_with_mm(mm, dir, addr) p4d_offset_ecpt((mm), (addr))
+#define p4d_offset_map_with_mm(mm, pgd, addr) p4d_offset_ecpt((mm), (addr))
 
 #define __ARCH_HAS_PGD_OFFSET_MAP_WITH_MM
 #define pgd_offset_map_with_mm(mm, addr) pgd_offset_ecpt((mm), (addr))
 
-/* return address of default entry if it doesn't exit */
-#define pte_offset_map_lock(mm, pmd, address, ptlp)	\
-({							\
-	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
-	pte_t *__pte = pte_offset_ecpt(mm, address);	\
-	*(ptlp) = __ptl;				\
-	spin_lock(__ptl);				\
-	__pte;						\
-})
 
 #define __ARCH_HAS_PTEP_GET_NEXT
 static inline pte_t * ptep_get_next(struct mm_struct *mm, pte_t * ptep, unsigned long addr) {
@@ -319,6 +311,31 @@ inline int pud_next_level_not_accessible(pud_t *pud);
 /* see pmd_none_or_trans_huge_or_clear_bad for reference */
 inline int pmd_next_level_not_accessible(pmd_t *pmd);
 
+#define __HAVE_ARCH_MK_P4D_ACCESSSIBLE
+static inline void pgd_mk_p4d_accessible(struct mm_struct *mm, pgd_t *pgd, 
+	unsigned long addr, p4d_t *p4d) 
+{
+	/* nothing to do for ECPT */
+}
+
+#define __HAVE_ARCH_MK_PUD_ACCESSSIBLE
+static inline void p4d_mk_pud_accessible(struct mm_struct *mm, p4d_t *p4d,
+	unsigned long addr, pud_t *pud) 
+{
+	/* nothing to do for ECPT */
+}
+
+#define __HAVE_ARCH_MK_PMD_ACCESSSIBLE
+inline void pud_mk_pmd_accessible(struct mm_struct *mm, pud_t *pud, 
+	unsigned long addr, pmd_t *pmd);
+
+#define __HAVE_ARCH_MK_PTE_ACCESSSIBLE
+inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd, 
+	unsigned long addr, struct page *pte);
+
+#define __HAVE_ARCH_MK_PTE_ACCESSSIBLE_KERNEL
+inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd, 
+	unsigned long addr, pte_t *pte);
 
 // #define pte_unmap_unlock(pte, ptl)	do {} while (0)
 
@@ -339,24 +356,40 @@ static inline void pte_free(struct mm_struct *mm, struct page *pte_page)
 	}
 }
 
-#define __ARCH_HAS_PUD_ALLOC
-static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
-		unsigned long address)
+#define __ARCH_HAS_MM_INC_NR_PTES
+static inline void mm_inc_nr_ptes(struct mm_struct *mm)
 {
-	return (p4d_t * ) &pte_default;
+	/* ECPT doesn't track pagetable bytes through this */
 }
 
-#define __ARCH_HAS_PUD_ALLOC
-static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
-		unsigned long address)
+#define __ARCH_HAS_MM_DEC_NR_PTES
+static inline void mm_dec_nr_ptes(struct mm_struct *mm)
 {
-	return pud_offset_ecpt(mm, address);
+	/* ECPT doesn't track pagetable bytes through this */
 }
 
-#define __ARCH_HAS_PMD_ALLOC
-static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+#define __ARCH_HAS_MM_INC_NR_PMDS
+static inline void mm_inc_nr_pmds(struct mm_struct *mm)
 {
-	return pmd_offset_ecpt(mm, address);
+	/* ECPT do nothing */
+}
+
+#define __ARCH_HAS_MM_DEC_NR_PMDS
+static inline void mm_dec_nr_pmds(struct mm_struct *mm)
+{
+	/* ECPT do nothing */
+}
+
+#define __ARCH_HAS_MM_INC_NR_PUDS
+static inline void mm_inc_nr_puds(struct mm_struct *mm)
+{
+	/* ECPT do nothing */
+}
+
+#define __ARCH_HAS_MM_DEC_NR_PUDS
+static inline void mm_dec_nr_puds(struct mm_struct *mm)
+{
+	/* ECPT do nothing */
 }
 
 int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
@@ -396,9 +429,5 @@ void pgtable_trans_huge_deposit(struct mm_struct *mm, pmd_t *pmdp,
 
 #define __HAVE_ARCH_PGTABLE_WITHDRAW
 pgtable_t pgtable_trans_huge_withdraw(struct mm_struct *mm, pmd_t *pmdp);
-
-#define __HAVE_ARCH_MK_PTE_ACCESSSIBLE
-inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd, 
-	unsigned long addr, struct page *pte);
 
 #endif /* _ASM_X86_ECPT_INTERFACE_H */

@@ -446,7 +446,64 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		vma = next;
 	}
 }
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long addr)
+{
+	spinlock_t *ptl;
+	pgtable_t new = pte_alloc_one(mm);
+	if (!new)
+		return -ENOMEM;
 
+	/*
+	 * Ensure all pte setup (eg. pte page lock and page clearing) are
+	 * visible before the pte is made visible to other CPUs by being
+	 * put into page tables.
+	 *
+	 * The other side of the story is the pointer chasing in the page
+	 * table walking code (when walking the page table without locking;
+	 * ie. most of the time). Fortunately, these data accesses consist
+	 * of a chain of data-dependent loads, meaning most CPUs (alpha
+	 * being the notable exception) will already guarantee loads are
+	 * seen in-order. See the alpha page table accessors for the
+	 * smp_rmb() barriers in page table walking code.
+	 */
+	smp_wmb(); /* Could be smp_wmb__xxx(before|after)_spin_lock */
+
+	ptl = pmd_lock(mm, pmd);
+	if (likely(pmd_none(*pmd))) {	/* Has another populated it ? */
+		mm_inc_nr_ptes(mm);
+		/* original code */
+		pmd_mk_pte_accessible(mm, pmd, addr, new);
+		// pmd_populate(mm, pmd, new);
+		new = NULL;
+	}
+	spin_unlock(ptl);
+	if (new)
+		pte_free(mm, new);
+	return 0;
+}
+
+int __pte_alloc_kernel(pmd_t *pmd, unsigned long addr)
+{
+	pte_t *new = pte_alloc_one_kernel(&init_mm);
+	if (!new)
+		return -ENOMEM;
+
+	smp_wmb(); /* See comment in __pte_alloc */
+
+	spin_lock(&init_mm.page_table_lock);
+	if (likely(pmd_none(*pmd))) {	/* Has another populated it ? */
+		pmd_mk_pte_accessible_kernel(&init_mm, pmd, addr, new);
+		/* original code */
+		// pmd_populate_kernel(&init_mm, pmd, new);
+		new = NULL;
+	}
+	spin_unlock(&init_mm.page_table_lock);
+	if (new)
+		pte_free_kernel(&init_mm, new);
+	return 0;
+}
+#else
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd)
 {
 	spinlock_t *ptl;
@@ -499,6 +556,7 @@ int __pte_alloc_kernel(pmd_t *pmd)
 		pte_free_kernel(&init_mm, new);
 	return 0;
 }
+#endif
 
 static inline void init_rss_vec(int *rss)
 {
@@ -5564,10 +5622,15 @@ int __p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
 	smp_wmb(); /* See comment in __pte_alloc */
 
 	spin_lock(&mm->page_table_lock);
-	if (pgd_present(*pgd))		/* Another has populated it */
+	if (pgd_present(*pgd)){ /* Another has populated it */
 		p4d_free(mm, new);
-	else
+	} else {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE		
+		pgd_mk_p4d_accessible(mm, pgd, address, new);
+#else	
 		pgd_populate(mm, pgd, new);
+#endif	
+	}
 	spin_unlock(&mm->page_table_lock);
 	return 0;
 }
@@ -5589,7 +5652,11 @@ int __pud_alloc(struct mm_struct *mm, p4d_t *p4d, unsigned long address)
 	spin_lock(&mm->page_table_lock);
 	if (!p4d_present(*p4d)) {
 		mm_inc_nr_puds(mm);
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE		
+		p4d_mk_pud_accessible(mm, p4d, address, new);
+#else	
 		p4d_populate(mm, p4d, new);
+#endif
 	} else	/* Another has populated it */
 		pud_free(mm, new);
 	spin_unlock(&mm->page_table_lock);
@@ -5614,7 +5681,11 @@ int __pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 	ptl = pud_lock(mm, pud);
 	if (!pud_present(*pud)) {
 		mm_inc_nr_pmds(mm);
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE		
+		pud_mk_pmd_accessible(mm, pud, address, new);
+#else	
 		pud_populate(mm, pud, new);
+#endif
 	} else	/* Another has populated it */
 		pmd_free(mm, new);
 	spin_unlock(ptl);

@@ -96,7 +96,251 @@ static void free_work(struct work_struct *w)
 }
 
 /*** Page table manipulation functions ***/
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift, pgtbl_mod_mask *mask)
+{
+	pte_t *pte;
+	u64 pfn;
+	unsigned long size = PAGE_SIZE;
 
+	pfn = phys_addr >> PAGE_SHIFT;
+	pte = pte_alloc_kernel_track(pmd, addr, mask);
+	if (!pte)
+		return -ENOMEM;
+	do {
+		BUG_ON(!pte_none(*pte));
+
+#ifdef CONFIG_HUGETLB_PAGE
+		size = arch_vmap_pte_range_map_size(addr, end, pfn, max_page_shift);
+		if (size != PAGE_SIZE) {
+			pte_t entry = pfn_pte(pfn, prot);
+
+			entry = pte_mkhuge(entry);
+			entry = arch_make_huge_pte(entry, ilog2(size), 0);
+			set_huge_pte_at(&init_mm, addr, pte, entry);
+			pfn += PFN_DOWN(size);
+			continue;
+		}
+#endif
+		set_pte_at(&init_mm, addr, pte, pfn_pte(pfn, prot));
+		pfn++;
+	}
+	while ((addr += size, addr != end) 
+		&& (pte = ptep_get_next(&init_mm, pte, addr - size)));
+	/* original code */
+	// while (pte += PFN_DOWN(size), addr += size, addr != end);
+	*mask |= PGTBL_PTE_MODIFIED;
+	return 0;
+}
+
+static int vmap_try_huge_pmd(pmd_t *pmd, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{
+	if (max_page_shift < PMD_SHIFT)
+		return 0;
+
+	if (!arch_vmap_pmd_supported(prot))
+		return 0;
+
+	if ((end - addr) != PMD_SIZE)
+		return 0;
+
+	if (!IS_ALIGNED(addr, PMD_SIZE))
+		return 0;
+
+	if (!IS_ALIGNED(phys_addr, PMD_SIZE))
+		return 0;
+
+	if (pmd_present(*pmd) && !pmd_free_pte_page(pmd, addr))
+		return 0;
+
+	return pmd_set_huge(pmd, phys_addr, prot);
+}
+
+static int vmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift, pgtbl_mod_mask *mask)
+{
+	pmd_t *pmd;
+	unsigned long next;
+
+	pmd = pmd_alloc_track(&init_mm, pud, addr, mask);
+	if (!pmd)
+		return -ENOMEM;
+	do {
+		next = pmd_addr_end(addr, end);
+
+		if (vmap_try_huge_pmd(pmd, addr, next, phys_addr, prot,
+					max_page_shift)) {
+			*mask |= PGTBL_PMD_MODIFIED;
+			continue;
+		}
+
+		if (vmap_pte_range(pmd, addr, next, phys_addr, prot, max_page_shift, mask))
+			return -ENOMEM;
+	}
+	while (next != end ? 
+		(pmd = pmdp_get_next(&init_mm, pmd, addr), phys_addr += (next - addr), addr = next) : 
+		(phys_addr += (next - addr), addr = next, 0));	
+	// while (pmd++, phys_addr += (next - addr), addr = next, addr != end);
+	return 0;
+}
+
+static int vmap_try_huge_pud(pud_t *pud, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{
+	if (max_page_shift < PUD_SHIFT)
+		return 0;
+
+	if (!arch_vmap_pud_supported(prot))
+		return 0;
+
+	if ((end - addr) != PUD_SIZE)
+		return 0;
+
+	if (!IS_ALIGNED(addr, PUD_SIZE))
+		return 0;
+
+	if (!IS_ALIGNED(phys_addr, PUD_SIZE))
+		return 0;
+
+	if (pud_present(*pud) && !pud_free_pmd_page(pud, addr))
+		return 0;
+
+	return pud_set_huge(pud, phys_addr, prot);
+}
+
+static int vmap_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift, pgtbl_mod_mask *mask)
+{
+	pud_t *pud;
+	unsigned long next;
+
+	pud = pud_alloc_track(&init_mm, p4d, addr, mask);
+	if (!pud)
+		return -ENOMEM;
+	do {
+		next = pud_addr_end(addr, end);
+
+		if (vmap_try_huge_pud(pud, addr, next, phys_addr, prot,
+					max_page_shift)) {
+			*mask |= PGTBL_PUD_MODIFIED;
+			continue;
+		}
+
+		if (vmap_pmd_range(pud, addr, next, phys_addr, prot,
+					max_page_shift, mask))
+			return -ENOMEM;
+	} 
+	while (next != end ? 
+		(pud = pudp_get_next(&init_mm, pud, addr), phys_addr += (next - addr), addr = next) : 
+		(phys_addr += (next - addr), addr = next, 0));	
+	/* original code */
+	// while (pud++, phys_addr += (next - addr), addr = next, addr != end);
+	return 0;
+}
+
+static int vmap_try_huge_p4d(p4d_t *p4d, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{
+	if (max_page_shift < P4D_SHIFT)
+		return 0;
+
+	if (!arch_vmap_p4d_supported(prot))
+		return 0;
+
+	if ((end - addr) != P4D_SIZE)
+		return 0;
+
+	if (!IS_ALIGNED(addr, P4D_SIZE))
+		return 0;
+
+	if (!IS_ALIGNED(phys_addr, P4D_SIZE))
+		return 0;
+
+	if (p4d_present(*p4d) && !p4d_free_pud_page(p4d, addr))
+		return 0;
+
+	return p4d_set_huge(p4d, phys_addr, prot);
+}
+
+static int vmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift, pgtbl_mod_mask *mask)
+{
+	p4d_t *p4d;
+	unsigned long next;
+
+	p4d = p4d_alloc_track(&init_mm, pgd, addr, mask);
+	if (!p4d)
+		return -ENOMEM;
+	do {
+		next = p4d_addr_end(addr, end);
+
+		if (vmap_try_huge_p4d(p4d, addr, next, phys_addr, prot,
+					max_page_shift)) {
+			*mask |= PGTBL_P4D_MODIFIED;
+			continue;
+		}
+
+		if (vmap_pud_range(p4d, addr, next, phys_addr, prot,
+					max_page_shift, mask))
+			return -ENOMEM;
+	} 
+	while (next != end ? 
+		(p4d = p4dp_get_next(&init_mm, p4d, addr), phys_addr += (next - addr), addr = next) : 
+		(phys_addr += (next - addr), addr = next, 0));
+	/* original code */
+	// while (p4d++, phys_addr += (next - addr), addr = next, addr != end);
+	return 0;
+}
+
+static int vmap_range_noflush(unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{
+	pgd_t *pgd;
+	unsigned long start;
+	unsigned long next;
+	int err;
+	pgtbl_mod_mask mask = 0;
+
+	might_sleep();
+	BUG_ON(addr >= end);
+
+	start = addr;
+	
+	pr_info_verbose("addr=%lx end=%lx phys_addr=%llx\n", addr, end, phys_addr);
+	pgd = pgd_offset_map_with_mm(&init_mm, addr);
+	/* original code */
+	// pgd = pgd_offset_k(addr);
+
+	do {
+		next = pgd_addr_end(addr, end);
+		err = vmap_p4d_range(pgd, addr, next, phys_addr, prot,
+					max_page_shift, &mask);
+		if (err)
+			break;
+	} 
+	while (next != end ? 
+		(pgd = pgdp_get_next(&init_mm, pgd, addr), phys_addr += (next - addr), addr = next) : 
+		(phys_addr += (next - addr), addr = next, 0));
+	/* original code */
+	//  while (pgd++, phys_addr += (next - addr), addr = next, addr != end);
+
+	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
+		arch_sync_kernel_mappings(start, end);
+
+	return err;
+}
+
+#elif CONFIG_X86_64_ECPT
 static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 			phys_addr_t phys_addr, pgprot_t prot,
 			unsigned int max_page_shift, pgtbl_mod_mask *mask)
@@ -217,7 +461,6 @@ static int vmap_try_huge_p4d(p4d_t *p4d, unsigned long addr, unsigned long end,
 	return p4d_set_huge(p4d, phys_addr, prot);
 }
 
-#ifdef CONFIG_X86_64_ECPT
 static int vmap_range_noflush(unsigned long addr, unsigned long end,
 			phys_addr_t phys_addr, pgprot_t prot,
 			unsigned int max_page_shift)
@@ -233,7 +476,6 @@ static int vmap_range_noflush(unsigned long addr, unsigned long end,
 	pr_info_verbose("addr=%lx end=%lx phys_addr=%llx\n", addr, end, phys_addr);
 	start = addr;
 	do {
-
 		next = p4d_addr_end(addr, end);
 		if (vmap_try_huge_p4d(NULL /* p4d */, addr, next, phys_addr, prot,
 					max_page_shift)) {
@@ -265,7 +507,66 @@ static int vmap_range_noflush(unsigned long addr, unsigned long end,
 
 	return err;
 }
-#else
+#else /* original implementation */
+
+static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift, pgtbl_mod_mask *mask)
+{
+	pte_t *pte;
+	u64 pfn;
+	unsigned long size = PAGE_SIZE;
+
+	pfn = phys_addr >> PAGE_SHIFT;
+	pte = pte_alloc_kernel_track(pmd, addr, mask);
+	if (!pte)
+		return -ENOMEM;
+	do {
+		BUG_ON(!pte_none(*pte));
+
+#ifdef CONFIG_HUGETLB_PAGE
+		size = arch_vmap_pte_range_map_size(addr, end, pfn, max_page_shift);
+		if (size != PAGE_SIZE) {
+			pte_t entry = pfn_pte(pfn, prot);
+
+			entry = pte_mkhuge(entry);
+			entry = arch_make_huge_pte(entry, ilog2(size), 0);
+			set_huge_pte_at(&init_mm, addr, pte, entry);
+			pfn += PFN_DOWN(size);
+			continue;
+		}
+#endif
+		set_pte_at(&init_mm, addr, pte, pfn_pte(pfn, prot));
+		pfn++;
+	} while (pte += PFN_DOWN(size), addr += size, addr != end);
+	*mask |= PGTBL_PTE_MODIFIED;
+	return 0;
+}
+
+static int vmap_try_huge_pmd(pmd_t *pmd, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{
+	if (max_page_shift < PMD_SHIFT)
+		return 0;
+
+	if (!arch_vmap_pmd_supported(prot))
+		return 0;
+
+	if ((end - addr) != PMD_SIZE)
+		return 0;
+
+	if (!IS_ALIGNED(addr, PMD_SIZE))
+		return 0;
+
+	if (!IS_ALIGNED(phys_addr, PMD_SIZE))
+		return 0;
+
+	if (pmd_present(*pmd) && !pmd_free_pte_page(pmd, addr))
+		return 0;
+
+	return pmd_set_huge(pmd, phys_addr, prot);
+}
 
 static int vmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 			phys_addr_t phys_addr, pgprot_t prot,
@@ -292,6 +593,31 @@ static int vmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 	return 0;
 }
 
+static int vmap_try_huge_pud(pud_t *pud, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{
+	if (max_page_shift < PUD_SHIFT)
+		return 0;
+
+	if (!arch_vmap_pud_supported(prot))
+		return 0;
+
+	if ((end - addr) != PUD_SIZE)
+		return 0;
+
+	if (!IS_ALIGNED(addr, PUD_SIZE))
+		return 0;
+
+	if (!IS_ALIGNED(phys_addr, PUD_SIZE))
+		return 0;
+
+	if (pud_present(*pud) && !pud_free_pmd_page(pud, addr))
+		return 0;
+
+	return pud_set_huge(pud, phys_addr, prot);
+}
+
 static int vmap_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 			phys_addr_t phys_addr, pgprot_t prot,
 			unsigned int max_page_shift, pgtbl_mod_mask *mask)
@@ -316,6 +642,31 @@ static int vmap_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 			return -ENOMEM;
 	} while (pud++, phys_addr += (next - addr), addr = next, addr != end);
 	return 0;
+}
+
+static int vmap_try_huge_p4d(p4d_t *p4d, unsigned long addr, unsigned long end,
+			phys_addr_t phys_addr, pgprot_t prot,
+			unsigned int max_page_shift)
+{
+	if (max_page_shift < P4D_SHIFT)
+		return 0;
+
+	if (!arch_vmap_p4d_supported(prot))
+		return 0;
+
+	if ((end - addr) != P4D_SIZE)
+		return 0;
+
+	if (!IS_ALIGNED(addr, P4D_SIZE))
+		return 0;
+
+	if (!IS_ALIGNED(phys_addr, P4D_SIZE))
+		return 0;
+
+	if (p4d_present(*p4d) && !p4d_free_pud_page(p4d, addr))
+		return 0;
+
+	return p4d_set_huge(p4d, phys_addr, prot);
 }
 
 static int vmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
@@ -592,7 +943,146 @@ void vunmap_range(unsigned long addr, unsigned long end)
 	flush_tlb_kernel_range(addr, end);
 }
 
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+static int vmap_pages_pte_range(pmd_t *pmd, unsigned long addr,
+		unsigned long end, pgprot_t prot, struct page **pages, int *nr,
+		pgtbl_mod_mask *mask)
+{
+	pte_t *pte;
+
+	/*
+	 * nr is a running index into the array which helps higher level
+	 * callers keep track of where we're up to.
+	 */
+
+	pte = pte_alloc_kernel_track(pmd, addr, mask);
+	if (!pte)
+		return -ENOMEM;
+	do {
+		struct page *page = pages[*nr];
+
+		if (WARN_ON(!pte_none(*pte)))
+			return -EBUSY;
+		if (WARN_ON(!page))
+			return -ENOMEM;
+		set_pte_at(&init_mm, addr, pte, mk_pte(page, prot));
+		(*nr)++;
+	} while ((addr += PAGE_SIZE, addr != end) 
+			&& (pte = ptep_get_next(&init_mm, pte, addr - PAGE_SIZE)));
+	/* original code */
+	// while (pte++, addr += PAGE_SIZE, addr != end);
+	*mask |= PGTBL_PTE_MODIFIED;
+	return 0;
+}
+
+static int vmap_pages_pmd_range(pud_t *pud, unsigned long addr,
+		unsigned long end, pgprot_t prot, struct page **pages, int *nr,
+		pgtbl_mod_mask *mask)
+{
+	pmd_t *pmd;
+	unsigned long next;
+
+	pmd = pmd_alloc_track(&init_mm, pud, addr, mask);
+	if (!pmd)
+		return -ENOMEM;
+	do {
+		next = pmd_addr_end(addr, end);
+		if (vmap_pages_pte_range(pmd, addr, next, prot, pages, nr, mask))
+			return -ENOMEM;
+	} 
+	while (next != end ? 
+		(pmd = pmdp_get_next(&init_mm, pmd, addr), addr = next) : 
+		(addr = next, 0));	
+	/* original code */
+	// while (pmd++, addr = next, addr != end);
+	return 0;
+}
+
+static int vmap_pages_pud_range(p4d_t *p4d, unsigned long addr,
+		unsigned long end, pgprot_t prot, struct page **pages, int *nr,
+		pgtbl_mod_mask *mask)
+{
+	pud_t *pud;
+	unsigned long next;
+
+	pud = pud_alloc_track(&init_mm, p4d, addr, mask);
+	if (!pud)
+		return -ENOMEM;
+	do {
+		next = pud_addr_end(addr, end);
+		if (vmap_pages_pmd_range(pud, addr, next, prot, pages, nr, mask))
+			return -ENOMEM;
+	} while (next != end ? 
+		(pud = pudp_get_next(&init_mm, pud, addr), addr = next) : 
+		(addr = next, 0));
+
+	/* original code */
+	// while (pud++, addr = next, addr != end);
+	return 0;
+}
+
+static int vmap_pages_p4d_range(pgd_t *pgd, unsigned long addr,
+		unsigned long end, pgprot_t prot, struct page **pages, int *nr,
+		pgtbl_mod_mask *mask)
+{
+	p4d_t *p4d;
+	unsigned long next;
+
+	p4d = p4d_alloc_track(&init_mm, pgd, addr, mask);
+	if (!p4d)
+		return -ENOMEM;
+	do {
+		next = p4d_addr_end(addr, end);
+		if (vmap_pages_pud_range(p4d, addr, next, prot, pages, nr, mask))
+			return -ENOMEM;
+	} while (next != end ? 
+		(p4d = p4dp_get_next(&init_mm, p4d, addr), addr = next) : 
+		(addr = next, 0));
+	
+	/* orginal code */	
+	// while (p4d++, addr = next, addr != end);
+	return 0;
+}
+
+
+static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
+		pgprot_t prot, struct page **pages)
+{
+	unsigned long start = addr;
+	pgd_t *pgd;
+	unsigned long next;
+	int err = 0;
+	int nr = 0;
+	pgtbl_mod_mask mask = 0;
+
+	pr_info_verbose("addr=%lx end=%lx prot=%lx\n",
+				addr, end, prot.pgprot);
+
+	BUG_ON(addr >= end);
+	pgd = pgd_offset_map_with_mm(&init_mm, addr);
+	/* original code */
+	// pgd = pgd_offset_k(addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_bad(*pgd))
+			mask |= PGTBL_PGD_MODIFIED;
+		err = vmap_pages_p4d_range(pgd, addr, next, prot, pages, &nr, &mask);
+		if (err)
+			return err;
+	} while (next != end ? 
+		(pgd = pgdp_get_next(&init_mm, pgd, addr), addr = next) : 
+		(addr = next, 0));
+	
+	/* original code */
+	// while (pgd++, addr = next, addr != end);
+
+	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
+		arch_sync_kernel_mappings(start, end);
+
+	return 0;
+}
+
+#elif defined(CONFIG_X86_64_ECPT)
 #include <asm/ECPT.h>
 
 static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,

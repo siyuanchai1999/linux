@@ -35,6 +35,13 @@ pgtable_t pte_alloc_one(struct mm_struct *mm)
 }
 #endif
 
+#ifndef CONFIG_X86_64_ECPT
+pte_t *pte_alloc_one_kernel(struct mm_struct *mm)
+{
+	return __pte_alloc_one_kernel(mm);
+}
+#endif
+
 static int __init setup_userpte(char *arg)
 {
 	if (!arg)

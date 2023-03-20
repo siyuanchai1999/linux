@@ -968,6 +968,11 @@ pgtable_t pte_alloc_one(struct mm_struct *mm)
 	return pte_page_default;
 }
 
+pte_t *pte_alloc_one_kernel(struct mm_struct *mm) 
+{
+	return (pte_t *) page_to_virt(pte_page_default);
+}
+
 /**
  * @brief based on vaddr and granularity
  * 	select all possible ways that can contain such entries

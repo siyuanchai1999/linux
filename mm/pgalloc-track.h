@@ -3,6 +3,48 @@
 #define _LINUX_PGALLOC_TRACK_H
 
 #if defined(CONFIG_MMU)
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+static inline p4d_t *p4d_alloc_track(struct mm_struct *mm, pgd_t *pgd,
+				     unsigned long address,
+				     pgtbl_mod_mask *mod_mask)
+{
+	if (unlikely(pgd_next_level_not_accessible(pgd))) {
+		if (__p4d_alloc(mm, pgd, address))
+			return NULL;
+		*mod_mask |= PGTBL_PGD_MODIFIED;
+	}
+
+	return p4d_offset_map_with_mm(mm, pgd, address);
+}
+
+static inline pud_t *pud_alloc_track(struct mm_struct *mm, p4d_t *p4d,
+				     unsigned long address,
+				     pgtbl_mod_mask *mod_mask)
+{
+	if (unlikely(p4d_next_level_not_accessible(p4d))) {
+		if (__pud_alloc(mm, p4d, address))
+			return NULL;
+		*mod_mask |= PGTBL_P4D_MODIFIED;
+	}
+
+	return pud_offset_map_with_mm(mm, p4d, address);
+}
+
+static inline pmd_t *pmd_alloc_track(struct mm_struct *mm, pud_t *pud,
+				     unsigned long address,
+				     pgtbl_mod_mask *mod_mask)
+{
+	if (unlikely(pud_next_level_not_accessible(pud))) {
+		if (__pmd_alloc(mm, pud, address))
+			return NULL;
+		*mod_mask |= PGTBL_PUD_MODIFIED;
+	}
+
+	return pmd_offset_map_with_mm(mm, pud, address);
+}
+#else
 static inline p4d_t *p4d_alloc_track(struct mm_struct *mm, pgd_t *pgd,
 				     unsigned long address,
 				     pgtbl_mod_mask *mod_mask)
@@ -41,11 +83,29 @@ static inline pmd_t *pmd_alloc_track(struct mm_struct *mm, pud_t *pud,
 
 	return pmd_offset(pud, address);
 }
+#endif
 #endif /* CONFIG_MMU */
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+
+static inline pte_t *pte_alloc_kernel_track(pmd_t *pmd,
+				     unsigned long address,
+				     pgtbl_mod_mask *mod_mask)
+{
+	if (unlikely(pmd_next_level_not_accessible(pmd))) {
+		if (__pte_alloc_kernel(pmd, address))
+			return NULL;
+		*mod_mask |= PGTBL_PMD_MODIFIED;
+	}
+
+	return pte_offset_map_with_mm(&init_mm, pmd, address);
+}
+
+#else
 #define pte_alloc_kernel_track(pmd, address, mask)			\
 	((unlikely(pmd_none(*(pmd))) &&					\
 	  (__pte_alloc_kernel(pmd) || ({*(mask)|=PGTBL_PMD_MODIFIED;0;})))?\
 		NULL: pte_offset_kernel(pmd, address))
+#endif
 
 #endif /* _LINUX_PGALLOC_TRACK_H */

@@ -33,6 +33,10 @@
 #include <linux/pgtable.h>
 #include <linux/kasan.h>
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 struct mempolicy;
 struct anon_vma;
 struct anon_vma_chain;
@@ -2074,6 +2078,26 @@ static inline void mm_dec_nr_puds(struct mm_struct *mm) {}
 #else
 int __pud_alloc(struct mm_struct *mm, p4d_t *p4d, unsigned long address);
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#ifndef __ARCH_HAS_MM_INC_NR_PUDS
+static inline void mm_inc_nr_puds(struct mm_struct *mm)
+{
+	if (mm_pud_folded(mm))
+		return;
+	atomic_long_add(PTRS_PER_PUD * sizeof(pud_t), &mm->pgtables_bytes);
+}
+#endif
+
+#ifndef __ARCH_HAS_MM_DEC_NR_PUDS
+static inline void mm_dec_nr_puds(struct mm_struct *mm)
+{
+	if (mm_pud_folded(mm))
+		return;
+	atomic_long_sub(PTRS_PER_PUD * sizeof(pud_t), &mm->pgtables_bytes);
+}
+#endif
+
+#else
 static inline void mm_inc_nr_puds(struct mm_struct *mm)
 {
 	if (mm_pud_folded(mm))
@@ -2089,6 +2113,8 @@ static inline void mm_dec_nr_puds(struct mm_struct *mm)
 }
 #endif
 
+#endif
+
 #if defined(__PAGETABLE_PMD_FOLDED) || !defined(CONFIG_MMU)
 static inline int __pmd_alloc(struct mm_struct *mm, pud_t *pud,
 						unsigned long address)
@@ -2102,6 +2128,26 @@ static inline void mm_dec_nr_pmds(struct mm_struct *mm) {}
 #else
 int __pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address);
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#ifndef __ARCH_HAS_MM_INC_NR_PMDS
+static inline void mm_inc_nr_pmds(struct mm_struct *mm)
+{
+	if (mm_pmd_folded(mm))
+		return;
+	atomic_long_add(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgtables_bytes);
+}
+#endif
+
+#ifndef __ARCH_HAS_MM_DEC_NR_PMDS
+static inline void mm_dec_nr_pmds(struct mm_struct *mm)
+{
+	if (mm_pmd_folded(mm))
+		return;
+	atomic_long_sub(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgtables_bytes);
+}
+#endif
+
+#else
 static inline void mm_inc_nr_pmds(struct mm_struct *mm)
 {
 	if (mm_pmd_folded(mm))
@@ -2117,6 +2163,8 @@ static inline void mm_dec_nr_pmds(struct mm_struct *mm)
 }
 #endif
 
+#endif
+
 #ifdef CONFIG_MMU
 static inline void mm_pgtables_bytes_init(struct mm_struct *mm)
 {
@@ -2128,6 +2176,22 @@ static inline unsigned long mm_pgtables_bytes(const struct mm_struct *mm)
 	return atomic_long_read(&mm->pgtables_bytes);
 }
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#ifndef __ARCH_HAS_MM_INC_NR_PTES
+static inline void mm_inc_nr_ptes(struct mm_struct *mm)
+{
+	atomic_long_add(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
+}
+#endif
+
+#ifndef __ARCH_HAS_MM_DEC_NR_PTES
+static inline void mm_dec_nr_ptes(struct mm_struct *mm)
+{
+	atomic_long_sub(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
+}
+#endif
+
+#else 
 static inline void mm_inc_nr_ptes(struct mm_struct *mm)
 {
 	atomic_long_add(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
@@ -2137,6 +2201,8 @@ static inline void mm_dec_nr_ptes(struct mm_struct *mm)
 {
 	atomic_long_sub(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
 }
+#endif
+
 #else
 
 static inline void mm_pgtables_bytes_init(struct mm_struct *mm) {}
@@ -2149,18 +2215,22 @@ static inline void mm_inc_nr_ptes(struct mm_struct *mm) {}
 static inline void mm_dec_nr_ptes(struct mm_struct *mm) {}
 #endif
 
+#ifndef CONFIG_PGTABLE_OP_GENERALIZABLE
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd);
 int __pte_alloc_kernel(pmd_t *pmd);
+#endif
 
 #if defined(CONFIG_MMU)
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 
 #ifndef __ARCH_HAS_PUD_ALLOC
 #define __ARCH_HAS_P4D_ALLOC
 static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 		unsigned long address)
 {
-	return (unlikely(pgd_none(*pgd)) && __p4d_alloc(mm, pgd, address)) ?
-		NULL : p4d_offset(pgd, address);
+	return (unlikely(pgd_next_level_not_accessible(pgd)) && __p4d_alloc(mm, pgd, address)
+		? NULL: p4d_offset_map_with_mm(mm, pgd, address) );
 }
 #endif
 
@@ -2169,8 +2239,8 @@ static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
 		unsigned long address)
 {
-	return (unlikely(p4d_none(*p4d)) && __pud_alloc(mm, p4d, address)) ?
-		NULL : pud_offset(p4d, address);
+	return (unlikely(p4d_next_level_not_accessible(p4d)) && __pud_alloc(mm, p4d, address)
+		? NULL: pud_offset_map_with_mm(mm, p4d, address) );
 }
 #endif
 
@@ -2178,9 +2248,32 @@ static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
 #define __ARCH_HAS_PMD_ALLOC
 static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
+	return (unlikely(pud_next_level_not_accessible(pud)) && __pmd_alloc(mm, pud, address)
+		? NULL: pmd_offset_map_with_mm(mm, pud, address) );
+}
+#endif
+
+#else
+static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
+		unsigned long address)
+{
+	return (unlikely(pgd_none(*pgd)) && __p4d_alloc(mm, pgd, address)) ?
+		NULL : p4d_offset(pgd, address);
+}
+
+static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
+		unsigned long address)
+{
+	return (unlikely(p4d_none(*p4d)) && __pud_alloc(mm, p4d, address)) ?
+		NULL : pud_offset(p4d, address);
+}
+
+static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+{
 	return (unlikely(pud_none(*pud)) && __pmd_alloc(mm, pud, address))?
 		NULL: pmd_offset(pud, address);
 }
+
 #endif
 #endif /* CONFIG_MMU */
 
@@ -2275,7 +2368,24 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 	__ClearPageTable(page);
 	dec_lruvec_page_state(page, NR_PAGETABLE);
 }
-#ifndef pte_offset_map_lock
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#define pte_offset_map_lock(mm, pmd, address, ptlp)	\
+({							\
+	/* TODO change pte_lockptr */						\
+	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
+	pte_t *__pte = pte_offset_map_with_mm(mm, pmd, address); \
+	*(ptlp) = __ptl;				\
+	spin_lock(__ptl);				\
+	__pte;						\
+})
+
+/* This macro will not be called by any x86 code or general code */
+#define pte_alloc_kernel(pmd, address)			\
+	((unlikely(pmd_next_level_not_accessible((pmd))) \
+			&& __pte_alloc_kernel(pmd, address))? \
+		NULL: pte_offset_map_with_mm(&init_mm, pmd, address))
+#else
 #define pte_offset_map_lock(mm, pmd, address, ptlp)	\
 ({							\
 	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
@@ -2284,6 +2394,10 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 	spin_lock(__ptl);				\
 	__pte;						\
 })
+
+#define pte_alloc_kernel(pmd, address)			\
+	((unlikely(pmd_none(*(pmd))) && __pte_alloc_kernel(pmd))? \
+		NULL: pte_offset_kernel(pmd, address))
 #endif
 
 #ifndef pte_unmap_unlock
@@ -2305,9 +2419,7 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 	(pte_alloc(mm, pmd) ?			\
 		 NULL : pte_offset_map_lock(mm, pmd, address, ptlp))
 
-#define pte_alloc_kernel(pmd, address)			\
-	((unlikely(pmd_none(*(pmd))) && __pte_alloc_kernel(pmd))? \
-		NULL: pte_offset_kernel(pmd, address))
+
 
 #if USE_SPLIT_PMD_PTLOCKS
 
