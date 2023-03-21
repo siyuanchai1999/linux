@@ -337,6 +337,9 @@ inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd,
 inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd, 
 	unsigned long addr, pte_t *pte);
 
+#define __HAVE_ARCH_NO_PTE_PGTABLE
+inline int no_pte_pgtable(pmd_t *pmd);
+
 // #define pte_unmap_unlock(pte, ptl)	do {} while (0)
 
 #define pte_alloc(mm, pmd) (NULL)

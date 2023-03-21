@@ -123,7 +123,14 @@ static inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd
 {
 	pmd_populate_kernel(mm, pmd, pte);
 }
-#endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE  */
+#endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE_KERNEL  */
+
+#ifndef __HAVE_ARCH_NO_PTE_PGTABLE
+static inline int no_pte_pgtable(pmd_t *pmd) 
+{
+	return pmd_none(*pmd);
+}
+#endif
 
 
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long addr);
