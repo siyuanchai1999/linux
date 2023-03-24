@@ -4349,14 +4349,13 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 	 *
 	 * Here we only have mmap_read_lock(mm).
 	 */
-#ifndef CONFIG_X86_64_ECPT	
 	if (pte_alloc(vma->vm_mm, vmf->pmd))
 		return VM_FAULT_OOM;
 
 	/* See comment in handle_pte_fault() */
 	if (unlikely(pmd_trans_unstable(vmf->pmd)))
 		return 0;
-#endif
+
 	/* Use the zero-page for reads */
 	if (!(vmf->flags & FAULT_FLAG_WRITE) &&
 			!mm_forbids_zeropage(vma->vm_mm)) {
@@ -4464,8 +4463,18 @@ static vm_fault_t __do_fault(struct vm_fault *vmf)
 	 *				unlock_page(B)
 	 *				# flush A, B to clear the writeback
 	 */
+	
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	/* pmd_none in ECPT means pte pgtable accessible */
+	if (no_pte_pgtable(vmf->pmd) && !vmf->prealloc_pte) {
+		vmf->prealloc_pte = pte_alloc_one(vma->vm_mm);
+		if (!vmf->prealloc_pte)
+			return VM_FAULT_OOM;
+		smp_wmb(); /* See comment in __pte_alloc() */
+	}
+#elif defined(CONFIG_X86_64_ECPT) /* EPCT specifc: does nothing */
 	/* We don't need to allocate for ECPT. The ECPT data structure determines, when it will resize */
-#ifndef CONFIG_X86_64_ECPT
+#else	/* radix specific */
 	if (pmd_none(*vmf->pmd) && !vmf->prealloc_pte) {
 		vmf->prealloc_pte = pte_alloc_one(vma->vm_mm);
 		if (!vmf->prealloc_pte)
@@ -4473,6 +4482,7 @@ static vm_fault_t __do_fault(struct vm_fault *vmf)
 		smp_wmb(); /* See comment in __pte_alloc() */
 	}
 #endif
+
 	ret = vma->vm_ops->fault(vmf);
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY |
 			    VM_FAULT_DONE_COW)))
@@ -4638,7 +4648,34 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 			return ret;
 	}
 
-#ifndef CONFIG_X86_64_ECPT
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	// if (pmd_none(*vmf->pmd)) {	
+	if (no_pte_pgtable(vmf->pmd)) {
+		if (PageTransCompound(page)) {
+			ret = do_set_pmd(vmf, page);
+			if (ret != VM_FAULT_FALLBACK)
+				return ret;
+		}
+
+		if (vmf->prealloc_pte) {
+			vmf->ptl = pmd_lock(vma->vm_mm, vmf->pmd);
+			// if (likely(pmd_none(*vmf->pmd))) {
+			if (no_pte_pgtable(vmf->pmd)) {
+				mm_inc_nr_ptes(vma->vm_mm);
+				pmd_mk_pte_accessible(vma->vm_mm, vmf->pmd, vmf->address, vmf->prealloc_pte);
+				// pmd_populate(vma->vm_mm, vmf->pmd, vmf->prealloc_pte);
+				vmf->prealloc_pte = NULL;
+			}
+			spin_unlock(vmf->ptl);
+		} else if (unlikely(pte_alloc(vma->vm_mm, vmf->pmd))) {
+			return VM_FAULT_OOM;
+		}
+	}
+#elif defined (CONFIG_X86_64_ECPT)
+	/* EPCT specifc: does nothing */
+	/* We don't need to allocate for ECPT. The ECPT data structure determines, when it will resize */
+#else
 	if (pmd_none(*vmf->pmd)) {	
 		if (PageTransCompound(page)) {
 			ret = do_set_pmd(vmf, page);
@@ -4658,11 +4695,11 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 			return VM_FAULT_OOM;
 		}
 	}
+#endif
 
 	/* See comment in handle_pte_fault() */
 	if (pmd_devmap_trans_unstable(vmf->pmd))
 		return 0;		
-#endif
 	vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd,
 				      vmf->address, &vmf->ptl);
 	ret = 0;
@@ -4761,14 +4798,24 @@ static vm_fault_t do_fault_around(struct vm_fault *vmf)
 	end_pgoff = min3(end_pgoff, vma_pages(vmf->vma) + vmf->vma->vm_pgoff - 1,
 			start_pgoff + nr_pages - 1);
 
-#ifndef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	/* pmd_none in ECPT means pte pgtable accessible */
+	if (no_pte_pgtable(vmf->pmd)) {
+		vmf->prealloc_pte = pte_alloc_one(vmf->vma->vm_mm);
+		if (!vmf->prealloc_pte)
+			return VM_FAULT_OOM;
+		smp_wmb(); /* See comment in __pte_alloc() */
+	}
+#elif defined(CONFIG_X86_64_ECPT) /* EPCT specifc: does nothing */
+	/* We don't need to allocate for ECPT. The ECPT data structure determines, when it will resize */
+#else	/* radix specific */
 	if (pmd_none(*vmf->pmd)) {
 		vmf->prealloc_pte = pte_alloc_one(vmf->vma->vm_mm);
 		if (!vmf->prealloc_pte)
 			return VM_FAULT_OOM;
 		smp_wmb(); /* See comment in __pte_alloc() */
 	}
-#endif	
+#endif
 	return vmf->vma->vm_ops->map_pages(vmf, start_pgoff, end_pgoff);
 }
 
@@ -5137,7 +5184,8 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 {
 	pte_t entry;
 
-	
+	pr_info_verbose("addr=%lx orig_pte=%llx pte at %llx pte_default at %llx\n",
+		vmf->address, (uint64_t) vmf->orig_pte.pte, (uint64_t) vmf->pte, (uint64_t)&pte_default);
 	/* original code */
 	// if (unlikely(pmd_none(*vmf->pmd))) {
 	if (unlikely(no_pte_pgtable(vmf->pmd))) {
