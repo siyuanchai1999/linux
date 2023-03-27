@@ -119,6 +119,18 @@ static inline int ecpt_pud_none(pud_t pud) {
 #endif
 }
 
+static inline int ecpt_pmd_bad(pmd_t pmd)
+{	
+	unsigned long ignore_flags =  _PAGE_USER | PTE_VPN_MASK;
+	return (pmd_flags(pmd) & ~ignore_flags) != _KERNPG_TABLE;
+}
+
+static inline int ecpt_pud_bad(pud_t pud)
+{	
+	unsigned long ignore_flags = _KERNPG_TABLE | _PAGE_USER | PTE_VPN_MASK;
+	return (pud_flags(pud) & ~ignore_flags) != 0;
+}
+
 static inline uint64_t ecpt_entry_get_vpn(ecpt_entry_t * e) 
 {
 	uint64_t vpn = 0;

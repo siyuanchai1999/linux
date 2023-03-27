@@ -836,7 +836,12 @@ static inline unsigned long pmd_page_vaddr(pmd_t pmd)
 
 static inline int pmd_bad(pmd_t pmd)
 {
+#ifdef CONFIG_X86_64_ECPT
+	return ecpt_pmd_bad(pmd);
+#else
 	return (pmd_flags(pmd) & ~_PAGE_USER) != _KERNPG_TABLE;
+#endif
+
 }
 
 static inline unsigned long pages_to_mb(unsigned long npg)
@@ -880,7 +885,11 @@ static inline int pud_large(pud_t pud)
 
 static inline int pud_bad(pud_t pud)
 {
+#ifdef CONFIG_X86_64_ECPT
+	return ecpt_pud_bad(pud);
+#else
 	return (pud_flags(pud) & ~(_KERNPG_TABLE | _PAGE_USER)) != 0;
+#endif
 }
 #else
 #define pud_leaf	pud_large
