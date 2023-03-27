@@ -185,8 +185,3 @@ inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd,
 {
 	pmd_mk_pte_accessible(mm, pmd, addr, virt_to_page((void *) pte));
 }
-
-inline int no_pte_pgtable(pmd_t *pmd) 
-{
-	return !pmd_none(*pmd);
-}

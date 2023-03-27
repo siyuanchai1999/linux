@@ -10,7 +10,7 @@ static inline p4d_t *p4d_alloc_track(struct mm_struct *mm, pgd_t *pgd,
 				     unsigned long address,
 				     pgtbl_mod_mask *mod_mask)
 {
-	if (unlikely(pgd_next_level_not_accessible(pgd))) {
+	if (unlikely(no_pgd_huge_and_p4d_pgtable(pgd))) {
 		if (__p4d_alloc(mm, pgd, address))
 			return NULL;
 		*mod_mask |= PGTBL_PGD_MODIFIED;
@@ -23,7 +23,7 @@ static inline pud_t *pud_alloc_track(struct mm_struct *mm, p4d_t *p4d,
 				     unsigned long address,
 				     pgtbl_mod_mask *mod_mask)
 {
-	if (unlikely(p4d_next_level_not_accessible(p4d))) {
+	if (unlikely(no_p4d_huge_and_pud_pgtable(p4d))) {
 		if (__pud_alloc(mm, p4d, address))
 			return NULL;
 		*mod_mask |= PGTBL_P4D_MODIFIED;
@@ -36,7 +36,7 @@ static inline pmd_t *pmd_alloc_track(struct mm_struct *mm, pud_t *pud,
 				     unsigned long address,
 				     pgtbl_mod_mask *mod_mask)
 {
-	if (unlikely(pud_next_level_not_accessible(pud))) {
+	if (unlikely(no_pud_huge_and_pmd_pgtable(pud))) {
 		if (__pmd_alloc(mm, pud, address))
 			return NULL;
 		*mod_mask |= PGTBL_PUD_MODIFIED;
@@ -92,7 +92,7 @@ static inline pte_t *pte_alloc_kernel_track(pmd_t *pmd,
 				     unsigned long address,
 				     pgtbl_mod_mask *mod_mask)
 {
-	if (unlikely(pmd_next_level_not_accessible(pmd))) {
+	if (unlikely(no_pmd_huge_and_pte_pgtable(pmd))) {
 		if (__pte_alloc_kernel(pmd, address))
 			return NULL;
 		*mod_mask |= PGTBL_PMD_MODIFIED;

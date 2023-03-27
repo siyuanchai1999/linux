@@ -337,9 +337,30 @@ inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd,
 inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd, 
 	unsigned long addr, pte_t *pte);
 
-#define __HAVE_ARCH_NO_PTE_PGTABLE
-inline int no_pte_pgtable(pmd_t *pmd);
+/* ECPT always has lower page table visitable */
+#define  __HAVE_ARCH_NO_P4D_PGTABLE
+static inline int no_p4d_and_lower_pgtable(pgd_t *pgd) 
+{
+	return 0;
+}
 
+#define  __HAVE_ARCH_NO_PUD_PGTABLE
+static inline int no_pud_and_lower_pgtable(p4d_t *p4d) 
+{
+	return 0;
+}
+
+#define __HAVE_ARCH_NO_PMD_PGTABLE
+static inline int no_pmd_and_lower_pgtable(pud_t *pud) 
+{
+	return 0;
+}
+
+#define __HAVE_ARCH_NO_PTE_PGTABLE
+static inline int no_pte_pgtable(pmd_t *pmd) 
+{
+	return 0;
+}
 // #define pte_unmap_unlock(pte, ptl)	do {} while (0)
 
 #define pte_alloc(mm, pmd) (NULL)
