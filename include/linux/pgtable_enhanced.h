@@ -60,84 +60,84 @@ static inline pdg_t * pgdp_get_next(struct mm_struct *mm, pdg_t *pgdp, unsigned 
 
 
 #ifndef __HAVE_ARCH_NO_P4D_PGTABLE
-static inline int no_p4d_and_lower_pgtable(pgd_t *pgd) 
+static inline int no_p4d_and_lower_pgtable(pgd_t pgd) 
 {
-	return pgd_none(*pgd);
+	return pgd_none(pgd);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PUD_PGTABLE
-static inline int no_pud_and_lower_pgtable(p4d_t *p4d) 
+static inline int no_pud_and_lower_pgtable(p4d_t p4d) 
 {
-	return p4d_none(*p4d);
+	return p4d_none(p4d);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PMD_PGTABLE
-static inline int no_pmd_and_lower_pgtable(pud_t *pud) 
+static inline int no_pmd_and_lower_pgtable(pud_t pud) 
 {
-	return pud_none(*pud);
+	return pud_none(pud);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PTE_PGTABLE
-static inline int no_pte_pgtable(pmd_t *pmd) 
+static inline int no_pte_pgtable(pmd_t pmd) 
 {
-	return pmd_none(*pmd);
+	return pmd_none(pmd);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PGD_HUGE_PAGE
-static inline int no_pgd_huge_page(pgd_t *pgd) 
+static inline int no_pgd_huge_page(pgd_t pgd) 
 {
 	return 1; 	/* most arch don't have pgd page support */
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_P4D_HUGE_PAGE
-static inline int no_p4d_huge_page(p4d_t *p4d) 
+static inline int no_p4d_huge_page(p4d_t p4d) 
 {
 	return 1;	/* most arch don't have p4d page support */
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PUD_HUGE_PAGE
-static inline int no_pud_huge_page(pud_t *pud) 
+static inline int no_pud_huge_page(pud_t pud) 
 {
-	return pud_none(*pud);
+	return pud_none(pud);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PMD_HUGE_PAGE
-static inline int no_pmd_huge_page(pmd_t *pmd) 
+static inline int no_pmd_huge_page(pmd_t pmd) 
 {
-	return pmd_none(*pmd);
+	return pmd_none(pmd);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PGD_HUGE_AND_P4D_PGTABLE
-static inline int no_pgd_huge_and_p4d_pgtable(pgd_t *pgd) 
+static inline int no_pgd_huge_and_p4d_pgtable(pgd_t pgd) 
 {
 	return no_pgd_huge_page(pgd) && no_p4d_and_lower_pgtable(pgd);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_P4D_HUGE_AND_PUD_PGTABLE
-static inline int no_p4d_huge_and_pud_pgtable(p4d_t *p4d) 
+static inline int no_p4d_huge_and_pud_pgtable(p4d_t p4d) 
 {
 	return no_p4d_huge_page(p4d) && no_pud_and_lower_pgtable(p4d);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PUD_HUGE_AND_PMD_PGTABLE
-static inline int no_pud_huge_and_pmd_pgtable(pud_t *pud) 
+static inline int no_pud_huge_and_pmd_pgtable(pud_t pud) 
 {
 	return no_pud_huge_page(pud) && no_pmd_and_lower_pgtable(pud);
 }
 #endif
 
 #ifndef __HAVE_ARCH_NO_PMD_HUGE_AND_PTE_PGTABLE
-static inline int no_pmd_huge_and_pte_pgtable(pmd_t *pmd) 
+static inline int no_pmd_huge_and_pte_pgtable(pmd_t pmd) 
 {
 	return no_pmd_huge_page(pmd) && no_pte_pgtable(pmd);
 }

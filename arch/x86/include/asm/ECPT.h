@@ -68,10 +68,12 @@ extern uint32_t way_to_crN[ECPT_MAX_WAY];
 extern ECPT_desc_t ecpt_desc;
 
 extern pte_t pte_default;
+extern pmd_t pmd_default;
 
 extern struct page *pte_page_default;
 
 void ecpt_init(void);
+void ecpt_early_init(void);
 
 void load_ECPT_desc(ECPT_desc_t * ecpt);
 

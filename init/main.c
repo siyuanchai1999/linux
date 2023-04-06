@@ -1111,6 +1111,10 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 #ifdef CONFIG_X86
 	if (efi_enabled(EFI_RUNTIME_SERVICES))
 		efi_enter_virtual_mode();
+#ifdef CONFIG_X86_64_ECPT
+	ecpt_early_init();
+#endif
+
 #endif
 	thread_stack_cache_init();
 	cred_init();

@@ -9,7 +9,7 @@
 
 inline int pgd_next_level_not_accessible(pgd_t *pgd) 
 {	
-	if ((pgd == (pgd_t *) &pte_default) || pgd_none(*pgd))
+	if ((pgd == (pgd_t *) &pmd_default) || pgd_none(*pgd))
 		return 0;
 	if (unlikely(pgd_bad(*pgd))) {
 		pgd_clear_bad(pgd);
@@ -20,7 +20,7 @@ inline int pgd_next_level_not_accessible(pgd_t *pgd)
 
 inline int p4d_next_level_not_accessible(p4d_t *p4d) 
 {
-	if (p4d == (p4d_t *) &pte_default || p4d_none(*p4d))
+	if (p4d == (p4d_t *) &pmd_default || p4d_none(*p4d))
 		return 0;
 	if (unlikely(p4d_bad(*p4d))) {
 		p4d_clear_bad(p4d);
@@ -33,7 +33,7 @@ inline int pud_next_level_not_accessible(pud_t *pud)
 {
 	pud_t pudval = READ_ONCE(*pud);
 
-	if (pud == ((pud_t *) &pte_default) || pud_none(pudval))  {
+	if (pud == ((pud_t *) &pmd_default) || pud_none(pudval))  {
 		/* pmd actually not in ECPT */
 		return 0;
 	}
@@ -57,7 +57,7 @@ inline int pmd_next_level_not_accessible(pmd_t *pmd)
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE	
 	barrier();
 #endif
-	if (pmd == ((pmd_t *) &pte_default) || pmd_none(pmdval))  {
+	if (pmd == ((pmd_t *) &pmd_default) || pmd_none(pmdval))  {
 		/* pmd actually not in ECPT */
 		return 0;
 	}
@@ -81,7 +81,7 @@ inline int pmd_trans_unstable(pmd_t *pmd)
 	pmd_t pmdval = pmd_read_atomic(pmd);
 	barrier();
 	
-	if (pmd == ((pmd_t *) &pte_default) || pmd_none(pmdval))  {
+	if (pmd == ((pmd_t *) &pmd_default) || pmd_none(pmdval))  {
 		/* pmd actually not in ECPT */
 		return 0;
 	}
@@ -108,7 +108,7 @@ inline int pud_trans_unstable(pud_t *pud)
 	defined(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
 	pud_t pudval = READ_ONCE(*pud);
 
-	if (pud == ((pud_t *) &pte_default) || pud_none(pudval))  {
+	if (pud == ((pud_t *) &pmd_default) || pud_none(pudval))  {
 		/* pmd actually not in ECPT */
 		return 0;
 	}
@@ -172,7 +172,7 @@ inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd,
 	 	(uint64_t) pmd, addr);
 	if (pmd == NULL) {
 		/* do nothing */
-	} else if  (pmd == (pmd_t *) &pte_default || ptep_is_in_ecpt(mm->map_desc, pmd, addr, page_2MB) ) {
+	} else if  (pmd == (pmd_t *) &pmd_default || ptep_is_in_ecpt(mm->map_desc, pmd, addr, page_2MB) ) {
 		ecpt_native_pmdp_get_and_clear(mm, addr, pmd);
 	} else {
 		/* x86 pmd clear. clear pmd to be zero */

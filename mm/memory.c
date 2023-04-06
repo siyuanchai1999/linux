@@ -4466,7 +4466,7 @@ static vm_fault_t __do_fault(struct vm_fault *vmf)
 	
 #ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	/* pmd_none in ECPT means pte pgtable accessible */
-	if (no_pte_pgtable(vmf->pmd) && !vmf->prealloc_pte) {
+	if (no_pte_pgtable(*vmf->pmd) && !vmf->prealloc_pte) {
 		vmf->prealloc_pte = pte_alloc_one(vma->vm_mm);
 		if (!vmf->prealloc_pte)
 			return VM_FAULT_OOM;
@@ -4651,7 +4651,7 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 
 #ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	// if (pmd_none(*vmf->pmd)) {	
-	if (no_pte_pgtable(vmf->pmd)) {
+	if (no_pte_pgtable(*vmf->pmd)) {
 		if (PageTransCompound(page)) {
 			ret = do_set_pmd(vmf, page);
 			if (ret != VM_FAULT_FALLBACK)
@@ -4661,7 +4661,7 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 		if (vmf->prealloc_pte) {
 			vmf->ptl = pmd_lock(vma->vm_mm, vmf->pmd);
 			// if (likely(pmd_none(*vmf->pmd))) {
-			if (no_pte_pgtable(vmf->pmd)) {
+			if (no_pte_pgtable(*vmf->pmd)) {
 				mm_inc_nr_ptes(vma->vm_mm);
 				pmd_mk_pte_accessible(vma->vm_mm, vmf->pmd, vmf->address, vmf->prealloc_pte);
 				// pmd_populate(vma->vm_mm, vmf->pmd, vmf->prealloc_pte);
@@ -4800,7 +4800,7 @@ static vm_fault_t do_fault_around(struct vm_fault *vmf)
 
 #ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	/* pmd_none in ECPT means pte pgtable accessible */
-	if (no_pte_pgtable(vmf->pmd)) {
+	if (no_pte_pgtable(*vmf->pmd)) {
 		vmf->prealloc_pte = pte_alloc_one(vmf->vma->vm_mm);
 		if (!vmf->prealloc_pte)
 			return VM_FAULT_OOM;
@@ -5188,7 +5188,7 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 		vmf->address, (uint64_t) vmf->orig_pte.pte, (uint64_t) vmf->pte, (uint64_t)&pte_default);
 	/* original code */
 	// if (unlikely(pmd_none(*vmf->pmd))) {
-	if (unlikely(no_pte_pgtable(vmf->pmd))) {
+	if (unlikely(no_pte_pgtable(*vmf->pmd))) {
 		/*
 		 * Leave __pte_alloc() until later: because vm_ops->fault may
 		 * want to allocate huge page, and if we expose page table
@@ -5484,7 +5484,10 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	if (!vmf.pud)
 		return VM_FAULT_OOM;
 retry_pud:
-	if (pud_none(*vmf.pud) && __transparent_hugepage_enabled(vma)) {
+
+	/* original code */
+	// if (pud_none(*vmf.pud) && __transparent_hugepage_enabled(vma)) {
+	if (no_pud_huge_page(*vmf.pud) && __transparent_hugepage_enabled(vma)) {
 		ret = create_huge_pud(&vmf);
 		if (!(ret & VM_FAULT_FALLBACK))
 			return ret;
@@ -5514,8 +5517,9 @@ retry_pud:
 	/* Huge pud page fault raced with pmd_alloc? */
 	if (pud_trans_unstable(vmf.pud))
 		goto retry_pud;
-
-	if (pmd_none(*vmf.pmd) && __transparent_hugepage_enabled(vma)) {
+	/* original code */
+	// if (pmd_none(*vmf.pmd) && __transparent_hugepage_enabled(vma)) {
+	if (no_pmd_huge_page(*vmf.pmd) && __transparent_hugepage_enabled(vma)) {
 		ret = create_huge_pmd(&vmf);
 		if (!(ret & VM_FAULT_FALLBACK))
 			return ret;

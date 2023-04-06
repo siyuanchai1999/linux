@@ -19,6 +19,10 @@
 #include <asm/tlbflush.h>
 #include <asm/elf.h>
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 #if 0	/* This is just for testing */
 struct page *
 follow_huge_addr(struct mm_struct *mm, unsigned long address, int write)
@@ -64,8 +68,14 @@ int pud_huge(pud_t pud)
  */
 int pmd_huge(pmd_t pmd)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	return !no_pmd_huge_page(pmd) &&
+		(pmd_val(pmd) & (_PAGE_PRESENT|_PAGE_PSE)) != _PAGE_PRESENT;
+#else
 	return !pmd_none(pmd) &&
 		(pmd_val(pmd) & (_PAGE_PRESENT|_PAGE_PSE)) != _PAGE_PRESENT;
+#endif
+
 }
 
 int pud_huge(pud_t pud)

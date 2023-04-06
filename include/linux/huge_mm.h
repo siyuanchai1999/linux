@@ -229,7 +229,11 @@ spinlock_t *__pud_trans_huge_lock(pud_t *pud, struct vm_area_struct *vma);
 
 static inline int is_swap_pmd(pmd_t pmd)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	return !no_pmd_huge_page(pmd) && !pmd_present(pmd);
+#else
 	return !pmd_none(pmd) && !pmd_present(pmd);
+#endif
 }
 
 /* mmap_lock must be held on entry */

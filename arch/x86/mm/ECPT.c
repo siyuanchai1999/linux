@@ -52,6 +52,7 @@
 
 uint32_t way_to_crN[ECPT_MAX_WAY] = { ECPT_WAY_TO_CR_SEQ };
 pte_t pte_default = { .pte = 0 };
+pmd_t pmd_default = { .pmd = 0 };
 struct page * pte_page_default = NULL;
 
 static struct workqueue_struct *rehash_wq = NULL;
@@ -178,10 +179,15 @@ static uint32_t get_rand_way(uint32_t n_way)
 
 static void init_pte_page_default(gfp_t gfp) 
 {
+	unsigned long pfn;
 	pte_page_default = alloc_page(gfp);
 	if (!pte_page_default){
 		WARN(1, "init_pte_page_default Fail!\n");
 	}
+
+	pfn = page_to_pfn(pte_page_default);
+	set_pmd(&pmd_default, __pmd(((pteval_t)pfn << PAGE_SHIFT) | _PAGE_TABLE));
+	pr_info("init_ECPT_pmd_default: pmd_default at %llx =%llx\n", (uint64_t) &pmd_default, pmd_default.pmd);
 }
 
 static inline uint16_t ecpt_entry_count_valid_pte_num(ecpt_entry_t *e)
@@ -1307,7 +1313,7 @@ int get_ptep_ecpt_all_gran(ECPT_desc_t * ecpt, uint64_t vaddr,
 {	
 	uint32_t dummy_way;
 	ecpt_entry_t *entry_ptr = get_hpt_entry(ecpt, vaddr, &lookup->g, &dummy_way);
-
+	WARN(1, "ECPT specific function. deprected implementation\n");
 	if (entry_ptr == NULL) {
 		lookup->g = unknown;
 		lookup->ptep = &pte_default;
@@ -2220,10 +2226,10 @@ void ecpt_set_pmd_at(struct mm_struct *mm, unsigned long addr,
 {
 	int res = 0;
 
-	pr_info("  ecpt_set_pmd_at 2MB addr=%lx pmd=%lx pmdp=%llx pte_default at %llx\n",
-		addr, pmd.pmd, (uint64_t)pmdp, (uint64_t)&pte_default);
+	pr_info("  ecpt_set_pmd_at 2MB addr=%lx pmd=%lx pmdp=%llx pmd_default at %llx\n",
+		addr, pmd.pmd, (uint64_t)pmdp, (uint64_t)&pmd_default);
 
-	if (pmdp != NULL && pmdp != (pmd_t *)&pte_default) {
+	if (pmdp != NULL && pmdp != (pmd_t *)&pmd_default) {
 		pte_t pte = {.pte = pmd.pmd};
 
 		res = ecpt_set_pte(mm, (pte_t *) pmdp, pte, addr, page_2MB);
@@ -2249,10 +2255,10 @@ void ecpt_set_pud_at(struct mm_struct *mm, unsigned long addr,
 {
 	int res = 0;
 
-	pr_info("  ecpt_set_pud_at 1GB addr=%lx pud=%lx pudp=%llx pte_default at %llx\n",
-		addr, pud.pud, (uint64_t)pudp, (uint64_t)&pte_default);
+	pr_info("  ecpt_set_pud_at 1GB addr=%lx pud=%lx pudp=%llx pmd_default at %llx\n",
+		addr, pud.pud, (uint64_t)pudp, (uint64_t)&pmd_default);
 
-	if (pudp != NULL && pudp != (pud_t *)&pte_default) {
+	if (pudp != NULL && pudp != (pud_t *)&pmd_default) {
 		pte_t pte = {.pte = pud.pud};
 
 		res = ecpt_set_pte(mm, (pte_t *) pudp, pte, addr, page_1GB);
@@ -2278,7 +2284,7 @@ int ptep_set_access_flags(struct vm_area_struct *vma, unsigned long address,
 			  pte_t *ptep, pte_t entry, int dirty)
 {
 	int changed = 1;
-	if (ptep != NULL && ptep != (pte_t *)&pte_default.pte) {
+	if (ptep != NULL && ptep != &pte_default) {
 		ECPT_info_verbose(
 			"ptep_set_access_flags addr=%lx pte=%lx with ptep at %llx\n",
 			address, entry.pte, (uint64_t)ptep);
@@ -2366,10 +2372,10 @@ pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	pmd_t ret = READ_ONCE(*pmdp);
 	int res;
 	
-	pr_info("Invalidate 2MB addr=%lx pmdp %llx pte_default at %llx\n",
-	 		addr, (uint64_t) pmdp, (uint64_t) &pte_default);
+	pr_info("Invalidate 2MB addr=%lx pmdp %llx pmd_default at %llx\n",
+	 		addr, (uint64_t) pmdp, (uint64_t) &pmd_default);
 
-	if (pmdp != NULL && pmdp != (pmd_t *) &pte_default) {
+	if (pmdp != NULL && pmdp != (pmd_t *) &pmd_default) {
 		/* cast is safe here since native_get_and_clear doesn't differentiate between pmd, pud and pte */
 		res = __ecpt_native_ptep_get_and_clear(mm, (pte_t *) pmdp, addr, page_2MB);
 		if (res == 0) {
@@ -2379,8 +2385,8 @@ pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 
 	res = ecpt_invalidate(mm->map_desc, addr, page_2MB);
 	
-	pr_info("  addr=%lx pmdp %llx pte_default at %llx has no associated mapping\n", 
-		addr, (uint64_t) pmdp, (uint64_t) &pte_default);
+	pr_info("  addr=%lx pmdp %llx pmd_default at %llx has no associated mapping\n", 
+		addr, (uint64_t) pmdp, (uint64_t) &pmd_default);
 	return ret;
 }
 
@@ -2390,10 +2396,10 @@ pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	pud_t ret = READ_ONCE(*pudp);
 	int res;
 
-	pr_info("Invalidate 1GB addr=%lx pudp %llx pte_default at %llx\n",
-	 		addr, (uint64_t) pudp, (uint64_t) &pte_default);
+	pr_info("Invalidate 1GB addr=%lx pudp %llx pmd_default at %llx\n",
+	 		addr, (uint64_t) pudp, (uint64_t) &pmd_default);
 
-	if (pudp != NULL && pudp != (pud_t *) &pte_default) {
+	if (pudp != NULL && pudp != (pud_t *) &pmd_default) {
 		res = __ecpt_native_ptep_get_and_clear(mm, (pte_t *) pudp, addr, page_1GB);
 		if (res == 0) {
 			return ret;
@@ -2402,8 +2408,8 @@ pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 
 	res = ecpt_invalidate(mm->map_desc, addr, page_1GB);
 	
-	pr_info("  addr=%lx pudp %llx pte_default at %llx has no associated mapping\n",
-		addr, (uint64_t) pudp, (uint64_t) &pte_default);
+	pr_info("  addr=%lx pudp %llx pmd_default at %llx has no associated mapping\n",
+		addr, (uint64_t) pudp, (uint64_t) &pmd_default);
 	return ret;
 }
 
@@ -2525,6 +2531,11 @@ void ecpt_init(void)
 	int ret = 0;
 	ret = init_rehash_workqueue();
 	WARN(ret, "Fail to init rehash workqueue\n");
+	
+}
+
+void ecpt_early_init(void)
+{
 	init_pte_page_default(__userpte_alloc_gfp);
 }
 
@@ -2757,7 +2768,8 @@ void print_ecpt(ECPT_desc_t *ecpt, bool kernel_table_detail,
 	}
 
 	pr_info("pte_default at %llx\n", (uint64_t)&pte_default);
-
+	pr_info("pmd_default at %llx =%lx\n", (uint64_t)&pmd_default, pmd_default.pmd);
+	
 	if (ecpt->mm == &init_mm)
 		pr_info("\tmm = init_mm");
 	else

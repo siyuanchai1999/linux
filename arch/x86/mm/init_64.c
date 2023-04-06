@@ -1734,7 +1734,8 @@ static int __meminit vmemmap_populate_hugepages(unsigned long start,
 		}
 
 		pmd = __pmd(pmd_val);
-		if (pmd_none(pmd)) {
+		/* TODO: replace with general interface */
+		if (ecpt_pmd_none(pmd)) {
 			
 			p = vmemmap_alloc_block_buf(PMD_SIZE, node, altmap);
 			if (p) {
@@ -1940,7 +1941,8 @@ void register_page_bootmem_memmap(unsigned long section_nr,
 			next = pmd_addr_end(addr, end);
 			pmd = pmd_offset_from_ecpt_entry(entry, addr);
 			
-			if (pmd_none(*pmd))
+			/* TODO: replace with general interface */
+			if (ecpt_pmd_none(*pmd))
 				continue;
 			
 			nr_pmd_pages = 1 << get_order(PMD_SIZE);

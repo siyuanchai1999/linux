@@ -2229,7 +2229,7 @@ int __pte_alloc_kernel(pmd_t *pmd);
 static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 		unsigned long address)
 {
-	return (unlikely(no_pgd_huge_and_p4d_pgtable(pgd)) && __p4d_alloc(mm, pgd, address)
+	return (unlikely(no_pgd_huge_and_p4d_pgtable(*pgd)) && __p4d_alloc(mm, pgd, address)
 		? NULL: p4d_offset_map_with_mm(mm, pgd, address) );
 }
 #endif
@@ -2239,7 +2239,7 @@ static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
 		unsigned long address)
 {
-	return (unlikely(no_p4d_huge_and_pud_pgtable(p4d)) && __pud_alloc(mm, p4d, address)
+	return (unlikely(no_p4d_huge_and_pud_pgtable(*p4d)) && __pud_alloc(mm, p4d, address)
 		? NULL: pud_offset_map_with_mm(mm, p4d, address) );
 }
 #endif
@@ -2248,7 +2248,7 @@ static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
 #define __ARCH_HAS_PMD_ALLOC
 static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
-	return (unlikely(no_pud_huge_and_pmd_pgtable(pud)) && __pmd_alloc(mm, pud, address)
+	return (unlikely(no_pud_huge_and_pmd_pgtable(*pud)) && __pmd_alloc(mm, pud, address)
 		? NULL: pmd_offset_map_with_mm(mm, pud, address) );
 }
 #endif
