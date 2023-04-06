@@ -24,6 +24,10 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 #ifdef CONFIG_X86_64_ECPT
 #include <asm/ECPT.h>
 #endif
@@ -474,8 +478,416 @@ static inline bool can_follow_write_pte(pte_t pte, unsigned int flags)
 	return pte_write(pte) ||
 		((flags & FOLL_FORCE) && (flags & FOLL_COW) && pte_dirty(pte));
 }
-#ifdef CONFIG_X86_64_ECPT
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+static struct page *follow_page_pte(struct vm_area_struct *vma,
+		unsigned long address, pmd_t *pmd, unsigned int flags,
+		struct dev_pagemap **pgmap)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	struct page *page;
+	spinlock_t *ptl;
+	pte_t *ptep, pte;
+	int ret;
+
+	/* FOLL_GET and FOLL_PIN are mutually exclusive. */
+	if (WARN_ON_ONCE((flags & (FOLL_PIN | FOLL_GET)) ==
+			 (FOLL_PIN | FOLL_GET)))
+		return ERR_PTR(-EINVAL);
+retry:
+	if (unlikely(pmd_bad(*pmd)))
+		return no_page_table(vma, flags);
+
+	ptep = pte_offset_map_lock(mm, pmd, address, &ptl);
+	pte = *ptep;
+	pr_info_verbose("addr=%lx ptep at %llx =%lx\n", address, (uint64_t) ptep, ptep->pte);
+	if (!pte_present(pte)) {
+		swp_entry_t entry;
+		/*
+		 * KSM's break_ksm() relies upon recognizing a ksm page
+		 * even while it is being migrated, so for that case we
+		 * need migration_entry_wait().
+		 */
+		if (likely(!(flags & FOLL_MIGRATION)))
+			goto no_page;
+		if (pte_none(pte))
+			goto no_page;
+		entry = pte_to_swp_entry(pte);
+		if (!is_migration_entry(entry))
+			goto no_page;
+		pte_unmap_unlock(ptep, ptl);
+		migration_entry_wait(mm, pmd, address);
+		goto retry;
+	}
+	if ((flags & FOLL_NUMA) && pte_protnone(pte))
+		goto no_page;
+	if ((flags & FOLL_WRITE) && !can_follow_write_pte(pte, flags)) {
+		pte_unmap_unlock(ptep, ptl);
+		return NULL;
+	}
+
+	page = vm_normal_page(vma, address, pte);
+	if (!page && pte_devmap(pte) && (flags & (FOLL_GET | FOLL_PIN))) {
+		/*
+		 * Only return device mapping pages in the FOLL_GET or FOLL_PIN
+		 * case since they are only valid while holding the pgmap
+		 * reference.
+		 */
+		*pgmap = get_dev_pagemap(pte_pfn(pte), *pgmap);
+		if (*pgmap)
+			page = pte_page(pte);
+		else
+			goto no_page;
+	} else if (unlikely(!page)) {
+		if (flags & FOLL_DUMP) {
+			/* Avoid special (like zero) pages in core dumps */
+			page = ERR_PTR(-EFAULT);
+			goto out;
+		}
+
+		if (is_zero_pfn(pte_pfn(pte))) {
+			page = pte_page(pte);
+		} else {
+			ret = follow_pfn_pte(vma, address, ptep, flags);
+			page = ERR_PTR(ret);
+			goto out;
+		}
+	}
+
+	/* try_grab_page() does nothing unless FOLL_GET or FOLL_PIN is set. */
+	if (unlikely(!try_grab_page(page, flags))) {
+		page = ERR_PTR(-ENOMEM);
+		goto out;
+	}
+	/*
+	 * We need to make the page accessible if and only if we are going
+	 * to access its content (the FOLL_PIN case).  Please see
+	 * Documentation/core-api/pin_user_pages.rst for details.
+	 */
+	if (flags & FOLL_PIN) {
+		ret = arch_make_page_accessible(page);
+		if (ret) {
+			unpin_user_page(page);
+			page = ERR_PTR(ret);
+			goto out;
+		}
+	}
+	if (flags & FOLL_TOUCH) {
+		if ((flags & FOLL_WRITE) &&
+		    !pte_dirty(pte) && !PageDirty(page))
+			set_page_dirty(page);
+		/*
+		 * pte_mkyoung() would be more correct here, but atomic care
+		 * is needed to avoid losing the dirty bit: it is easier to use
+		 * mark_page_accessed().
+		 */
+		mark_page_accessed(page);
+	}
+	if ((flags & FOLL_MLOCK) && (vma->vm_flags & VM_LOCKED)) {
+		/* Do not mlock pte-mapped THP */
+		if (PageTransCompound(page))
+			goto out;
+
+		/*
+		 * The preliminary mapping check is mainly to avoid the
+		 * pointless overhead of lock_page on the ZERO_PAGE
+		 * which might bounce very badly if there is contention.
+		 *
+		 * If the page is already locked, we don't need to
+		 * handle it now - vmscan will handle it later if and
+		 * when it attempts to reclaim the page.
+		 */
+		if (page->mapping && trylock_page(page)) {
+			lru_add_drain();  /* push cached pages to LRU */
+			/*
+			 * Because we lock page here, and migration is
+			 * blocked by the pte's page reference, and we
+			 * know the page is still mapped, we don't even
+			 * need to check for file-cache page truncation.
+			 */
+			mlock_vma_page(page);
+			unlock_page(page);
+		}
+	}
+out:
+	pte_unmap_unlock(ptep, ptl);
+	return page;
+no_page:
+	pte_unmap_unlock(ptep, ptl);
+	if (!pte_none(pte))
+		return NULL;
+	return no_page_table(vma, flags);
+}
+
+static struct page *follow_pmd_mask(struct vm_area_struct *vma,
+				    unsigned long address, pud_t *pudp,
+				    unsigned int flags,
+				    struct follow_page_context *ctx)
+{
+	pmd_t *pmd, pmdval;
+	spinlock_t *ptl;
+	struct page *page;
+	struct mm_struct *mm = vma->vm_mm;
+
+	pmd = pmd_offset_map_with_mm(mm, pudp, address);
+
+	pr_info_verbose("addr=%lx pmd at %llx =%lx\n", address, (uint64_t) pmd, pmd->pmd);
+	/* original code */
+	// pmd = pmd_offset(pudp, address);
+	/*
+	 * The READ_ONCE() will stabilize the pmdval in a register or
+	 * on the stack so that it will stop changing under the code.
+	 */
+	pmdval = READ_ONCE(*pmd);
+
+	if (no_pmd_huge_and_pte_pgtable(pmdval))
+		return no_page_table(vma, flags);
+	/* original code */
+	// if (pmd_none(pmdval))
+		// return no_page_table(vma, flags);
+	if (pmd_huge(pmdval) && is_vm_hugetlb_page(vma)) {
+		page = follow_huge_pmd(mm, address, pmd, flags);
+		if (page)
+			return page;
+		return no_page_table(vma, flags);
+	}
+	if (is_hugepd(__hugepd(pmd_val(pmdval)))) {
+		page = follow_huge_pd(vma, address,
+				      __hugepd(pmd_val(pmdval)), flags,
+				      PMD_SHIFT);
+		if (page)
+			return page;
+		return no_page_table(vma, flags);
+	}
+retry:
+	if (!pmd_present(pmdval)) {
+		if (likely(!(flags & FOLL_MIGRATION)))
+			return no_page_table(vma, flags);
+		VM_BUG_ON(thp_migration_supported() &&
+				  !is_pmd_migration_entry(pmdval));
+		if (is_pmd_migration_entry(pmdval))
+			pmd_migration_entry_wait(mm, pmd);
+		pmdval = READ_ONCE(*pmd);
+		/*
+		 * MADV_DONTNEED may convert the pmd to null because
+		 * mmap_lock is held in read mode
+		 */
+
+		if (no_pmd_huge_and_pte_pgtable(pmdval))
+			return no_page_table(vma, flags);
+
+		/* original code */
+		// if (pmd_none(pmdval))
+		// 	return no_page_table(vma, flags);
+		goto retry;
+	}
+	if (pmd_devmap(pmdval)) {
+		ptl = pmd_lock(mm, pmd);
+		page = follow_devmap_pmd(vma, address, pmd, flags, &ctx->pgmap);
+		spin_unlock(ptl);
+		if (page)
+			return page;
+	}
+	if (likely(!pmd_trans_huge(pmdval)))
+		return follow_page_pte(vma, address, pmd, flags, &ctx->pgmap);
+
+	if ((flags & FOLL_NUMA) && pmd_protnone(pmdval))
+		return no_page_table(vma, flags);
+
+retry_locked:
+	ptl = pmd_lock(mm, pmd);
+
+	if (unlikely(no_pmd_huge_and_pte_pgtable(*pmd))) {
+		spin_unlock(ptl);
+		return no_page_table(vma, flags);
+	}
+	/* original code */
+	// if (unlikely(pmd_none(*pmd))) {
+	// 	spin_unlock(ptl);
+	// 	return no_page_table(vma, flags);
+	// }
+	if (unlikely(!pmd_present(*pmd))) {
+		spin_unlock(ptl);
+		if (likely(!(flags & FOLL_MIGRATION)))
+			return no_page_table(vma, flags);
+		pmd_migration_entry_wait(mm, pmd);
+		goto retry_locked;
+	}
+	if (unlikely(!pmd_trans_huge(*pmd))) {
+		spin_unlock(ptl);
+		return follow_page_pte(vma, address, pmd, flags, &ctx->pgmap);
+	}
+	if (flags & FOLL_SPLIT_PMD) {
+		int ret;
+		page = pmd_page(*pmd);
+		if (is_huge_zero_page(page)) {
+			spin_unlock(ptl);
+			ret = 0;
+			split_huge_pmd(vma, pmd, address);
+			if (pmd_trans_unstable(pmd))
+				ret = -EBUSY;
+		} else {
+			spin_unlock(ptl);
+			split_huge_pmd(vma, pmd, address);
+			ret = pte_alloc(mm, pmd) ? -ENOMEM : 0;
+		}
+
+		return ret ? ERR_PTR(ret) :
+			follow_page_pte(vma, address, pmd, flags, &ctx->pgmap);
+	}
+	page = follow_trans_huge_pmd(vma, address, pmd, flags);
+	spin_unlock(ptl);
+	ctx->page_mask = HPAGE_PMD_NR - 1;
+	return page;
+}
+
+static struct page *follow_pud_mask(struct vm_area_struct *vma,
+				    unsigned long address, p4d_t *p4dp,
+				    unsigned int flags,
+				    struct follow_page_context *ctx)
+{
+	pud_t *pud;
+	spinlock_t *ptl;
+	struct page *page;
+	struct mm_struct *mm = vma->vm_mm;
+
+	pud = pud_offset_map_with_mm(mm, p4d, address);
+	pr_info_verbose("addr=%lx pud at %llx =%lx\n", address, (uint64_t) pud, pud->pud);
+	/* original code */
+	// pud = pud_offset(p4dp, address);
+	
+	if (no_pud_huge_and_pmd_pgtable(*pud))
+		return no_page_table(vma, flags);
+	/* original code */
+	// if (pud_none(*pud))
+	// 	return no_page_table(vma, flags);
+	if (pud_huge(*pud) && is_vm_hugetlb_page(vma)) {
+		page = follow_huge_pud(mm, address, pud, flags);
+		if (page)
+			return page;
+		return no_page_table(vma, flags);
+	}
+	if (is_hugepd(__hugepd(pud_val(*pud)))) {
+		page = follow_huge_pd(vma, address,
+				      __hugepd(pud_val(*pud)), flags,
+				      PUD_SHIFT);
+		if (page)
+			return page;
+		return no_page_table(vma, flags);
+	}
+	if (pud_devmap(*pud)) {
+		ptl = pud_lock(mm, pud);
+		page = follow_devmap_pud(vma, address, pud, flags, &ctx->pgmap);
+		spin_unlock(ptl);
+		if (page)
+			return page;
+	}
+	if (unlikely(pud_bad(*pud)))
+		return no_page_table(vma, flags);
+
+	return follow_pmd_mask(vma, address, pud, flags, ctx);
+}
+
+static struct page *follow_p4d_mask(struct vm_area_struct *vma,
+				    unsigned long address, pgd_t *pgdp,
+				    unsigned int flags,
+				    struct follow_page_context *ctx)
+{
+	p4d_t *p4d;
+	struct page *page;
+
+	p4d = p4d_offset_map_with_mm(vma->vm_mm, pgd, address);
+	pr_info_verbose("addr=%lx p4d at %llx =%lx\n", address, (uint64_t) p4d, p4d->p4d);
+	/* original code */
+	// p4d = p4d_offset(pgdp, address);
+
+	if (no_p4d_huge_and_pud_pgtable(*p4d)) {
+		return no_page_table(vma, flags);
+	}
+
+	/* original code */
+	// if (p4d_none(*p4d))
+	// 	return no_page_table(vma, flags);
+	// BUILD_BUG_ON(p4d_huge(*p4d));
+	// if (unlikely(p4d_bad(*p4d)))
+	// 	return no_page_table(vma, flags);
+
+	if (is_hugepd(__hugepd(p4d_val(*p4d)))) {
+		page = follow_huge_pd(vma, address,
+				      __hugepd(p4d_val(*p4d)), flags,
+				      P4D_SHIFT);
+		if (page)
+			return page;
+		return no_page_table(vma, flags);
+	}
+	return follow_pud_mask(vma, address, p4d, flags, ctx);
+}
+
+/**
+ * follow_page_mask - look up a page descriptor from a user-virtual address
+ * @vma: vm_area_struct mapping @address
+ * @address: virtual address to look up
+ * @flags: flags modifying lookup behaviour
+ * @ctx: contains dev_pagemap for %ZONE_DEVICE memory pinning and a
+ *       pointer to output page_mask
+ *
+ * @flags can have FOLL_ flags set, defined in <linux/mm.h>
+ *
+ * When getting pages from ZONE_DEVICE memory, the @ctx->pgmap caches
+ * the device's dev_pagemap metadata to avoid repeating expensive lookups.
+ *
+ * On output, the @ctx->page_mask is set according to the size of the page.
+ *
+ * Return: the mapped (struct page *), %NULL if no mapping exists, or
+ * an error pointer if there is a mapping to something not represented
+ * by a page descriptor (see also vm_normal_page()).
+ */
+static struct page *follow_page_mask(struct vm_area_struct *vma,
+			      unsigned long address, unsigned int flags,
+			      struct follow_page_context *ctx)
+{
+	pgd_t *pgd;
+	struct page *page;
+	struct mm_struct *mm = vma->vm_mm;
+
+	ctx->page_mask = 0;
+
+	/* make this handle hugepd */
+	page = follow_huge_addr(mm, address, flags & FOLL_WRITE);
+	if (!IS_ERR(page)) {
+		WARN_ON_ONCE(flags & (FOLL_GET | FOLL_PIN));
+		return page;
+	}
+
+	pgd = pgd_offset_map_with_mm(mm, address);
+	/* original code */
+	// pgd = pgd_offset(mm, address);
+
+	if (no_pgd_huge_and_p4d_pgtable(*pgd) || unlikely(pgd_bad(*pgd)))
+		return no_page_table(vma, flags);
+	/* original code */
+	// if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
+		// return no_page_table(vma, flags);
+
+	if (pgd_huge(*pgd)) {
+		page = follow_huge_pgd(mm, address, pgd, flags);
+		if (page)
+			return page;
+		return no_page_table(vma, flags);
+	}
+	if (is_hugepd(__hugepd(pgd_val(*pgd)))) {
+		page = follow_huge_pd(vma, address,
+				      __hugepd(pgd_val(*pgd)), flags,
+				      PGDIR_SHIFT);
+		if (page)
+			return page;
+		return no_page_table(vma, flags);
+	}
+
+	return follow_p4d_mask(vma, address, pgd, flags, ctx);
+}
+
+#elif defined(CONFIG_X86_64_ECPT)
 static struct page *ecpt_follow_page_pte(struct vm_area_struct *vma,
 		unsigned long address, pte_t pte, unsigned int flags,
 		struct dev_pagemap **pgmap)
@@ -1484,6 +1896,8 @@ retry:
 		cond_resched();
 
 		page = follow_page_mask(vma, start, foll_flags, &ctx);
+		pr_info_verbose("follow_page_mask page at %llx\n", (uint64_t) page);
+
 		if (!page) {
 			ret = faultin_page(vma, start, &foll_flags, locked);
 			switch (ret) {
