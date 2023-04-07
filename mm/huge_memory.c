@@ -1679,16 +1679,22 @@ bool move_huge_pmd(struct vm_area_struct *vma, unsigned long old_addr,
 	pmd_t pmd;
 	struct mm_struct *mm = vma->vm_mm;
 	bool force_flush = false;
-	WARN(1, "move_huge_pmd not implemented with ECPT\n");
+
 	/*
 	 * The destination pmd shouldn't be established, free_pgtables()
 	 * should have release it.
 	 */
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE	
+	if (WARN_ON(!no_pmd_huge_page(*new_pmd))) {
+		VM_BUG_ON(pmd_trans_huge(*new_pmd));
+		return false;
+	}
+#else
 	if (WARN_ON(!pmd_none(*new_pmd))) {
 		VM_BUG_ON(pmd_trans_huge(*new_pmd));
 		return false;
 	}
-
+#endif
 	/*
 	 * We don't have to worry about the ordering of src and dst
 	 * ptlocks because exclusive mmap_lock prevents deadlock.
@@ -1701,7 +1707,12 @@ bool move_huge_pmd(struct vm_area_struct *vma, unsigned long old_addr,
 		pmd = pmdp_huge_get_and_clear(mm, old_addr, old_pmd);
 		if (pmd_present(pmd))
 			force_flush = true;
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE	
+		VM_BUG_ON(!no_pmd_huge_page(*new_pmd));
+#else
 		VM_BUG_ON(!pmd_none(*new_pmd));
+#endif
+		
 
 		if (pmd_move_must_withdraw(new_ptl, old_ptl, vma)) {
 			pgtable_t pgtable;

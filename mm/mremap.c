@@ -30,12 +30,29 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 static __maybe_unused pud_t *get_old_pud(struct mm_struct *mm, unsigned long addr)
 {
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, addr);
+	if (no_pgd_huge_and_p4d_pgtable(*pgd))
+		return NULL;
+
+	p4d = p4d_offset_map_with_mm(mm, pgd, addr);
+	if (no_p4d_huge_and_pud_pgtable(*p4d))
+		return NULL;
+
+	pud = pud_offset_map_with_mm(mm, p4d, addr);
+	if (no_pud_huge_and_pmd_pgtable(*pud))
+		return NULL;
+#else
 	pgd = pgd_offset(mm, addr);
 	if (pgd_none_or_clear_bad(pgd))
 		return NULL;
@@ -47,7 +64,7 @@ static __maybe_unused pud_t *get_old_pud(struct mm_struct *mm, unsigned long add
 	pud = pud_offset(p4d, addr);
 	if (pud_none_or_clear_bad(pud))
 		return NULL;
-
+#endif
 	return pud;
 }
 
@@ -59,11 +76,15 @@ static __maybe_unused pmd_t *get_old_pmd(struct mm_struct *mm, unsigned long add
 	pud = get_old_pud(mm, addr);
 	if (!pud)
 		return NULL;
-
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pmd = pmd_offset_map_with_mm(mm, pud, addr);
+	if (no_pmd_huge_and_pte_pgtable(*pmd))
+		return NULL;
+#else
 	pmd = pmd_offset(pud, addr);
 	if (pmd_none(*pmd))
 		return NULL;
-
+#endif
 	return pmd;
 }
 
@@ -73,7 +94,11 @@ static __maybe_unused pud_t *alloc_new_pud(struct mm_struct *mm, struct vm_area_
 	pgd_t *pgd;
 	p4d_t *p4d;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, addr);
+#else
 	pgd = pgd_offset(mm, addr);
+#endif
 	p4d = p4d_alloc(mm, pgd, addr);
 	if (!p4d)
 		return NULL;
@@ -168,18 +193,49 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	 * pte locks because exclusive mmap_lock prevents deadlock.
 	 */
 	old_pte = pte_offset_map_lock(mm, old_pmd, old_addr, &old_ptl);
-#ifdef 	CONFIG_X86_64_ECPT
-	new_pte = pte_offset_map(new_vma->vm_mm, new_addr);
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	new_pte = pte_offset_map_with_mm(new_vma->vm_mm, new_pmd, new_addr);
+#elif defined(CONFIG_X86_64_ECPT)
+	new_pte = pte_offset_ecpt(new_vma->vm_mm, new_addr);
 #else
 	new_pte = pte_offset_map(new_pmd, new_addr);
 #endif
+
 	new_ptl = pte_lockptr(mm, new_pmd);
 	if (new_ptl != old_ptl)
 		spin_lock_nested(new_ptl, SINGLE_DEPTH_NESTING);
 	flush_tlb_batched_pending(vma->vm_mm);
 	arch_enter_lazy_mmu_mode();
 
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	for (; old_addr < old_end; ptep_get_next(mm, old_pte, old_addr),
+					old_addr += PAGE_SIZE,
+				   ptep_get_next(new_vma->vm_mm, new_pte, new_addr),
+				    	new_addr += PAGE_SIZE) {
+		if (pte_none(*old_pte))
+			continue;
+
+		pte = ptep_get_and_clear(mm, old_addr, old_pte);
+		/*
+		 * If we are remapping a valid PTE, make sure
+		 * to flush TLB before we drop the PTL for the
+		 * PTE.
+		 *
+		 * NOTE! Both old and new PTL matter: the old one
+		 * for racing with page_mkclean(), the new one to
+		 * make sure the physical page stays valid until
+		 * the TLB entry for the old mapping has been
+		 * flushed.
+		 */
+		if (pte_present(pte))
+			force_flush = true;
+		pte = move_pte(pte, new_vma->vm_page_prot, old_addr, new_addr);
+		pte = move_soft_dirty_pte(pte);
+		set_pte_at(mm, new_addr, new_pte, pte);
+	}
+
+#elif defined(CONFIG_X86_64_ECPT)
 	for (; old_addr < old_end; ) {
 		if (pte_none(*old_pte))
 			continue;
@@ -261,6 +317,7 @@ static bool move_normal_pmd(struct vm_area_struct *vma, unsigned long old_addr,
 	struct mm_struct *mm = vma->vm_mm;
 	pmd_t pmd;
 
+	WARN(1, "move_normal_pmd not supported with ECPT!\n");
 	if (!arch_supports_page_table_move())
 		return false;
 	/*
@@ -329,6 +386,7 @@ static bool move_normal_pud(struct vm_area_struct *vma, unsigned long old_addr,
 	struct mm_struct *mm = vma->vm_mm;
 	pud_t pud;
 
+	WARN(1, "move_normal_pud not supported with ECPT!\n");
 	if (!arch_supports_page_table_move())
 		return false;
 	/*
@@ -377,7 +435,7 @@ static bool move_huge_pud(struct vm_area_struct *vma, unsigned long old_addr,
 	spinlock_t *old_ptl, *new_ptl;
 	struct mm_struct *mm = vma->vm_mm;
 	pud_t pud;
-	WARN(1, "move_huge_pud not implemented with ECPT\n");
+
 	/*
 	 * The destination pud shouldn't be established, free_pgtables()
 	 * should have released it.
@@ -394,10 +452,13 @@ static bool move_huge_pud(struct vm_area_struct *vma, unsigned long old_addr,
 	if (new_ptl != old_ptl)
 		spin_lock_nested(new_ptl, SINGLE_DEPTH_NESTING);
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	/* Clear the pud */
+	pud = pudp_huge_get_and_clear(vma->vm_mm, old_addr, old_pud);
+#else
 	pud = *old_pud;
 	pud_clear(old_pud);
-
+#endif
 	VM_BUG_ON(!pud_none(*new_pud));
 
 	/* Set the new pud */
@@ -510,7 +571,92 @@ static __maybe_unused bool move_pgt_entry(enum pgt_entry entry, struct vm_area_s
 	return moved;
 }
 
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+unsigned long move_page_tables(struct vm_area_struct *vma,
+		unsigned long old_addr, struct vm_area_struct *new_vma,
+		unsigned long new_addr, unsigned long len,
+		bool need_rmap_locks)
+{
+	unsigned long extent, old_end;
+	struct mmu_notifier_range range;
+	pmd_t *old_pmd, *new_pmd;
+	pud_t *old_pud, *new_pud;
+	pr_info_verbose("old_addr=%lx new_addr=%lx len=%lx\n", old_addr, new_addr, len);
+	old_end = old_addr + len;
+	flush_cache_range(vma, old_addr, old_end);
+
+	mmu_notifier_range_init(&range, MMU_NOTIFY_UNMAP, 0, vma, vma->vm_mm,
+				old_addr, old_end);
+	mmu_notifier_invalidate_range_start(&range);
+
+	for (; old_addr < old_end; old_addr += extent, new_addr += extent) {
+		cond_resched();
+		/*
+		 * If extent is PUD-sized try to speed up the move by moving at the
+		 * PUD level if possible.
+		 */
+		extent = get_extent(NORMAL_PUD, old_addr, old_end, new_addr);
+
+		old_pud = get_old_pud(vma->vm_mm, old_addr);
+		if (!old_pud)
+			continue;
+		new_pud = alloc_new_pud(vma->vm_mm, vma, new_addr);
+		if (!new_pud)
+			break;
+		if (pud_trans_huge(*old_pud) || pud_devmap(*old_pud)) {
+			if (extent == HPAGE_PUD_SIZE) {
+				move_pgt_entry(HPAGE_PUD, vma, old_addr, new_addr,
+					       old_pud, new_pud, need_rmap_locks);
+				/* We ignore and continue on error? */
+				continue;
+			}
+		} else if (IS_ENABLED(CONFIG_HAVE_MOVE_PUD) && extent == PUD_SIZE) {
+
+			if (move_pgt_entry(NORMAL_PUD, vma, old_addr, new_addr,
+					   old_pud, new_pud, true))
+				continue;
+		}
+
+		extent = get_extent(NORMAL_PMD, old_addr, old_end, new_addr);
+		old_pmd = get_old_pmd(vma->vm_mm, old_addr);
+		if (!old_pmd)
+			continue;
+		new_pmd = alloc_new_pmd(vma->vm_mm, vma, new_addr);
+		if (!new_pmd)
+			break;
+		if (is_swap_pmd(*old_pmd) || pmd_trans_huge(*old_pmd) ||
+		    pmd_devmap(*old_pmd)) {
+			if (extent == HPAGE_PMD_SIZE &&
+			    move_pgt_entry(HPAGE_PMD, vma, old_addr, new_addr,
+					   old_pmd, new_pmd, need_rmap_locks))
+				continue;
+			split_huge_pmd(vma, old_pmd, old_addr);
+			if (pmd_trans_unstable(old_pmd))
+				continue;
+		} else if (IS_ENABLED(CONFIG_HAVE_MOVE_PMD) &&
+			   extent == PMD_SIZE) {
+			/*
+			 * If the extent is PMD-sized, try to speed the move by
+			 * moving at the PMD level if possible.
+			 */
+			if (move_pgt_entry(NORMAL_PMD, vma, old_addr, new_addr,
+					   old_pmd, new_pmd, true))
+				continue;
+		}
+
+		if (pte_alloc(new_vma->vm_mm, new_pmd))
+			break;
+		move_ptes(vma, old_pmd, old_addr, old_addr + extent, new_vma,
+			  new_pmd, new_addr, need_rmap_locks);
+	}
+
+	mmu_notifier_invalidate_range_end(&range);
+
+	return len + old_addr - old_end;	/* how much done */
+}
+
+
+#elif defined(CONFIG_X86_64_ECPT)
 unsigned long move_page_tables(struct vm_area_struct *vma,
 		unsigned long old_addr, struct vm_area_struct *new_vma,
 		unsigned long new_addr, unsigned long len,

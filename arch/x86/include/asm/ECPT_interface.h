@@ -215,6 +215,8 @@ static inline pmd_t * pmd_offset_ecpt(struct mm_struct *mm, unsigned long addr) 
 }
 
 static inline pud_t * pud_offset_ecpt(struct mm_struct *mm, unsigned long addr) {
+#if ECPT_1G_WAY > 0 || ECPT_1G_USER_WAY > 0
+
 	Granularity g = page_1GB;
 	uint32_t way = 0;
 	ecpt_entry_t * e = get_hpt_entry(mm->map_desc, addr, &g, &way);
@@ -223,6 +225,9 @@ static inline pud_t * pud_offset_ecpt(struct mm_struct *mm, unsigned long addr) 
 		return pud_offset_from_ecpt_entry(e, addr);
 	else 
 		return (pud_t *) &pmd_default;
+#else
+	return (pud_t *) &pmd_default;
+#endif
 }
 
 /* ECPT has no support for P4D level page right now */
