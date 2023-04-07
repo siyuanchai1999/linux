@@ -158,11 +158,15 @@ inline void pud_mk_pmd_accessible(struct mm_struct *mm, pud_t *pud,
 {
 	pr_info_verbose("make accessible pud at %llx addr= %lx\n",
 	 	(uint64_t) pud, addr);
-	if (ECPT_1G_WAY > 0 || ECPT_1G_USER_WAY > 0) {
+	
+#if ECPT_1G_WAY > 0 || ECPT_1G_USER_WAY > 0
+	if (!no_pud_huge_page(*pud)) {
+		WARN(1, "Clean pud at %llx addr=%lx\n", (uint64_t) pud, addr);
 		ecpt_native_pudp_get_and_clear(mm, addr, pud);
-	} else {
-		/* ECPT doesn't have 1G way setup */
 	}
+#else
+	/* do nothing */
+#endif
 }
 
 inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd, 
@@ -170,14 +174,14 @@ inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd,
 {
 	pr_info_verbose("make accessible pmdp at %llx addr= %lx\n",
 	 	(uint64_t) pmd, addr);
-	if (pmd == NULL) {
-		/* do nothing */
-	} else if  (pmd == (pmd_t *) &pmd_default || ptep_is_in_ecpt(mm->map_desc, pmd, addr, page_2MB) ) {
-		ecpt_native_pmdp_get_and_clear(mm, addr, pmd);
-	} else {
-		/* x86 pmd clear. clear pmd to be zero */
-		native_pmd_clear(pmd);
+#if ECPT_2M_WAY > 0 || ECPT_2M_USER_WAY > 0
+	if (!no_pmd_huge_page(*pmd)) {
+		WARN(1, "Clean pmd at %llx addr=%lx\n", (uint64_t) pmd, addr);
+		// ecpt_native_pmdp_get_and_clear(mm, addr, pmd);
 	}
+#else
+	/* do nothing */
+#endif
 }
 
 inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd, 
