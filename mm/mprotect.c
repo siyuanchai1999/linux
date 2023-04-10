@@ -35,6 +35,658 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+
+static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
+		unsigned long addr, unsigned long end, pgprot_t newprot,
+		unsigned long cp_flags)
+{
+	pte_t *pte, oldpte;
+	spinlock_t *ptl;
+	unsigned long pages = 0;
+	int target_node = NUMA_NO_NODE;
+	bool dirty_accountable = cp_flags & MM_CP_DIRTY_ACCT;
+	bool prot_numa = cp_flags & MM_CP_PROT_NUMA;
+	bool uffd_wp = cp_flags & MM_CP_UFFD_WP;
+	bool uffd_wp_resolve = cp_flags & MM_CP_UFFD_WP_RESOLVE;
+
+	pr_info_verbose("addr=%lx end=%lx newprot=%lx\n", 
+		addr, end, newprot.pgprot);
+	/*
+	 * Can be called with only the mmap_lock for reading by
+	 * prot_numa so we must check the pmd isn't constantly
+	 * changing from under us from pmd_none to pmd_trans_huge
+	 * and/or the other way around.
+	 */
+	if (pmd_next_level_not_accessible(pmd)) {
+		return 0;
+	}
+	/* original code */
+	// if (pmd_trans_unstable(pmd))
+	// 	return 0;
+
+	/*
+	 * The pmd points to a regular pte so the pmd can't change
+	 * from under us even if the mmap_lock is only hold for
+	 * reading.
+	 */
+	pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
+
+	/* Get target node for single threaded private VMAs */
+	if (prot_numa && !(vma->vm_flags & VM_SHARED) &&
+	    atomic_read(&vma->vm_mm->mm_users) == 1)
+		target_node = numa_node_id();
+
+	flush_tlb_batched_pending(vma->vm_mm);
+	arch_enter_lazy_mmu_mode();
+	do {
+		pr_info_verbose("ptep at %llx =%lx addr=%lx\n", (uint64_t) pte, pte->pte, addr);
+		oldpte = *pte;
+		if (pte_present(oldpte)) {
+			pte_t ptent;
+			bool preserve_write = prot_numa && pte_write(oldpte);
+
+			/*
+			 * Avoid trapping faults against the zero or KSM
+			 * pages. See similar comment in change_huge_pmd.
+			 */
+			if (prot_numa) {
+				struct page *page;
+
+				/* Avoid TLB flush if possible */
+				if (pte_protnone(oldpte))
+					continue;
+
+				page = vm_normal_page(vma, addr, oldpte);
+				if (!page || PageKsm(page))
+					continue;
+
+				/* Also skip shared copy-on-write pages */
+				if (is_cow_mapping(vma->vm_flags) &&
+				    page_mapcount(page) != 1)
+					continue;
+
+				/*
+				 * While migration can move some dirty pages,
+				 * it cannot move them all from MIGRATE_ASYNC
+				 * context.
+				 */
+				if (page_is_file_lru(page) && PageDirty(page))
+					continue;
+
+				/*
+				 * Don't mess with PTEs if page is already on the node
+				 * a single-threaded process is running on.
+				 */
+				if (target_node == page_to_nid(page))
+					continue;
+			}
+
+			oldpte = ptep_modify_prot_start(vma, addr, pte);
+			ptent = pte_modify(oldpte, newprot);
+			if (preserve_write)
+				ptent = pte_mk_savedwrite(ptent);
+
+			if (uffd_wp) {
+				ptent = pte_wrprotect(ptent);
+				ptent = pte_mkuffd_wp(ptent);
+			} else if (uffd_wp_resolve) {
+				/*
+				 * Leave the write bit to be handled
+				 * by PF interrupt handler, then
+				 * things like COW could be properly
+				 * handled.
+				 */
+				ptent = pte_clear_uffd_wp(ptent);
+			}
+
+			/* Avoid taking write faults for known dirty pages */
+			if (dirty_accountable && pte_dirty(ptent) &&
+					(pte_soft_dirty(ptent) ||
+					 !(vma->vm_flags & VM_SOFTDIRTY))) {
+				ptent = pte_mkwrite(ptent);
+			}
+			ptep_modify_prot_commit(vma, addr, pte, oldpte, ptent);
+			pages++;
+		} else if (is_swap_pte(oldpte)) {
+			swp_entry_t entry = pte_to_swp_entry(oldpte);
+			pte_t newpte;
+
+			if (is_writable_migration_entry(entry)) {
+				/*
+				 * A protection check is difficult so
+				 * just be safe and disable write
+				 */
+				entry = make_readable_migration_entry(
+							swp_offset(entry));
+				newpte = swp_entry_to_pte(entry);
+				if (pte_swp_soft_dirty(oldpte))
+					newpte = pte_swp_mksoft_dirty(newpte);
+				if (pte_swp_uffd_wp(oldpte))
+					newpte = pte_swp_mkuffd_wp(newpte);
+			} else if (is_writable_device_private_entry(entry)) {
+				/*
+				 * We do not preserve soft-dirtiness. See
+				 * copy_one_pte() for explanation.
+				 */
+				entry = make_readable_device_private_entry(
+							swp_offset(entry));
+				newpte = swp_entry_to_pte(entry);
+				if (pte_swp_uffd_wp(oldpte))
+					newpte = pte_swp_mkuffd_wp(newpte);
+			} else if (is_writable_device_exclusive_entry(entry)) {
+				entry = make_readable_device_exclusive_entry(
+							swp_offset(entry));
+				newpte = swp_entry_to_pte(entry);
+				if (pte_swp_soft_dirty(oldpte))
+					newpte = pte_swp_mksoft_dirty(newpte);
+				if (pte_swp_uffd_wp(oldpte))
+					newpte = pte_swp_mkuffd_wp(newpte);
+			} else {
+				newpte = oldpte;
+			}
+
+			if (uffd_wp)
+				newpte = pte_swp_mkuffd_wp(newpte);
+			else if (uffd_wp_resolve)
+				newpte = pte_swp_clear_uffd_wp(newpte);
+
+			if (!pte_same(oldpte, newpte)) {
+				set_pte_at(vma->vm_mm, addr, pte, newpte);
+				pages++;
+			}
+		}
+	} 
+	
+	while((addr += PAGE_SIZE, addr != end) 
+		&& (pte = ptep_get_next(vma->vm_mm, pte, addr - PAGE_SIZE)));
+	/* original code */
+	// } while (pte++, addr += PAGE_SIZE, addr != end);
+
+	arch_leave_lazy_mmu_mode();
+	pte_unmap_unlock(pte - 1, ptl);
+
+	return pages;
+}
+
+/*
+ * Used when setting automatic NUMA hinting protection where it is
+ * critical that a numa hinting PMD is not confused with a bad PMD.
+ */
+static inline int pmd_none_or_clear_bad_unless_trans_huge(pmd_t *pmd)
+{
+	pmd_t pmdval = pmd_read_atomic(pmd);
+
+	/* See pmd_none_or_trans_huge_or_clear_bad for info on barrier */
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+	barrier();
+#endif
+	if (no_pmd_huge_and_pte_pgtable(pmdval)) {
+		return 1;
+	}
+	/* original code */
+	// if (pmd_none(pmdval))
+	// 	return 1;
+	if (pmd_trans_huge(pmdval))
+		return 0;
+	if (unlikely(pmd_bad(pmdval))) {
+		pmd_clear_bad(pmd);
+		return 1;
+	}
+
+	return 0;
+}
+
+static inline unsigned long change_pmd_range(struct vm_area_struct *vma,
+		pud_t *pud, unsigned long addr, unsigned long end,
+		pgprot_t newprot, unsigned long cp_flags)
+{
+	pmd_t *pmd;
+	unsigned long next;
+	unsigned long pages = 0;
+	unsigned long nr_huge_updates = 0;
+	struct mmu_notifier_range range;
+
+	range.start = 0;
+
+	pmd = pmd_offset_map_with_mm(vma->vm_mm, pud, addr);
+	/* original code */
+	// pmd = pmd_offset(pud, addr);
+
+	do {
+		unsigned long this_pages;
+
+		next = pmd_addr_end(addr, end);
+
+		/*
+		 * Automatic NUMA balancing walks the tables with mmap_lock
+		 * held for read. It's possible a parallel update to occur
+		 * between pmd_trans_huge() and a pmd_none_or_clear_bad()
+		 * check leading to a false positive and clearing.
+		 * Hence, it's necessary to atomically read the PMD value
+		 * for all the checks.
+		 */
+		if (!is_swap_pmd(*pmd) && !pmd_devmap(*pmd) &&
+		     pmd_none_or_clear_bad_unless_trans_huge(pmd))
+			goto next;
+
+		/* invoke the mmu notifier if the pmd is populated */
+		if (!range.start) {
+			mmu_notifier_range_init(&range,
+				MMU_NOTIFY_PROTECTION_VMA, 0,
+				vma, vma->vm_mm, addr, end);
+			mmu_notifier_invalidate_range_start(&range);
+		}
+
+		if (is_swap_pmd(*pmd) || pmd_trans_huge(*pmd) || pmd_devmap(*pmd)) {
+			if (next - addr != HPAGE_PMD_SIZE) {
+				__split_huge_pmd(vma, pmd, addr, false, NULL);
+			} else {
+				int nr_ptes = change_huge_pmd(vma, pmd, addr,
+							      newprot, cp_flags);
+
+				if (nr_ptes) {
+					if (nr_ptes == HPAGE_PMD_NR) {
+						pages += HPAGE_PMD_NR;
+						nr_huge_updates++;
+					}
+
+					/* huge pmd was handled */
+					goto next;
+				}
+			}
+			/* fall through, the trans huge pmd just split */
+		}
+		this_pages = change_pte_range(vma, pmd, addr, next, newprot,
+					      cp_flags);
+		pages += this_pages;
+next:
+		cond_resched();
+	} 
+	while(next != end ? 
+		(pmd = pmdp_get_next(vma->vm_mm, pmd, addr), addr = next) : 
+		(addr = next, 0));
+	// while (pmd++, addr = next, addr != end);
+
+	if (range.start)
+		mmu_notifier_invalidate_range_end(&range);
+
+	if (nr_huge_updates)
+		count_vm_numa_events(NUMA_HUGE_PTE_UPDATES, nr_huge_updates);
+	return pages;
+}
+
+static inline unsigned long change_pud_range(struct vm_area_struct *vma,
+		p4d_t *p4d, unsigned long addr, unsigned long end,
+		pgprot_t newprot, unsigned long cp_flags)
+{
+	pud_t *pud;
+	unsigned long next;
+	unsigned long pages = 0;
+
+	pud = pud_offset_map_with_mm(vma->vm_mm, p4d, addr);
+	/* original code */
+	// pud = pud_offset(p4d, addr);
+	do {
+		next = pud_addr_end(addr, end);
+		
+		if (pud_next_level_not_accessible(pud))
+			continue;
+		/* original code */
+		// if (pud_none_or_clear_bad(pud))
+			// continue;
+
+		pages += change_pmd_range(vma, pud, addr, next, newprot,
+					  cp_flags);
+	} 
+	while(next != end ? 
+			(pud = pudp_get_next(vma->vm_mm, pud, addr), addr = next) : 
+			(addr = next, 0));
+	/* original code */
+	// while (pud++, addr = next, addr != end);
+
+	return pages;
+}
+
+static inline unsigned long change_p4d_range(struct vm_area_struct *vma,
+		pgd_t *pgd, unsigned long addr, unsigned long end,
+		pgprot_t newprot, unsigned long cp_flags)
+{
+	p4d_t *p4d;
+	unsigned long next;
+	unsigned long pages = 0;
+
+	p4d = p4d_offset_map_with_mm(vma->vm_mm, pgd, addr);
+	/* original code */
+	// p4d = p4d_offset(pgd, addr);
+	do {
+		next = p4d_addr_end(addr, end);
+
+		if (p4d_next_level_not_accessible(p4d))
+			continue;
+		/* original code */
+		// if (p4d_none_or_clear_bad(p4d))
+		// 	continue;
+		pages += change_pud_range(vma, p4d, addr, next, newprot,
+					  cp_flags);
+	} 
+	while(next != end ? 
+			(p4d = p4dp_get_next(vma->vm_mm, p4d, addr), addr = next) : 
+			(addr = next, 0));
+	/* original code */
+	// while (p4d++, addr = next, addr != end);
+
+	return pages;
+}
+
+static unsigned long change_protection_range(struct vm_area_struct *vma,
+		unsigned long addr, unsigned long end, pgprot_t newprot,
+		unsigned long cp_flags)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	pgd_t *pgd;
+	unsigned long next;
+	unsigned long start = addr;
+	unsigned long pages = 0;
+
+	BUG_ON(addr >= end);
+
+	pr_info_verbose("vma at %llx mm at %llx pgd at %llx map_desc at %llx start=%lx end=%lx newprot=%lx\n", 
+		(uint64_t) vma, (uint64_t) mm, (uint64_t) mm->pgd, (uint64_t) mm->map_desc,
+		start, end, newprot.pgprot);
+
+	pgd = pgd_offset_map_with_mm(mm, addr);
+	/* original code */
+	// pgd = pgd_offset(mm, addr);
+	flush_cache_range(vma, addr, end);
+	inc_tlb_flush_pending(mm);
+	do {
+		next = pgd_addr_end(addr, end);
+		
+		if (pgd_next_level_not_accessible(pgd))
+			continue;
+		/* original code */
+		// if (pgd_none_or_clear_bad(pgd))
+		// 	continue;
+		pages += change_p4d_range(vma, pgd, addr, next, newprot,
+					  cp_flags);
+	} while(next != end ? 
+		(pgd = pgdp_get_next(vma->vm_mm, pgd, addr), addr = next) : 
+		(addr = next, 0));
+	/* original code */
+	// while (pgd++, addr = next, addr != end);
+
+	/* Only flush the TLB if we actually modified any entries: */
+	if (pages)
+		flush_tlb_range(vma, start, end);
+	dec_tlb_flush_pending(mm);
+
+	return pages;
+}
+
+#elif defined(CONFIG_X86_64_ECPT)
+
+static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
+		unsigned long addr, unsigned long end, pgprot_t newprot,
+		unsigned long cp_flags)
+{
+	pte_t *pte, oldpte;
+	spinlock_t *ptl;
+	unsigned long pages = 0;
+	int target_node = NUMA_NO_NODE;
+	bool dirty_accountable = cp_flags & MM_CP_DIRTY_ACCT;
+	bool prot_numa = cp_flags & MM_CP_PROT_NUMA;
+	bool uffd_wp = cp_flags & MM_CP_UFFD_WP;
+	bool uffd_wp_resolve = cp_flags & MM_CP_UFFD_WP_RESOLVE;
+
+	/*
+	 * Can be called with only the mmap_lock for reading by
+	 * prot_numa so we must check the pmd isn't constantly
+	 * changing from under us from pmd_none to pmd_trans_huge
+	 * and/or the other way around.
+	 */
+	// if (pmd_trans_unstable(pmd))
+	// 	return 0;
+	/*
+	 * The pmd points to a regular pte so the pmd can't change
+	 * from under us even if the mmap_lock is only hold for
+	 * reading.
+	 */
+	pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
+
+	/* Get target node for single threaded private VMAs */
+	if (prot_numa && !(vma->vm_flags & VM_SHARED) &&
+	    atomic_read(&vma->vm_mm->mm_users) == 1)
+		target_node = numa_node_id();
+
+	flush_tlb_batched_pending(vma->vm_mm);
+	arch_enter_lazy_mmu_mode();
+	do {
+		pr_info_verbose("ptep at %llx =%lx addr=%lx\n", (uint64_t) pte, pte->pte, addr);
+		oldpte = *pte;
+		if (pte_present(oldpte)) {
+			pte_t ptent;
+			bool preserve_write = prot_numa && pte_write(oldpte);
+
+			/*
+			 * Avoid trapping faults against the zero or KSM
+			 * pages. See similar comment in change_huge_pmd.
+			 */
+			if (prot_numa) {
+				struct page *page;
+
+				/* Avoid TLB flush if possible */
+				if (pte_protnone(oldpte))
+					continue;
+
+				page = vm_normal_page(vma, addr, oldpte);
+				if (!page || PageKsm(page))
+					continue;
+
+				/* Also skip shared copy-on-write pages */
+				if (is_cow_mapping(vma->vm_flags) &&
+				    page_mapcount(page) != 1)
+					continue;
+
+				/*
+				 * While migration can move some dirty pages,
+				 * it cannot move them all from MIGRATE_ASYNC
+				 * context.
+				 */
+				if (page_is_file_lru(page) && PageDirty(page))
+					continue;
+
+				/*
+				 * Don't mess with PTEs if page is already on the node
+				 * a single-threaded process is running on.
+				 */
+				if (target_node == page_to_nid(page))
+					continue;
+			}
+
+			oldpte = ptep_modify_prot_start(vma, addr, pte);
+			ptent = pte_modify(oldpte, newprot);
+			if (preserve_write)
+				ptent = pte_mk_savedwrite(ptent);
+
+			if (uffd_wp) {
+				ptent = pte_wrprotect(ptent);
+				ptent = pte_mkuffd_wp(ptent);
+			} else if (uffd_wp_resolve) {
+				/*
+				 * Leave the write bit to be handled
+				 * by PF interrupt handler, then
+				 * things like COW could be properly
+				 * handled.
+				 */
+				ptent = pte_clear_uffd_wp(ptent);
+			}
+
+			/* Avoid taking write faults for known dirty pages */
+			if (dirty_accountable && pte_dirty(ptent) &&
+					(pte_soft_dirty(ptent) ||
+					 !(vma->vm_flags & VM_SOFTDIRTY))) {
+				ptent = pte_mkwrite(ptent);
+			}
+			ptep_modify_prot_commit(vma, addr, pte, oldpte, ptent);
+			pages++;
+		} else if (is_swap_pte(oldpte)) {
+			swp_entry_t entry = pte_to_swp_entry(oldpte);
+			pte_t newpte;
+
+			if (is_writable_migration_entry(entry)) {
+				/*
+				 * A protection check is difficult so
+				 * just be safe and disable write
+				 */
+				entry = make_readable_migration_entry(
+							swp_offset(entry));
+				newpte = swp_entry_to_pte(entry);
+				if (pte_swp_soft_dirty(oldpte))
+					newpte = pte_swp_mksoft_dirty(newpte);
+				if (pte_swp_uffd_wp(oldpte))
+					newpte = pte_swp_mkuffd_wp(newpte);
+			} else if (is_writable_device_private_entry(entry)) {
+				/*
+				 * We do not preserve soft-dirtiness. See
+				 * copy_one_pte() for explanation.
+				 */
+				entry = make_readable_device_private_entry(
+							swp_offset(entry));
+				newpte = swp_entry_to_pte(entry);
+				if (pte_swp_uffd_wp(oldpte))
+					newpte = pte_swp_mkuffd_wp(newpte);
+			} else if (is_writable_device_exclusive_entry(entry)) {
+				entry = make_readable_device_exclusive_entry(
+							swp_offset(entry));
+				newpte = swp_entry_to_pte(entry);
+				if (pte_swp_soft_dirty(oldpte))
+					newpte = pte_swp_mksoft_dirty(newpte);
+				if (pte_swp_uffd_wp(oldpte))
+					newpte = pte_swp_mkuffd_wp(newpte);
+			} else {
+				newpte = oldpte;
+			}
+
+			if (uffd_wp)
+				newpte = pte_swp_mkuffd_wp(newpte);
+			else if (uffd_wp_resolve)
+				newpte = pte_swp_clear_uffd_wp(newpte);
+
+			if (!pte_same(oldpte, newpte)) {
+				set_pte_at(vma->vm_mm, addr, pte, newpte);
+				pages++;
+			}
+		}
+	} while ((addr += PAGE_SIZE) &&
+			(addr != end) &&
+		 	(pte = pte_offset_map(vma->vm_mm, addr)) );
+
+	arch_leave_lazy_mmu_mode();
+	pte_unmap_unlock(pte - 1, ptl);
+
+	return pages;static unsigned long change_protection_range(struct vm_area_struct *vma,
+		unsigned long addr, unsigned long end, pgprot_t newprot,
+		unsigned long cp_flags)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	pgd_t *pgd;
+	unsigned long next;
+	unsigned long start = addr;
+	unsigned long pages = 0;
+
+	BUG_ON(addr >= end);
+	pgd = pgd_offset(mm, addr);
+	flush_cache_range(vma, addr, end);
+	inc_tlb_flush_pending(mm);
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
+		pages += change_p4d_range(vma, pgd, addr, next, newprot,
+					  cp_flags);
+	} while (pgd++, addr = next, addr != end);
+
+	/* Only flush the TLB if we actually modified any entries: */
+	if (pages)
+		flush_tlb_range(vma, start, end);
+	dec_tlb_flush_pending(mm);
+
+	return pages;
+}
+	struct mm_struct *mm = vma->vm_mm;
+	unsigned long next;
+	unsigned long start = addr;
+	unsigned long pages = 0;
+
+	Granularity g = unknown;
+	ecpt_entry_t entry;
+
+	pr_info_verbose("vma at %llx mm at %llx pgd at %llx map_desc at %llx start=%lx end=%lx newprot=%lx\n", 
+		(uint64_t) vma, (uint64_t) mm, (uint64_t) mm->pgd, (uint64_t) mm->map_desc,
+		start, end, newprot.pgprot);
+
+	BUG_ON(addr >= end);
+
+	do {
+		entry = ecpt_mm_peek(mm, addr, &g);
+		if (empty_entry(&entry) || g == page_4KB ) {
+			/**
+			 * If current addr coresponds to a 4K or not mapped entry,
+			 * 	addr in [addr, addr + 2MB], must all have 4K or not mapped entry. (addr + 2MB <= end)
+			 * 	addr cannot correspond to 2MB or 1GB page,
+			 * 	ow. we have duplicated entry across granularity
+			 * So we are safe to have next = pmd_addr_end
+			 */
+
+			next = pmd_addr_end(addr, end);
+			pages += change_pte_range(vma,
+			 			NULL, /* pmd */ 
+						addr, next,
+						newprot,
+						cp_flags);
+		} else if (g == page_2MB) {
+			pmd_t * pmd __maybe_unused = pmd_offset_from_ecpt_entry(&entry, addr);
+			WARN(1, "2M unmap not implemented yet");
+
+
+			/**
+			 * If current addr coresponds to a 2M ,
+			 * 	addr in [addr, addr + 1GB], can be 4K, 2M, or not mapped
+			 * 	Thus, we can only use pmd_addr_end here
+			 */
+
+			next = pmd_addr_end(addr, end);
+			pages += change_pmd_range(vma,
+						NULL,  /* NULL */
+						addr, next,
+						newprot, cp_flags);
+
+		} else if (g == page_1GB) {
+			pud_t * pud = pud_offset_from_ecpt_entry(&entry, addr);
+			next = pud_addr_end(addr, end);
+			if (pud_none_or_clear_bad(pud))
+				continue;
+			BUG();
+		} else {
+			BUG();
+		}
+	} while (addr = next, addr != end);
+
+	/* Only flush the TLB if we actually modified any entries: */
+	if (pages)
+		flush_tlb_range(vma, start, end);
+	dec_tlb_flush_pending(mm);
+
+	return pages;
+}
+
+#else
+
 static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 		unsigned long addr, unsigned long end, pgprot_t newprot,
 		unsigned long cp_flags)
@@ -239,8 +891,6 @@ static inline unsigned long change_pmd_range(struct vm_area_struct *vma,
 
 	range.start = 0;
 
-	WARN(1, "change_pmd_range not well supported with ECPT!\n");
-
 	pmd = pmd_offset(pud, addr);
 	do {
 		unsigned long this_pages;
@@ -341,80 +991,6 @@ static inline unsigned long change_p4d_range(struct vm_area_struct *vma,
 	return pages;
 }
 
-#ifdef CONFIG_X86_64_ECPT
-static unsigned long change_protection_range(struct vm_area_struct *vma,
-		unsigned long addr, unsigned long end, pgprot_t newprot,
-		unsigned long cp_flags)
-{
-	struct mm_struct *mm = vma->vm_mm;
-	unsigned long next;
-	unsigned long start = addr;
-	unsigned long pages = 0;
-
-	Granularity g = unknown;
-	ecpt_entry_t entry;
-
-	pr_info_verbose("vma at %llx mm at %llx pgd at %llx map_desc at %llx start=%lx end=%lx newprot=%lx\n", 
-		(uint64_t) vma, (uint64_t) mm, (uint64_t) mm->pgd, (uint64_t) mm->map_desc,
-		start, end, newprot.pgprot);
-
-	BUG_ON(addr >= end);
-
-	do {
-		entry = ecpt_mm_peek(mm, addr, &g);
-		if (empty_entry(&entry) || g == page_4KB ) {
-			/**
-			 * If current addr coresponds to a 4K or not mapped entry,
-			 * 	addr in [addr, addr + 2MB], must all have 4K or not mapped entry. (addr + 2MB <= end)
-			 * 	addr cannot correspond to 2MB or 1GB page,
-			 * 	ow. we have duplicated entry across granularity
-			 * So we are safe to have next = pmd_addr_end
-			 */
-
-			next = pmd_addr_end(addr, end);
-			pages += change_pte_range(vma,
-			 			NULL, /* pmd */ 
-						addr, next,
-						newprot,
-						cp_flags);
-		} else if (g == page_2MB) {
-			pmd_t * pmd __maybe_unused = pmd_offset_from_ecpt_entry(&entry, addr);
-			WARN(1, "2M unmap not implemented yet");
-
-
-			/**
-			 * If current addr coresponds to a 2M ,
-			 * 	addr in [addr, addr + 1GB], can be 4K, 2M, or not mapped
-			 * 	Thus, we can only use pmd_addr_end here
-			 */
-
-			next = pmd_addr_end(addr, end);
-			pages += change_pmd_range(vma,
-						NULL,  /* NULL */
-						addr, next,
-						newprot, cp_flags);
-
-		} else if (g == page_1GB) {
-			pud_t * pud = pud_offset_from_ecpt_entry(&entry, addr);
-			next = pud_addr_end(addr, end);
-			if (pud_none_or_clear_bad(pud))
-				continue;
-			BUG();
-		} else {
-			BUG();
-		}
-	} while (addr = next, addr != end);
-
-	/* Only flush the TLB if we actually modified any entries: */
-	if (pages)
-		flush_tlb_range(vma, start, end);
-	dec_tlb_flush_pending(mm);
-
-	return pages;
-}
-
-
-#else
 static unsigned long change_protection_range(struct vm_area_struct *vma,
 		unsigned long addr, unsigned long end, pgprot_t newprot,
 		unsigned long cp_flags)
