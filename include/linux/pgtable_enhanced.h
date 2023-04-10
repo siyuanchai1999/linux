@@ -30,6 +30,14 @@ static inline pte_t * ptep_get_next(struct mm_struct *mm, pte_t * ptep, unsigned
 }
 #endif
 
+#ifndef	 __ARCH_HAS_PTEP_GET_N_NEXT
+static inline pte_t * ptep_get_n_next(struct mm_struct *mm, pte_t * ptep, unsigned long addr, unsigned int n) 
+{
+	return ptep + n;
+}
+#endif
+
+
 #ifndef	 __ARCH_HAS_PMDP_GET_NEXT
 static inline pmd_t * pmdp_get_next(struct mm_struct *mm, pmd_t *pmdp, unsigned long addr) 
 {

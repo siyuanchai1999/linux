@@ -56,6 +56,10 @@
 
 #include <asm/mman.h>
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 /*
  * Shared mappings implemented 30.11.1994. It's not fully working yet,
  * though.
@@ -3186,9 +3190,7 @@ EXPORT_SYMBOL(filemap_fault);
 static bool filemap_map_pmd(struct vm_fault *vmf, struct page *page)
 {
 	struct mm_struct *mm = vmf->vma->vm_mm;
-#ifdef CONFIG_X86_64_ECPT
-	if (vmf->pmd == NULL) return false;
-#endif
+
 	/* Huge page is mapped? No need to proceed. */
 	if (pmd_trans_huge(*vmf->pmd)) {
 		unlock_page(page);
@@ -3196,8 +3198,31 @@ static bool filemap_map_pmd(struct vm_fault *vmf, struct page *page)
 		return true;
 	}
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	// pmd_none(*vmf->pmd)
+	if (no_pmd_huge_page(*vmf->pmd) && PageTransHuge(page)) {
+		vm_fault_t ret = do_set_pmd(vmf, page);
+	    if (!ret) {
+		    /* The page is mapped successfully, reference consumed. */
+		    unlock_page(page);
+		    return true;
+	    }
+	}
+
+	// pmd_none(*vmf->pmd)
+	if (no_pte_pgtable(*vmf->pmd)) {
+		vmf->ptl = pmd_lock(mm, vmf->pmd);
+		if (likely(no_pte_pgtable(*vmf->pmd))) {
+			mm_inc_nr_ptes(mm);
+			pmd_mk_pte_accessible(mm, vmf->pmd, vmf->address ,vmf->prealloc_pte);
+			// pmd_populate(mm, vmf->pmd, vmf->prealloc_pte);
+			vmf->prealloc_pte = NULL;
+		}
+		spin_unlock(vmf->ptl);
+	}
+#else
 	if (pmd_none(*vmf->pmd) && PageTransHuge(page)) {
-	    vm_fault_t ret = do_set_pmd(vmf, page);
+		vm_fault_t ret = do_set_pmd(vmf, page);
 	    if (!ret) {
 		    /* The page is mapped successfully, reference consumed. */
 		    unlock_page(page);
@@ -3209,15 +3234,12 @@ static bool filemap_map_pmd(struct vm_fault *vmf, struct page *page)
 		vmf->ptl = pmd_lock(mm, vmf->pmd);
 		if (likely(pmd_none(*vmf->pmd))) {
 			mm_inc_nr_ptes(mm);
-#ifdef CONFIG_X86_64_ECPT			
-			pmd_mk_pte_accessible(mm, vmf->pmd, vmf->address ,vmf->prealloc_pte);
-#else
 			pmd_populate(mm, vmf->pmd, vmf->prealloc_pte);
-#endif
 			vmf->prealloc_pte = NULL;
 		}
 		spin_unlock(vmf->ptl);
 	}
+#endif
 
 	/* See comment in handle_pte_fault() */
 	if (pmd_devmap_trans_unstable(vmf->pmd)) {
@@ -3301,7 +3323,12 @@ vm_fault_t filemap_map_pages(struct vm_fault *vmf,
 	unsigned int mmap_miss = READ_ONCE(file->f_ra.mmap_miss);
 	vm_fault_t ret = 0;
 
-	pr_info_verbose("start_pgoff=%lx end_pgoff=%lx\n", start_pgoff, end_pgoff);
+	char buf[100];
+	char * path = dentry_path_raw(file->f_path.dentry, buf, 100);
+
+	pr_info_verbose("file=%s mapping at %llx start_pgoff=%lx end_pgoff=%lx\n",
+		path, (uint64_t) mapping, start_pgoff, end_pgoff);
+	
 	rcu_read_lock();
 	head = first_map_page(mapping, &xas, end_pgoff);
 	if (!head)
@@ -3322,10 +3349,15 @@ vm_fault_t filemap_map_pages(struct vm_fault *vmf,
 		if (mmap_miss > 0)
 			mmap_miss--;
 
+		/* TODO: fix with generalizable interface */
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+		vmf->pte = ptep_get_n_next(vma->vm_mm, vmf->pte, addr, xas.xa_index - last_pgoff);
 		addr += (xas.xa_index - last_pgoff) << PAGE_SHIFT;
-#ifdef CONFIG_X86_64_ECPT		
-		vmf->pte = pte_offset_map(vma->vm_mm, addr);
-#else 	
+#elif defined(CONFIG_X86_64_ECPT)
+		addr += (xas.xa_index - last_pgoff) << PAGE_SHIFT;		
+		vmf->pte = pte_offset_ecpt(vma->vm_mm, addr);
+#else 
+		addr += (xas.xa_index - last_pgoff) << PAGE_SHIFT;
 		vmf->pte += xas.xa_index - last_pgoff;
 #endif
 		last_pgoff = xas.xa_index;

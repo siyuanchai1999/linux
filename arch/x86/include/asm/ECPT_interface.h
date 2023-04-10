@@ -280,6 +280,22 @@ static inline pte_t * ptep_get_next(struct mm_struct *mm, pte_t * ptep, unsigned
 	}
 }
 
+#define __ARCH_HAS_PTEP_GET_N_NEXT
+static inline pte_t * ptep_get_n_next(struct mm_struct *mm, pte_t * ptep, unsigned long addr, unsigned int n) 
+{
+	unsigned long next_addr = addr + n * PAGE_SIZE;
+	if (ptep == &pte_default) {
+		// return &pte_default;
+		return pte_offset_ecpt(mm, next_addr);
+	}
+	
+	if (ecpt_pte_index(addr) + n < ECPT_CLUSTER_FACTOR) {
+		return ptep + n;
+	} else {
+		return pte_offset_ecpt(mm, next_addr);
+	}
+}
+
 #define __ARCH_HAS_PMDP_GET_NEXT
 static inline pmd_t * pmdp_get_next(struct mm_struct *mm, pmd_t *pmdp, unsigned long addr) {
 	if (pmdp == (pmd_t *) &pmd_default) {
