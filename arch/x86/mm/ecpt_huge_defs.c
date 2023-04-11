@@ -57,7 +57,8 @@ inline int pmd_next_level_not_accessible(pmd_t *pmd)
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE	
 	barrier();
 #endif
-	if (pmd == ((pmd_t *) &pmd_default) || pmd_none(pmdval))  {
+	// if (pmd == ((pmd_t *) &pmd_default) || pmd_none(pmdval))  {
+	if (no_pmd_huge_page((pmdval))) {
 		/* pmd actually not in ECPT */
 		return 0;
 	}
@@ -78,25 +79,26 @@ inline int pmd_next_level_not_accessible(pmd_t *pmd)
 inline int pmd_trans_unstable(pmd_t *pmd)
 {
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
-	pmd_t pmdval = pmd_read_atomic(pmd);
-	barrier();
+	return pmd_next_level_not_accessible(pmd);
+	// pmd_t pmdval = pmd_read_atomic(pmd);
+	// barrier();
 	
-	if (pmd == ((pmd_t *) &pmd_default) || pmd_none(pmdval))  {
-		/* pmd actually not in ECPT */
-		return 0;
-	}
+	// if (pmd == ((pmd_t *) &pmd_default) || pmd_none(pmdval))  {
+	// 	/* pmd actually not in ECPT */
+	// 	return 0;
+	// }
 
-	/* For ECPT case, it's unstable if it's trans_huge or bad */
-	if (pmd_trans_huge(*pmd)) {
-		return 1;
-	}
+	// /* For ECPT case, it's unstable if it's trans_huge or bad */
+	// if (pmd_trans_huge(*pmd)) {
+	// 	return 1;
+	// }
 
-	if (unlikely(pmd_bad(pmdval))) {
-		pmd_clear_bad(pmd);
-		return 1;
-	}
+	// if (unlikely(pmd_bad(pmdval))) {
+	// 	pmd_clear_bad(pmd);
+	// 	return 1;
+	// }
 
-	return 0;
+	// return 0;
 #else
 	return 0;
 #endif

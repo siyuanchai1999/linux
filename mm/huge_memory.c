@@ -632,7 +632,12 @@ static vm_fault_t __do_huge_pmd_anonymous_page(struct vm_fault *vmf,
 	__SetPageUptodate(page);
 
 	vmf->ptl = pmd_lock(vma->vm_mm, vmf->pmd);
-	if (unlikely(!pmd_none(*vmf->pmd))) {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	if (unlikely(!no_pmd_huge_page(*vmf->pmd))) 
+#else
+	if (unlikely(!pmd_none(*vmf->pmd))) 
+#endif
+	{
 		goto unlock_release;
 	} else {
 		pmd_t entry;
@@ -1750,6 +1755,7 @@ int change_huge_pmd(struct vm_area_struct *vma, pmd_t *pmd,
 	bool uffd_wp = cp_flags & MM_CP_UFFD_WP;
 	bool uffd_wp_resolve = cp_flags & MM_CP_UFFD_WP_RESOLVE;
 
+	WARN(1, "change_huge_pmd may not be smoothly supported with ECPT!\n");
 	if (prot_numa && !thp_migration_supported())
 		return 1;
 
@@ -2272,7 +2278,38 @@ out:
 	mmu_notifier_invalidate_range_only_end(&range);
 }
 
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
+		bool freeze, struct page *page)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	pgd = pgd_offset_map_with_mm(vma->vm_mm, address);
+	// pgd = pgd_offset(vma->vm_mm, address);
+	if (!pgd_present(*pgd))
+		return;
+
+	p4d = p4d_offset_map_with_mm(vma->vm_mm, pgd, address);
+	// p4d = p4d_offset(pgd, address);
+	if (!p4d_present(*p4d))
+		return;
+
+	pud = pud_offset_map_with_mm(vma->vm_mm, p4d, address);
+	// pud = pud_offset(p4d, address);
+	if (!pud_present(*pud))
+		return;
+
+	pmd = pmd_offset_map_with_mm(vma->vm_mm, pud, address);
+	// pmd = pmd_offset(pud, address);
+
+	__split_huge_pmd(vma, pmd, address, freeze, page);
+}
+
+
+#elif defined(CONFIG_X86_64_ECPT)
 void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 		bool freeze, struct page *page)
 {

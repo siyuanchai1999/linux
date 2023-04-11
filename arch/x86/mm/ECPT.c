@@ -187,7 +187,8 @@ static void init_pte_page_default(gfp_t gfp)
 
 	pfn = page_to_pfn(pte_page_default);
 	set_pmd(&pmd_default, __pmd(((pteval_t)pfn << PAGE_SHIFT) | _PAGE_TABLE));
-	pr_info("init_ECPT_pmd_default: pmd_default at %llx =%llx\n", (uint64_t) &pmd_default, pmd_default.pmd);
+	pr_info("init_ECPT_pmd_default: pmd_default at %llx =%lx\n",
+	 	(uint64_t) &pmd_default, pmd_default.pmd);
 }
 
 static inline uint16_t ecpt_entry_count_valid_pte_num(ecpt_entry_t *e)
