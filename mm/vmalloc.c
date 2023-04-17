@@ -739,6 +739,156 @@ int ioremap_page_range(unsigned long addr, unsigned long end,
 	return err;
 }
 
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+static void vunmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
+			     pgtbl_mod_mask *mask)
+{
+	pte_t *pte;
+
+	pte = pte_offset_map_with_mm(&init_mm, pmd, addr);
+	/* original code */
+	// pte = pte_offset_kernel(pmd, addr);
+	do {
+		pte_t ptent = ptep_get_and_clear(&init_mm, addr, pte);
+		WARN_ON(!pte_none(ptent) && !pte_present(ptent));
+	} while ((addr += PAGE_SIZE, addr != end) 
+		&& (pte = ptep_get_next(&init_mm, pte, addr - PAGE_SIZE)));
+	// while (pte++, addr += PAGE_SIZE, addr != end);
+	*mask |= PGTBL_PTE_MODIFIED;
+}
+
+static void vunmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
+			     pgtbl_mod_mask *mask)
+{
+	pmd_t *pmd;
+	unsigned long next;
+	int cleared;
+	
+	pmd = pmd_offset_map_with_mm(&init_mm, pud, addr);
+	/* original code */
+	// pmd = pmd_offset(pud, addr);
+	do {
+		next = pmd_addr_end(addr, end);
+
+		cleared = pmd_clear_huge(pmd);
+		if (cleared || pmd_bad(*pmd))
+			*mask |= PGTBL_PMD_MODIFIED;
+
+		if (cleared)
+			continue;
+
+		if (pmd_next_level_not_accessible(pmd)) {
+			continue;
+		}
+		// if (pmd_none_or_clear_bad(pmd))
+		// 	continue;
+		vunmap_pte_range(pmd, addr, next, mask);
+
+		cond_resched();
+	} while (next != end ? 
+		(pmd = pmdp_get_next(&init_mm, pmd, addr), addr = next) : 
+		(addr = next, 0));
+	// while (pmd++, addr = next, addr != end);
+}
+
+static void vunmap_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
+			     pgtbl_mod_mask *mask)
+{
+	pud_t *pud;
+	unsigned long next;
+	int cleared;
+
+	pud = pud_offset_map_with_mm(&init_mm, pud, addr);
+	/* original code */
+	// pud = pud_offset(p4d, addr);
+	do {
+		next = pud_addr_end(addr, end);
+
+		cleared = pud_clear_huge(pud);
+		if (cleared || pud_bad(*pud))
+			*mask |= PGTBL_PUD_MODIFIED;
+
+		if (cleared)
+			continue;
+		
+		if (pud_next_level_not_accessible(pud)) {
+			continue;
+		}
+		/* original code */
+		// if (pud_none_or_clear_bad(pud))
+		// 	continue;
+		vunmap_pmd_range(pud, addr, next, mask);
+	} while (next != end ? 
+		(pud = pudp_get_next(&init_mm, pud, addr), addr = next) : 
+		(addr = next, 0));
+	// while (pud++, addr = next, addr != end);
+}
+
+static void vunmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
+			     pgtbl_mod_mask *mask)
+{
+	p4d_t *p4d;
+	unsigned long next;
+	int cleared;
+
+	p4d = p4d_offset_map_with_mm(&init_mm, pgd, addr);
+	/* original code */
+	// p4d = p4d_offset(pgd, addr);
+	do {
+		next = p4d_addr_end(addr, end);
+
+		cleared = p4d_clear_huge(p4d);
+		if (cleared || p4d_bad(*p4d))
+			*mask |= PGTBL_P4D_MODIFIED;
+
+		if (cleared)
+			continue;
+		
+		if(p4d_next_level_not_accessible(p4d))
+			continue;
+		// if (p4d_none_or_clear_bad(p4d))
+		// 	continue;
+		vunmap_pud_range(p4d, addr, next, mask);
+	} while (next != end ? 
+		(p4d = p4dp_get_next(&init_mm, p4d, addr), addr = next) : 
+		(addr = next, 0));
+	// while (p4d++, addr = next, addr != end);
+}
+
+void vunmap_range_noflush(unsigned long start, unsigned long end)
+{
+	unsigned long next;
+	pgd_t *pgd;
+	unsigned long addr = start;
+	pgtbl_mod_mask mask = 0;
+
+	BUG_ON(addr >= end);
+	
+	pr_info_verbose("start=%lx end=%lx\n", start, end);
+	pgd = pgd_offset_map_with_mm(&init_mm, addr);
+	/* original code */
+	// pgd = pgd_offset_k(addr);
+
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_bad(*pgd))
+			mask |= PGTBL_PGD_MODIFIED;
+
+		if(pgd_next_level_not_accessible(pgd))
+			continue;
+		/* original code */
+		// if (pgd_none_or_clear_bad(pgd))
+		// 	continue;
+		vunmap_p4d_range(pgd, addr, next, &mask);
+	} while (next != end ? 
+		(pgd = pgdp_get_next(&init_mm, pgd, addr), addr = next) : 
+		(addr = next, 0));
+	// while (pgd++, addr = next, addr != end);
+
+	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
+		arch_sync_kernel_mappings(start, end);
+}
 /*
  * vunmap_range_noflush is similar to vunmap_range, but does not
  * flush caches or TLBs.
@@ -751,7 +901,7 @@ int ioremap_page_range(unsigned long addr, unsigned long end,
  *
  * This is an internal function only. Do not use outside mm/.
  */
-#ifdef CONFIG_X86_64_ECPT
+#elif defined(CONFIG_X86_64_ECPT)
 void vunmap_range_noflush(unsigned long start, unsigned long end)
 {
 	unsigned long next;
@@ -910,7 +1060,6 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 	pgd_t *pgd;
 	unsigned long addr = start;
 	pgtbl_mod_mask mask = 0;
-	BUG();
 	BUG_ON(addr >= end);
 	pgd = pgd_offset_k(addr);
 	do {
