@@ -58,6 +58,7 @@ obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= mem_encrypt_boot.o
 
 obj-$(CONFIG_X86_64_ECPT)	+= ECPT.o
 obj-$(CONFIG_X86_64_ECPT)	+= ecpt_huge_defs.o
+obj-$(CONFIG_PGTABLE_OP_GENERALIZABLE)	+= pgtable_enhanced.o
 obj-$(CONFIG_X86_64_ECPT_MURMUR64)	+= ecpt_murmur64.o
 obj-$(CONFIG_X86_64_ECPT_CRC64)	+= ecpt_crc.o
 

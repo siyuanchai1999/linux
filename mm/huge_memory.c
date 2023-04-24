@@ -1964,7 +1964,7 @@ static void __split_huge_zero_page_pmd(struct vm_area_struct *vma,
 	pmdp_huge_clear_flush(vma, haddr, pmd);
 
 	pgtable = pgtable_trans_huge_withdraw(mm, pmd);
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	pmd_mk_pte_accessible(mm, &_pmd, haddr, pgtable);
 #else
 	pmd_populate(mm, &_pmd, pgtable);
@@ -1974,17 +1974,17 @@ static void __split_huge_zero_page_pmd(struct vm_area_struct *vma,
 		pte_t *pte, entry;
 		entry = pfn_pte(my_zero_pfn(haddr), vma->vm_page_prot);
 		entry = pte_mkspecial(entry);
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 		pte = pte_offset_map_with_mm(mm, &_pmd, haddr);
 #else
-		pte = pte_offset_map(&_pmd, addr);
+		pte = pte_offset_map(&_pmd, haddr);
 #endif
 		VM_BUG_ON(!pte_none(*pte));
 		set_pte_at(mm, haddr, pte, entry);
 		pte_unmap(pte);
 	}
 	smp_wmb(); /* make pte visible before pmd */
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	pmd_mk_pte_accessible(mm, pmd, haddr, pgtable);
 #else
 	pmd_populate(mm, pmd, pgtable);
@@ -2104,7 +2104,7 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 	 * This's critical for some architectures (Power).
 	 */
 	pgtable = pgtable_trans_huge_withdraw(mm, pmd);
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	pmd_mk_pte_accessible(mm, &_pmd, haddr, pgtable);
 #else
 	pmd_populate(mm, &_pmd, pgtable);
@@ -2143,7 +2143,7 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 				entry = pte_mkuffd_wp(entry);
 		}
 
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 		pte = pte_offset_map_with_mm(mm, &_pmd, addr);
 #else
 		pte = pte_offset_map(&_pmd, addr);
@@ -2182,7 +2182,7 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 	}
 
 	smp_wmb(); /* make pte visible before pmd */
-#ifdef CONFIG_X86_64_ECPT
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	pmd_mk_pte_accessible(mm, pmd, haddr, pgtable);
 #else
 	pmd_populate(mm, pmd, pgtable);

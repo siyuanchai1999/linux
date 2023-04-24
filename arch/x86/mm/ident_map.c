@@ -145,7 +145,7 @@ int kernel_ident_mapping_init(struct x86_mapping_info *info, pgd_t *pgd_page,
 	unsigned long end = pend + info->offset;
 	unsigned long next;
 	int result;
-	WARN(1, "kernel_ident_mapping_init not implemented\n");
+	/* WARN(1, "kernel_ident_mapping_init not implemented\n"); */
 	/* Set the default pagetable flags if not supplied */
 	if (!info->kernpg_flag)
 		info->kernpg_flag = _KERNPG_TABLE;

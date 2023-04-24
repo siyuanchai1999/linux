@@ -788,7 +788,8 @@ void initialize_tlbstate_and_flush(void)
 	this_cpu_write(cpu_tlbstate.ctxs[0].tlb_gen, tlb_gen);
 
 	for (i = 1; i < TLB_NR_DYN_ASIDS; i++)
-
+		this_cpu_write(cpu_tlbstate.ctxs[i].ctx_id, 0);
+}
 #endif
 /*
  * flush_tlb_func()'s memory ordering requirement is that any

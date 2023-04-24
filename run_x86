@@ -1,0 +1,54 @@
+#!/bin/bash
+set -x 
+
+POSITIONAL=()
+qemu=../qemu_X86/build/qemu-system-x86_64
+log_name=x86.log
+
+# each argument that should be neccesarily seperated by space should be in a sperate "" item. 
+# every thing within the comment will be treated as pure literal.  
+qemu_args=(
+	"$qemu"
+	"-kernel" "arch/x86/boot/bzImage" 
+	"-m" "4096M"
+	"-display" "none"
+	"-initrd" "ramdisk.img"
+	"-serial" "stdio"
+	"-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 apic=verbose"
+	# "-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=serial,ttyS0,115200"
+#	"-append" "init=/bin/sh console=ttyS0,115200 earlyprintk=dbgp"
+	"-d" "mmu" "-D" "mmu.log"
+    # "-nographic"
+	)
+
+
+while [[ $# -gt 0 ]]; do
+  	key="$1"
+
+  	case $key in
+    	--gdb)
+      		qemu_args+=("-s" "-S")
+      		shift # past value
+      		;;
+    	--default)
+      		DEFAULT=YES
+      		shift # past argument
+      		;;
+    	*)    # unknown option
+      		POSITIONAL+=("$1") # save it in an array for later
+      		shift # past argument
+      		;;
+  esac
+done
+
+tee_args+=("tee" "$log_name")
+
+
+# the command printed below can be copied into bash command and run without modification
+printf '%q ' "${qemu_args[@]}" 
+# "|" needs to be %s. with %q it will printed with escape
+printf '%s ' "|" 
+printf '%q ' "${tee_args[@]}"
+echo
+
+"${qemu_args[@]}" | "${tee_args[@]}"

@@ -82,8 +82,8 @@ static inline void pmd_populate_kernel(struct mm_struct *mm,
 				       pmd_t *pmd, pte_t *pte)
 {
 	paravirt_alloc_pte(mm, __pa(pte) >> PAGE_SHIFT);
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "pmd_populate_kernel not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "pmd_populate_kernel not supported in ECPT!\n");
 #endif
 	set_pmd(pmd, __pmd(__pa(pte) | _PAGE_TABLE));
 }
@@ -92,8 +92,8 @@ static inline void pmd_populate_kernel_safe(struct mm_struct *mm,
 				       pmd_t *pmd, pte_t *pte)
 {
 	paravirt_alloc_pte(mm, __pa(pte) >> PAGE_SHIFT);
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "pmd_populate_kernel_safe not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "pmd_populate_kernel_save not supported in ECPT!\n");
 #endif
 	set_pmd_safe(pmd, __pmd(__pa(pte) | _PAGE_TABLE));
 }
@@ -102,8 +102,8 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 				struct page *pte)
 {
 	unsigned long pfn = page_to_pfn(pte);
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "pmd_populate not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "pmd_populate not supported in ECPT!\n");
 #endif
 	paravirt_alloc_pte(mm, pfn);
 	set_pmd(pmd, __pmd(((pteval_t)pfn << PAGE_SHIFT) | _PAGE_TABLE));
@@ -124,8 +124,8 @@ extern void pud_populate(struct mm_struct *mm, pud_t *pudp, pmd_t *pmd);
 static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 {
 	paravirt_alloc_pmd(mm, __pa(pmd) >> PAGE_SHIFT);
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "pud_populate not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "pud_populate not supported in ECPT!\n");
 #endif
 	set_pud(pud, __pud(_PAGE_TABLE | __pa(pmd)));
 }
@@ -133,8 +133,8 @@ static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 static inline void pud_populate_safe(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 {
 	paravirt_alloc_pmd(mm, __pa(pmd) >> PAGE_SHIFT);
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "pud_populate_safe not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "pud_populate_safe not supported in ECPT!\n");
 #endif
 	set_pud_safe(pud, __pud(_PAGE_TABLE | __pa(pmd)));
 }
@@ -144,8 +144,8 @@ static inline void pud_populate_safe(struct mm_struct *mm, pud_t *pud, pmd_t *pm
 static inline void p4d_populate(struct mm_struct *mm, p4d_t *p4d, pud_t *pud)
 {
 	paravirt_alloc_pud(mm, __pa(pud) >> PAGE_SHIFT);
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "p4d_populate not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "p4d_populate not supported in ECPT!\n");
 #endif
 	set_p4d(p4d, __p4d(_PAGE_TABLE | __pa(pud)));
 }
@@ -153,8 +153,8 @@ static inline void p4d_populate(struct mm_struct *mm, p4d_t *p4d, pud_t *pud)
 static inline void p4d_populate_safe(struct mm_struct *mm, p4d_t *p4d, pud_t *pud)
 {
 	paravirt_alloc_pud(mm, __pa(pud) >> PAGE_SHIFT);
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "p4d_populate_safe not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "p4d_populate_safe not supported in ECPT!\n");
 #endif
 	set_p4d_safe(p4d, __p4d(_PAGE_TABLE | __pa(pud)));
 }
@@ -170,8 +170,8 @@ static inline void __pud_free_tlb(struct mmu_gather *tlb, pud_t *pud,
 #if CONFIG_PGTABLE_LEVELS > 4
 static inline void pgd_populate(struct mm_struct *mm, pgd_t *pgd, p4d_t *p4d)
 {
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "pgd_populate not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "pgd_populate not supported in ECPT!\n");
 #endif
 	if (!pgtable_l5_enabled())
 		return;
@@ -181,8 +181,8 @@ static inline void pgd_populate(struct mm_struct *mm, pgd_t *pgd, p4d_t *p4d)
 
 static inline void pgd_populate_safe(struct mm_struct *mm, pgd_t *pgd, p4d_t *p4d)
 {
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	WARN(1, "pgd_populate_safe not supported in generalized interface!\n");
+#ifdef CONFIG_X86_64_ECPT
+	WARN(1, "pgd_populate_safe not supported in ECPT!\n");
 #endif
 	if (!pgtable_l5_enabled())
 		return;

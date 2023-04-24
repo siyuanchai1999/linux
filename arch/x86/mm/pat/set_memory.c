@@ -2283,7 +2283,9 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 		cpa->curpage += cpa->numpages;
 	}
 
+	#ifdef CONFIG_X86_64_ECPT
 	check_ecpt_kernel_detail(init_mm.map_desc, 0 /* print_entry */);
+	#endif
 out:
 	/* Restore the original numpages */
 	cpa->numpages = numpages;

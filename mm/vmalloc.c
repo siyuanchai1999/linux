@@ -799,7 +799,7 @@ static void vunmap_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 	unsigned long next;
 	int cleared;
 
-	pud = pud_offset_map_with_mm(&init_mm, pud, addr);
+	pud = pud_offset_map_with_mm(&init_mm, p4d, addr);
 	/* original code */
 	// pud = pud_offset(p4d, addr);
 	do {

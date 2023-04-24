@@ -167,7 +167,7 @@ static inline pmd_t *pmd_off_safe(struct mm_struct *mm, unsigned long va)
 
 	pmd = pmd_offset(pud, va);
 
-	return
+	return pmd;
 }
 #endif
 

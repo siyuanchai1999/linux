@@ -751,7 +751,7 @@ static struct page *follow_pud_mask(struct vm_area_struct *vma,
 	struct page *page;
 	struct mm_struct *mm = vma->vm_mm;
 
-	pud = pud_offset_map_with_mm(mm, p4d, address);
+	pud = pud_offset_map_with_mm(mm, p4dp, address);
 	pr_info_verbose("addr=%lx pud at %llx =%lx\n", address, (uint64_t) pud, pud->pud);
 	/* original code */
 	// pud = pud_offset(p4dp, address);
@@ -796,7 +796,7 @@ static struct page *follow_p4d_mask(struct vm_area_struct *vma,
 	p4d_t *p4d;
 	struct page *page;
 
-	p4d = p4d_offset_map_with_mm(vma->vm_mm, pgd, address);
+	p4d = p4d_offset_map_with_mm(vma->vm_mm, pgdp, address);
 	pr_info_verbose("addr=%lx p4d at %llx =%lx\n", address, (uint64_t) p4d, p4d->p4d);
 	/* original code */
 	// p4d = p4d_offset(pgdp, address);
