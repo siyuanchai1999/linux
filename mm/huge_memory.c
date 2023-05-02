@@ -2317,7 +2317,7 @@ void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 
 	pr_info_verbose("Split vma->vm_start=%lx vma->vm_end=%lx address=%lx page at %llx\n",
 		vma->vm_start, vma->vm_end, address, (uint64_t) page);
-	pmd = pmd_off_safe(vma->vm_mm, address);
+	pmd = pmd_offset_ecpt(vma->vm_mm, address);
 
 	__split_huge_pmd(vma, pmd, address, freeze, page);
 }

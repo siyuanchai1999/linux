@@ -494,12 +494,6 @@ inline int pmd_trans_unstable(pmd_t *pmd);
 #define __HAVE_ARCH_PUD_TRANS_UNSTABLE
 inline int pud_trans_unstable(pud_t *pud);
 
-#define __HAVE_ARCH_PMD_OFF_SAFE
-static inline pmd_t *pmd_off_safe(struct mm_struct *mm, unsigned long va)
-{
-	return pmd_offset_ecpt(mm, va);
-}
-
 #define __HAVE_ARCH_PGTABLE_DEPOSIT
 void pgtable_trans_huge_deposit(struct mm_struct *mm, pmd_t *pmdp,
 				pgtable_t pgtable);

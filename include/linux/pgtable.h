@@ -145,32 +145,6 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
 #define pgd_offset_k(address)		pgd_offset(&init_mm, (address))
 #endif
 
-#ifndef __HAVE_ARCH_PMD_OFF_SAFE
-static inline pmd_t *pmd_off_safe(struct mm_struct *mm, unsigned long va)
-{
-	pgd_t *pgd;
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd = NULL;
-	
-	pgd = pgd_offset(mm, va);
-	if (!pgd_present(*pgd))
-		return NULL;
-
-	p4d = p4d_offset(pgd, va);
-	if (!p4d_present(*p4d))
-		return NULL;
-
-	pud = pud_offset(p4d, va);
-	if (!pud_present(*pud))
-		return NULL;
-
-	pmd = pmd_offset(pud, va);
-
-	return pmd;
-}
-#endif
-
 /*
  * In many cases it is known that a virtual address is mapped at PMD or PTE
  * level, so instead of traversing all the page table levels, we can get a
