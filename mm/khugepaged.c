@@ -23,6 +23,14 @@
 #include <asm/pgalloc.h>
 #include "internal.h"
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
+#ifdef CONFIG_X86_64_ECPT
+#include <asm/ECPT.h>
+#endif
+
 enum scan_result {
 	SCAN_FAIL,
 	SCAN_SUCCEED,
@@ -605,8 +613,15 @@ static int __collapse_huge_page_isolate(struct vm_area_struct *vma,
 	int none_or_zero = 0, shared = 0, result = 0, referenced = 0;
 	bool writable = false;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	int i = 0;
+	for (i = 0, _pte = pte; i < HPAGE_PMD_NR;
+	     i++, _pte = ptep_get_next(vma->vm_mm, _pte, address), address += PAGE_SIZE)
+#else
 	for (_pte = pte; _pte < pte+HPAGE_PMD_NR;
-	     _pte++, address += PAGE_SIZE) {
+	     _pte++, address += PAGE_SIZE)
+#endif
+ 	{
 		pte_t pteval = *_pte;
 		if (pte_none(pteval) || (pte_present(pteval) &&
 				is_zero_pfn(pte_pfn(pteval)))) {
@@ -741,8 +756,16 @@ static void __collapse_huge_page_copy(pte_t *pte, struct page *page,
 {
 	struct page *src_page, *tmp;
 	pte_t *_pte;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	int i = 0;
+	for (i = 0, _pte = pte; i < HPAGE_PMD_NR;
+	     i++, page++, _pte = ptep_get_next(vma->vm_mm, _pte, address), address += PAGE_SIZE)
+#else
 	for (_pte = pte; _pte < pte + HPAGE_PMD_NR;
-				_pte++, page++, address += PAGE_SIZE) {
+				_pte++, page++, address += PAGE_SIZE)
+#endif
+	{
 		pte_t pteval = *_pte;
 
 		if (pte_none(pteval) || is_zero_pfn(pte_pfn(pteval))) {
@@ -1241,8 +1264,14 @@ static int khugepaged_scan_pmd(struct mm_struct *mm,
 
 	memset(khugepaged_node_load, 0, sizeof(khugepaged_node_load));
 	pte = pte_offset_map_lock(mm, pmd, address, &ptl);
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	for (_address = address, _pte = pte; _address < address + HPAGE_PMD_NR * PAGE_SIZE;
+	     _pte = ptep_get_next(mm, _pte, _address), _address += PAGE_SIZE) 
+#else
 	for (_address = address, _pte = pte; _pte < pte+HPAGE_PMD_NR;
-	     _pte++, _address += PAGE_SIZE) {
+	     _pte++, _address += PAGE_SIZE) 
+#endif
+	{
 		pte_t pteval = *_pte;
 		if (is_swap_pte(pteval)) {
 			if (++unmapped <= khugepaged_max_ptes_swap) {
@@ -1466,8 +1495,14 @@ void collapse_pte_mapped_thp(struct mm_struct *mm, unsigned long addr)
 	start_pte = pte_offset_map_lock(mm, pmd, haddr, &ptl);
 
 	/* step 1: check all mapped PTEs are to the right huge page */
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	for (i = 0, addr = haddr, pte = start_pte;
-	     i < HPAGE_PMD_NR; i++, addr += PAGE_SIZE, pte++) {
+	     i < HPAGE_PMD_NR; i++, pte = ptep_get_next(mm, pte, addr), addr += PAGE_SIZE) 
+#else
+	for (i = 0, addr = haddr, pte = start_pte;
+	     i < HPAGE_PMD_NR; i++, addr += PAGE_SIZE, pte++) 
+#endif
+	{
 		struct page *page;
 
 		/* empty pte, skip */
@@ -1490,8 +1525,14 @@ void collapse_pte_mapped_thp(struct mm_struct *mm, unsigned long addr)
 	}
 
 	/* step 2: adjust rmap */
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	for (i = 0, addr = haddr, pte = start_pte;
-	     i < HPAGE_PMD_NR; i++, addr += PAGE_SIZE, pte++) {
+	     i < HPAGE_PMD_NR; i++, pte = ptep_get_next(mm, pte, addr), addr += PAGE_SIZE) 
+#else
+	for (i = 0, addr = haddr, pte = start_pte;
+	     i < HPAGE_PMD_NR; i++, addr += PAGE_SIZE, pte++) 
+#endif
+	{
 		struct page *page;
 
 		if (pte_none(*pte))
