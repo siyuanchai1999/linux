@@ -137,8 +137,8 @@ inline pgd_t *pgd_offset_map_with_mm(struct mm_struct *mm, unsigned long addr);
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long addr);
 int __pte_alloc_kernel(pmd_t *pmd, unsigned long addr);
 
-#endif /* !__ASSEMBLY__ */
-
 spinlock_t *pte_lockptr_with_addr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr);
+
+#endif /* !__ASSEMBLY__ */
 
 #endif /* _LINUX_PGTABLE_ENHANCED_H */
