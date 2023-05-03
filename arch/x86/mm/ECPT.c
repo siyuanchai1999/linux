@@ -2173,7 +2173,7 @@ static void ecpt_entry_set_all_gran(ecpt_entry_t * e, pte_t pte, unsigned long a
 	}
 }
 
-#if USE_SPLIT_PTE_PTLOCKS
+#if defined(X86_64_ECPT_SPLIT_PTE_LOCKS) && USE_SPLIT_PTE_PTLOCKS 
 spinlock_t *ecpt_pte_lockptr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr)
 {	
 	unsigned long addr_round_2M = ADDR_ROUND_DOWN_2MB(addr);

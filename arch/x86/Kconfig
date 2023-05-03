@@ -1477,6 +1477,13 @@ config X86_64_ECPT
 	help
 	  ECPT is a experimental virtual translation framework proposed as a substitute for paging.
 
+config X86_64_ECPT_SPLIT_PTE_LOCKS
+	bool "ECPT split PTE LOCKS"
+	default n
+	depends on X86_64
+	help
+	  Support for ECPT with a finer granularity lock
+
 config PGTABLE_OP_GENERALIZABLE
 	bool "Generalizable range operations"
 	depends on X86_64
