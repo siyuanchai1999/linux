@@ -40,6 +40,196 @@ inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd,
 }
 #endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE_KERNEL  */
 
+#ifndef	 __ARCH_HAS_PTE_OFFSET_MAP_WITH_MM
+inline pte_t *pte_offset_map_with_mm(struct mm_struct *mm, pmd_t *pmd, unsigned long addr)
+{
+	return pte_offset_kernel((pmd), (addr));
+}
+#endif
+
+#ifndef	 __ARCH_HAS_PMD_OFFSET_MAP_WITH_MM
+inline pmd_t *pmd_offset_map_with_mm(struct mm_struct *mm, pud_t *pud, unsigned long addr)
+{
+	return pmd_offset((pud), (addr));
+}
+#endif
+
+#ifndef	 __ARCH_HAS_PUD_OFFSET_MAP_WITH_MM
+inline pud_t *pud_offset_map_with_mm(struct mm_struct *mm, p4d_t *p4d, unsigned long addr)
+{
+	return pud_offset((p4d), (addr));
+}
+#endif
+
+#ifndef	 __ARCH_HAS_P4D_OFFSET_MAP_WITH_MM
+inline p4d_t *p4d_offset_map_with_mm(struct mm_struct *mm, pgd_t *pgd, unsigned long addr)
+{
+	return p4d_offset((pgd), (addr));
+}
+#endif
+
+#ifndef	 __ARCH_HAS_PGD_OFFSET_MAP_WITH_MM
+inline pgd_t *pgd_offset_map_with_mm(struct mm_struct *mm, unsigned long addr)
+{
+	return pgd_offset((mm), (addr));
+}
+#endif
+
+#ifndef	 __ARCH_HAS_PTEP_GET_NEXT
+inline pte_t * ptep_get_next(struct mm_struct *mm, pte_t * ptep, unsigned long addr)
+{
+	return ptep + 1;
+}
+#endif
+
+#ifndef	 __ARCH_HAS_PTEP_GET_N_NEXT
+inline pte_t * ptep_get_n_next(struct mm_struct *mm, pte_t * ptep, unsigned long addr, unsigned int n)
+{
+	return ptep + n;
+}
+#endif
+
+
+#ifndef	 __ARCH_HAS_PMDP_GET_NEXT
+inline pmd_t * pmdp_get_next(struct mm_struct *mm, pmd_t *pmdp, unsigned long addr)
+{
+	return pmdp + 1;
+}
+#endif
+
+#ifndef	 __ARCH_HAS_PUDP_GET_NEXT
+inline pud_t * pudp_get_next(struct mm_struct *mm, pud_t *pudp, unsigned long addr)
+{
+	return pudp + 1;
+}
+#endif
+
+#ifndef	 __ARCH_HAS_P4DP_GET_NEXT
+inline p4d_t * p4dp_get_next(struct mm_struct *mm, p4d_t *p4dp, unsigned long addr)
+{
+	return p4dp + 1;
+}
+#endif
+
+#ifndef	 __ARCH_HAS_PGDP_GET_NEXT
+inline pgd_t * pgdp_get_next(struct mm_struct *mm, pgd_t *pgdp, unsigned long addr)
+{
+	return pgdp + 1;
+}
+#endif
+
+
+#ifndef __HAVE_ARCH_NO_P4D_PGTABLE
+inline int no_p4d_and_lower_pgtable(pgd_t pgd)
+{
+	return pgd_none(pgd);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PUD_PGTABLE
+inline int no_pud_and_lower_pgtable(p4d_t p4d)
+{
+	return p4d_none(p4d);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PMD_PGTABLE
+inline int no_pmd_and_lower_pgtable(pud_t pud)
+{
+	return pud_none(pud);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PTE_PGTABLE
+inline int no_pte_pgtable(pmd_t pmd)
+{
+	return pmd_none(pmd);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PGD_HUGE_PAGE
+inline int no_pgd_huge_page(pgd_t pgd)
+{
+	return 1; 	/* most arch don't have pgd page support */
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_P4D_HUGE_PAGE
+inline int no_p4d_huge_page(p4d_t p4d)
+{
+	return 1;	/* most arch don't have p4d page support */
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PUD_HUGE_PAGE
+inline int no_pud_huge_page(pud_t pud)
+{
+	return pud_none(pud);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PMD_HUGE_PAGE
+inline int no_pmd_huge_page(pmd_t pmd)
+{
+	return pmd_none(pmd);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PGD_HUGE_AND_P4D_PGTABLE
+inline int no_pgd_huge_and_p4d_pgtable(pgd_t pgd)
+{
+	return no_pgd_huge_page(pgd) && no_p4d_and_lower_pgtable(pgd);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_P4D_HUGE_AND_PUD_PGTABLE
+inline int no_p4d_huge_and_pud_pgtable(p4d_t p4d)
+{
+	return no_p4d_huge_page(p4d) && no_pud_and_lower_pgtable(p4d);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PUD_HUGE_AND_PMD_PGTABLE
+inline int no_pud_huge_and_pmd_pgtable(pud_t pud)
+{
+	return no_pud_huge_page(pud) && no_pmd_and_lower_pgtable(pud);
+}
+#endif
+
+#ifndef __HAVE_ARCH_NO_PMD_HUGE_AND_PTE_PGTABLE
+inline int no_pmd_huge_and_pte_pgtable(pmd_t pmd)
+{
+	return no_pmd_huge_page(pmd) && no_pte_pgtable(pmd);
+}
+#endif
+
+#ifndef __ARCH_HAS_PGD_NEXT_LEVEL_NOT_ACCESSIBLE
+inline int pgd_next_level_not_accessible(pgd_t *pgd)
+{
+	return pgd_none_or_clear_bad(pgd);
+}
+#endif
+
+#ifndef __ARCH_HAS_P4D_NEXT_LEVEL_NOT_ACCESSIBLE
+inline int p4d_next_level_not_accessible(p4d_t *p4d)
+{
+	return p4d_none_or_clear_bad(p4d);
+}
+#endif
+
+#ifndef __ARCH_HAS_PUD_NEXT_LEVEL_NOT_ACCESSIBLE
+inline int pud_next_level_not_accessible(pud_t *pud)
+{
+	return pud_none_or_clear_bad(pud);
+}
+#endif
+
+#ifndef __ARCH_HAS_PMD_NEXT_LEVEL_NOT_ACCESSIBLE
+inline int pmd_next_level_not_accessible(pmd_t *pmd)
+{
+	return pmd_none_or_trans_huge_or_clear_bad(pmd);
+}
+#endif
 
 #ifndef __HAVE_ARCH_PTE_LOCKPTR_WITH_ADDR
 
