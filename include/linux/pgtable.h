@@ -4,6 +4,7 @@
 
 #include <linux/pfn.h>
 #include <asm/pgtable.h>
+#include <linux/pgtable_enhanced.h>
 
 #ifndef __ASSEMBLY__
 #ifdef CONFIG_MMU
