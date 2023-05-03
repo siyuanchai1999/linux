@@ -1162,7 +1162,11 @@ static void collapse_huge_page(struct mm_struct *mm,
 	mmu_notifier_invalidate_range_start(&range);
 
 	pte = pte_offset_map(pmd, address);
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pte_ptl = pte_lockptr_with_addr(mm, pmd, address);
+#else
 	pte_ptl = pte_lockptr(mm, pmd);
+#endif	
 
 	pmd_ptl = pmd_lock(mm, pmd); /* probably unnecessary */
 	/*

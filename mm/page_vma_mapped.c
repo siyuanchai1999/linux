@@ -7,6 +7,10 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 static inline bool not_found(struct page_vma_mapped_walk *pvmw)
 {
 	page_vma_mapped_walk_done(pvmw);
@@ -48,7 +52,11 @@ static bool map_pte(struct page_vma_mapped_walk *pvmw)
 				return false;
 		}
 	}
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pvmw->ptl = pte_lockptr_with_addr(pvmw->vma->vm_mm, pvmw->pmd, pvmw->address);
+#else
 	pvmw->ptl = pte_lockptr(pvmw->vma->vm_mm, pvmw->pmd);
+#endif
 	spin_lock(pvmw->ptl);
 	return true;
 }
@@ -280,13 +288,22 @@ next_pte:
 			}
 			pvmw->pte++;
 			if ((pvmw->flags & PVMW_SYNC) && !pvmw->ptl) {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+				pvmw->ptl = pte_lockptr_with_addr(mm, pvmw->pmd, pvmw->address);
+#else
 				pvmw->ptl = pte_lockptr(mm, pvmw->pmd);
+#endif
+				
 				spin_lock(pvmw->ptl);
 			}
 		} while (pte_none(*pvmw->pte));
 
 		if (!pvmw->ptl) {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+			pvmw->ptl = pte_lockptr_with_addr(mm, pvmw->pmd, pvmw->address);
+#else
 			pvmw->ptl = pte_lockptr(mm, pvmw->pmd);
+#endif
 			spin_lock(pvmw->ptl);
 		}
 		goto this_pte;

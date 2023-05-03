@@ -196,13 +196,15 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 
 #ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	new_pte = pte_offset_map_with_mm(new_vma->vm_mm, new_pmd, new_addr);
+	new_ptl = pte_lockptr_with_addr(mm, new_pmd, new_addr);
 #elif defined(CONFIG_X86_64_ECPT)
 	new_pte = pte_offset_ecpt(new_vma->vm_mm, new_addr);
+	new_ptl = pte_lockptr(mm, new_pmd);
 #else
 	new_pte = pte_offset_map(new_pmd, new_addr);
+	new_ptl = pte_lockptr(mm, new_pmd);
 #endif
 
-	new_ptl = pte_lockptr(mm, new_pmd);
 	if (new_ptl != old_ptl)
 		spin_lock_nested(new_ptl, SINGLE_DEPTH_NESTING);
 	flush_tlb_batched_pending(vma->vm_mm);

@@ -39,3 +39,20 @@ inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd,
 	pmd_populate_kernel(mm, pmd, pte);
 }
 #endif /* __HAVE_ARCH_MK_PTE_ACCESSSIBLE_KERNEL  */
+
+
+#ifndef __HAVE_ARCH_PTE_LOCKPTR_WITH_ADDR
+
+#if USE_SPLIT_PTE_PTLOCKS
+spinlock_t *pte_lockptr_with_addr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr)
+{
+	return ptlock_ptr(pmd_page(*pmd));
+}
+#else
+spinlock_t *pte_lockptr_with_addr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr)
+{
+	return &mm->page_table_lock;
+}
+#endif
+
+#endif

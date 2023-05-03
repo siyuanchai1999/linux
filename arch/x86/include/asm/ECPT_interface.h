@@ -179,12 +179,8 @@ inline bool empty_entry(ecpt_entry_t * e);
 
 #define PRINT_ECPT_ENTRY_VERBOSE(e) PRINT_ECPT_ENTRY_BASE(e, pr_info_verbose)
 
-/*  */
-static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
-{
-	return &mm->page_table_lock;
-}
-#define pte_lockptr pte_lockptr
+
+#define __HAVE_ARCH_PTE_LOCKPTR_WITH_ADDR
 
 static inline spinlock_t *ecpt_pmd_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {

@@ -204,4 +204,6 @@ inline void pmd_mk_pte_accessible_kernel(struct mm_struct *mm, pmd_t *pmd, unsig
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long addr);
 int __pte_alloc_kernel(pmd_t *pmd, unsigned long addr);
 
+spinlock_t *pte_lockptr_with_addr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr);
+
 #endif /* _LINUX_PGTABLE_ENHANCED_H */

@@ -1,4 +1,5 @@
 
+#include <linux/pgtable_enhanced.h>
 #include <asm/ECPT.h>
 #include <asm/ECPT_defs.h>
 #include <asm/ECPT_interface.h>
@@ -706,6 +707,21 @@ static uint64_t way_to_vpn(uint32_t way, uint64_t vaddr)
 #define LOG_8(n) (((n) >= 1 << 8) ? (8 + LOG_4((n) >> 8)) : LOG_4(n))
 #define LOG(n) (((n) >= 1 << 16) ? (16 + LOG_8((n) >> 16)) : LOG_8(n))
 
+static bool ptlock_init_way(uint64_t start_addr, uint32_t order) 
+{
+	uint64_t virt_addr = start_addr;
+	uint64_t n_pages = 1ULL << order;
+	uint64_t i = 0;
+	struct page *page = NULL;
+	for(; i < n_pages; i++) {
+		virt_addr = start_addr + (i * PAGE_SIZE);
+		page = virt_to_page(virt_addr);
+		if (!ptlock_init(page))
+			return false;
+	}
+	return true;
+}
+
 static uint64_t alloc_way_default(uint32_t n_entries)
 {
 	uint64_t addr, cr;
@@ -734,6 +750,8 @@ static uint64_t alloc_way_default(uint32_t n_entries)
 	if (!addr) {
 		return 0;
 	}
+
+	ptlock_init_way(addr, order);
 
 	WARN(addr & HPT_SIZE_MASK, "addr=%llx not 4K aligned\n", addr);
 
@@ -1156,7 +1174,7 @@ ecpt_entry_t *get_ecpt_entry_from_mm(struct mm_struct *mm, uint64_t vaddr,
  * @return ecpt_entry_t* 
  */
 static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
-					   bool is_insert, Granularity *gran,
+					   bool is_insert, bool rand_way, Granularity *gran,
 					   enum search_entry_status *status,
 					   uint32_t *way_found)
 {
@@ -1171,6 +1189,7 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 	ecpt_entry_t *empty_slots[ECPT_TOTAL_WAY];
 	uint32_t empty_slots_ways[ECPT_TOTAL_WAY];
 	ecpt_entry_t *evict_slots[ECPT_TOTAL_WAY];
+	uint32_t evict_slots_ways[ECPT_TOTAL_WAY];
 	uint16_t empty_i = 0, evict_i = 0, pick_i = 0;
 
 	if (*gran == unknown && is_insert) {
@@ -1240,7 +1259,9 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 			empty_i++;
 			entry_ptr = NULL;
 		} else {
-			evict_slots[evict_i++] = entry_ptr;
+			evict_slots[evict_i] = entry_ptr;
+			evict_slots_ways[evict_i] = w;
+			evict_i++;
 			entry_ptr = NULL;
 		}
 	}
@@ -1262,7 +1283,12 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 
 	if (empty_i > 0) {
 		/* no matched entry found return a random empty entry */
-		pick_i = get_rand_way(empty_i);
+		if (rand_way) {
+			pick_i = get_rand_way(empty_i);
+		} else {
+			pick_i = 0;
+		}
+		
 		entry_ptr = empty_slots[pick_i];
 		*way_found = empty_slots_ways[pick_i];
 		*status = ENTRY_EMPTY;
@@ -1270,12 +1296,16 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 	}
 
 	if (evict_i > 0) {
-		/* no matched entry found return a random entry to evict*/
-		// entry_ptr = evict_slots[get_rand_way(evict_i)];
+		if (rand_way) {
+			pick_i = get_rand_way(evict_i);
+		} else {
+			pick_i = 0;
+		}
+
+		entry_ptr = evict_slots[pick_i];
+		*way_found = evict_slots_ways[pick_i];
 		*status = ENTRY_OCCUPIED;
-		*way_found = -1;
-		/* TODO: eviction */
-		return NULL;
+		return entry_ptr;
 	}
 	/* nothing empty and no where to kick.*/
 
@@ -1292,7 +1322,7 @@ ecpt_entry_t *get_hpt_entry(ECPT_desc_t *ecpt, uint64_t vaddr, Granularity *g,
 	enum search_entry_status status = ENTRY_NOT_FOUND;
 
 	/* ecpt_search_fit_entry will write to g and vaddr if  */
-	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 0 /* is_insert */, g,
+	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 0 /* is_insert */, 1 /* rand_way */, g,
 					  &status, way);
 
 	if (status == ENTRY_MATCHED) {
@@ -1356,7 +1386,7 @@ ecpt_entry_t *ecpt_search_fit(ECPT_desc_t *ecpt, uint64_t vaddr,
 	enum search_entry_status status = ENTRY_NOT_FOUND;
 	uint32_t entry_way = -1;
 
-	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 1 /* is_insert */, &gran,
+	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 1 /* is_insert */,  1 /* rand_way */, &gran,
 					  &status, &entry_way);
 
 	ECPT_info_verbose("vaddr=%llx status=%d\n", vaddr, status);
@@ -1548,7 +1578,7 @@ int ecpt_insert(ECPT_desc_t *ecpt, uint64_t vaddr, uint64_t paddr,
 	ecpt_entry_set_vpn(&entry, vpn);
 	ecpt_entry_inc_valid_pte_num(&entry);
 
-	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 1 /* is_insert */, &gran,
+	entry_ptr = ecpt_search_fit_entry(ecpt, vaddr, 1 /* is_insert */, 1 /* rand_way */, &gran,
 					  &status, &entry_way);
 
 	ECPT_info_verbose("Status=%d entry_ptr at %llx\n", status,
@@ -1641,8 +1671,8 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 	pr_info("start=%x end=%x\n", start, end);
 
 	// src_ptl = pte_lockptr
-	src_ptl = pte_lockptr(ecpt->mm, NULL);
-	dest_ptl = pte_lockptr(ecpt->mm, NULL);
+	src_ptl = pte_lockptr_with_addr(ecpt->mm, NULL, start);
+	dest_ptl = pte_lockptr_with_addr(ecpt->mm, NULL, start);
 
 	spin_lock(src_ptl);
 	if (dest_ptl != src_ptl) {
@@ -2143,6 +2173,44 @@ static void ecpt_entry_set_all_gran(ecpt_entry_t * e, pte_t pte, unsigned long a
 	}
 }
 
+#if USE_SPLIT_PTE_PTLOCKS
+spinlock_t *ecpt_pte_lockptr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr)
+{	
+	unsigned long addr_round_2M = ADDR_ROUND_DOWN_2MB(addr);
+
+	ecpt_entry_t *entry_ptr;
+	enum search_entry_status status = ENTRY_NOT_FOUND;
+	Granularity g = page_4KB;
+	uint32_t way_found = 0;
+	struct page * p;
+
+	pr_info_verbose("acquire lock for addr=%lx\n", addr);
+	/* ecpt_search_fit_entry will write to g and vaddr if  */
+	entry_ptr = ecpt_search_fit_entry(mm->map_desc, addr_round_2M, 
+						0 /* is_insert */, 0 /* rand_way */,
+						&g,&status, &way_found);
+	
+	if (status == ENTRY_NOT_FOUND) {
+		return &mm->page_table_lock;
+	}
+
+	p = virt_to_page((void *) entry_ptr);
+	pr_info_verbose("lock at %llx\n", (uint64_t) p->ptl);
+	return p->ptl;
+}
+#else
+spinlock_t *ecpt_pte_lockptr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr) 
+{
+	return &mm->page_table_lock;
+}
+#endif
+
+
+spinlock_t *pte_lockptr_with_addr(struct mm_struct *mm, pmd_t *pmd, unsigned long addr) 
+{
+	return ecpt_pte_lockptr(mm, pmd, addr);
+}
+
 /**
  * @brief 
  * @param mm 
@@ -2206,6 +2274,7 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 		"  set_pte_at 4KB addr=%lx pte=%lx ptep=%llx pte_default at %llx\n",
 		addr, pte.pte, (uint64_t)ptep, (uint64_t)&pte_default);
 
+	// pr_info("size of spinlock_t=%lx\n", sizeof(spinlock_t));
 	if (ptep != NULL && ptep != (pte_t *)&pte_default) {		
 		res = ecpt_set_pte(mm, ptep, pte, addr, page_4KB);
 		if (res == 0) {

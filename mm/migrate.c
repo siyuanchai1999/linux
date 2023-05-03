@@ -322,7 +322,11 @@ out:
 void migration_entry_wait(struct mm_struct *mm, pmd_t *pmd,
 				unsigned long address)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	spinlock_t *ptl = pte_lockptr_with_addr(mm, pmd, address);
+#else
 	spinlock_t *ptl = pte_lockptr(mm, pmd);
+#endif
 	pte_t *ptep = pte_offset_map(pmd, address);
 	__migration_entry_wait(mm, ptep, ptl);
 }

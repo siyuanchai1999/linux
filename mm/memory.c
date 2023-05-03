@@ -1102,9 +1102,10 @@ again:
 	}
 
 	src_pte = pte_offset_map_with_mm(src_mm, src_pmd, addr);
+	src_ptl = pte_lockptr_with_addr(src_mm, src_pmd, addr);
 	/* original code */
 	// src_pte = pte_offset_map(src_pmd, addr);
-	src_ptl = pte_lockptr(src_mm, src_pmd);
+	// src_ptl = pte_lockptr(src_mm, src_pmd);
 	spin_lock_nested(src_ptl, SINGLE_DEPTH_NESTING);
 	orig_src_pte = src_pte;
 	orig_dst_pte = dst_pte;
