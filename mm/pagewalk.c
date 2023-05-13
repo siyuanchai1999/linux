@@ -4,6 +4,10 @@
 #include <linux/sched.h>
 #include <linux/hugetlb.h>
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 /*
  * We want to know the real level where a entry is located ignoring any
  * folding of levels which may be happening. For example if p4d is folded then
@@ -106,7 +110,11 @@ static int walk_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 	int err = 0;
 	int depth = real_depth(3);
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pmd = pmd_offset_map_with_mm(walk->mm, pud, addr);
+#else
 	pmd = pmd_offset(pud, addr);
+#endif
 	do {
 again:
 		next = pmd_addr_end(addr, end);
@@ -167,7 +175,11 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 	int err = 0;
 	int depth = real_depth(2);
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pud = pud_offset_map_with_mm(walk->mm, p4d, addr);
+#else
 	pud = pud_offset(p4d, addr);
+#endif
 	do {
  again:
 		next = pud_addr_end(addr, end);
@@ -219,7 +231,11 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 	int err = 0;
 	int depth = real_depth(1);
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	p4d = p4d_offset_map_with_mm(walk->mm, pgd, addr);
+#else
 	p4d = p4d_offset(pgd, addr);
+#endif
 	do {
 		next = p4d_addr_end(addr, end);
 		if (p4d_none_or_clear_bad(p4d)) {

@@ -1498,7 +1498,12 @@ struct page *vmalloc_to_page(const void *vmalloc_addr)
 {
 	unsigned long addr = (unsigned long) vmalloc_addr;
 	struct page *page = NULL;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd_t *pgd = pgd_offset_map_with_mm(&init_mm, addr);
+#else
 	pgd_t *pgd = pgd_offset_k(addr);
+#endif
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
@@ -1517,7 +1522,11 @@ struct page *vmalloc_to_page(const void *vmalloc_addr)
 	if (WARN_ON_ONCE(pgd_bad(*pgd)))
 		return NULL;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	p4d = p4d_offset_map_with_mm(&init_mm, pgd, addr);
+#else
 	p4d = p4d_offset(pgd, addr);
+#endif
 	if (p4d_none(*p4d))
 		return NULL;
 	if (p4d_leaf(*p4d))
@@ -1525,7 +1534,12 @@ struct page *vmalloc_to_page(const void *vmalloc_addr)
 	if (WARN_ON_ONCE(p4d_bad(*p4d)))
 		return NULL;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pud = pud_offset_map_with_mm(&init_mm, p4d, addr);
+#else
 	pud = pud_offset(p4d, addr);
+#endif
+
 	if (pud_none(*pud))
 		return NULL;
 	if (pud_leaf(*pud))
@@ -1533,7 +1547,11 @@ struct page *vmalloc_to_page(const void *vmalloc_addr)
 	if (WARN_ON_ONCE(pud_bad(*pud)))
 		return NULL;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pmd = pmd_offset_map_with_mm(&init_mm, pud, addr);
+#else
 	pmd = pmd_offset(pud, addr);
+#endif
 	if (pmd_none(*pmd))
 		return NULL;
 	if (pmd_leaf(*pmd))
@@ -1541,7 +1559,11 @@ struct page *vmalloc_to_page(const void *vmalloc_addr)
 	if (WARN_ON_ONCE(pmd_bad(*pmd)))
 		return NULL;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	ptep = pte_offset_map_with_mm(&init_mm, pmd, addr);
+#else
 	ptep = pte_offset_map(pmd, addr);
+#endif
 	pte = *ptep;
 	if (pte_present(pte))
 		page = pte_page(pte);

@@ -132,7 +132,9 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
 #ifndef pgd_offset
 #define pgd_offset(mm, address)  \
 ({									\
-	WARN(1, "%s not implemented with ECPT\n", __func__);	\
+	if (!(__FILE__[0] == 'a' && __FILE__[1] == 'r' && __FILE__[2] == 'c')) { \
+		WARN(1, "%s not implemented with ECPT\n", __func__);	\
+	} \
 	pgd_offset_pgd((mm)->pgd, (address));	\
 })
 // #define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
@@ -153,6 +155,25 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
  * address to the pointer in the PTE in the kernel page tables with simple
  * helpers.
  */
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+static inline pmd_t *pmd_off(struct mm_struct *mm, unsigned long va)
+{
+	return pmd_offset_map_with_mm(mm,
+		   pud_offset_map_with_mm(mm,
+		   p4d_offset_map_with_mm(mm,
+		   pgd_offset_map_with_mm(mm, va), va), va), va);
+}
+
+static inline pmd_t *pmd_off_k(unsigned long va)
+{
+	// XXX: should define the kernel version of xxx_offset_map
+	return pmd_offset_map_with_mm(&init_mm,
+		   pud_offset_map_with_mm(&init_mm,
+		   p4d_offset_map_with_mm(&init_mm,
+		   pgd_offset_map_with_mm(&init_mm, va), va), va), va);
+}
+#else
 static inline pmd_t *pmd_off(struct mm_struct *mm, unsigned long va)
 {
 	return pmd_offset(pud_offset(p4d_offset(pgd_offset(mm, va), va), va), va);
@@ -162,6 +183,7 @@ static inline pmd_t *pmd_off_k(unsigned long va)
 {
 	return pmd_offset(pud_offset(p4d_offset(pgd_offset_k(va), va), va), va);
 }
+#endif
 
 static inline pte_t *virt_to_kpte(unsigned long vaddr)
 {

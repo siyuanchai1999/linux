@@ -1612,6 +1612,17 @@ static int get_gate_page(struct mm_struct *mm, unsigned long address,
 		pgd = pgd_offset_gate(mm, address);
 	if (pgd_none(*pgd))
 		return -EFAULT;
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	p4d = p4d_offset_map_with_mm(mm, pgd, address);
+	if (p4d_none(*p4d))
+		return -EFAULT;
+	pud = pud_offset_map_with_mm(mm, p4d, address);
+	if (pud_none(*pud))
+		return -EFAULT;
+	pmd = pmd_offset_map_with_mm(mm, pud, address);
+	if (!pmd_present(*pmd))
+		return -EFAULT;
+#else
 	p4d = p4d_offset(pgd, address);
 	if (p4d_none(*p4d))
 		return -EFAULT;
@@ -1621,6 +1632,7 @@ static int get_gate_page(struct mm_struct *mm, unsigned long address,
 	pmd = pmd_offset(pud, address);
 	if (!pmd_present(*pmd))
 		return -EFAULT;
+#endif
 	VM_BUG_ON(pmd_trans_huge(*pmd));
 	pte = pte_offset_map(pmd, address);
 	if (pte_none(*pte))
@@ -3243,7 +3255,9 @@ static int gup_pmd_range(pud_t *pudp, pud_t pud, unsigned long addr, unsigned lo
 	unsigned long next;
 	pmd_t *pmdp;
 
+#ifdef CONFIG_X86_64_ECPT
 	WARN(1, "gup_pmd_range not implemented with ECPT!\n");
+#endif
 	pmdp = pmd_offset_lockless(pudp, pud, addr);
 	do {
 		pmd_t pmd = READ_ONCE(*pmdp);
@@ -3286,7 +3300,10 @@ static int gup_pud_range(p4d_t *p4dp, p4d_t p4d, unsigned long addr, unsigned lo
 {
 	unsigned long next;
 	pud_t *pudp;
+
+#ifdef CONFIG_X86_64_ECPT
 	WARN(1, "gup_pud_range not implemented with ECPT!\n");
+#endif
 	pudp = pud_offset_lockless(p4dp, p4d, addr);
 	do {
 		pud_t pud = READ_ONCE(*pudp);
@@ -3401,7 +3418,6 @@ static void gup_pgd_range(unsigned long addr, unsigned long end,
 {
 	unsigned long next;
 	pgd_t *pgdp;
-	WARN(1, "gup_pgd_range not implemented with ECPT!\n");
 	pgdp = pgd_offset(current->mm, addr);
 	do {
 		pgd_t pgd = READ_ONCE(*pgdp);

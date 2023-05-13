@@ -251,7 +251,12 @@ static inline void free_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 	unsigned long start;
 
 	start = addr;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	pmd = pmd_offset(pud, addr);
+#else
+	pmd = pmd_offset(tlb->mm, pud, addr);
+#endif
 	do {
 		next = pmd_addr_end(addr, end);
 		if (pmd_none_or_clear_bad(pmd))
@@ -270,7 +275,11 @@ static inline void free_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 	if (end - 1 > ceiling - 1)
 		return;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pmd = pmd_offset_map_with_mm(tlb->mm, pud, start);
+#else
 	pmd = pmd_offset(pud, start);
+#endif
 	pud_clear(pud);
 	pmd_free_tlb(tlb, pmd, start);
 	mm_dec_nr_pmds(tlb->mm);
@@ -285,7 +294,12 @@ static inline void free_pud_range(struct mmu_gather *tlb, p4d_t *p4d,
 	unsigned long start;
 
 	start = addr;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pud = pud_offset_map_with_mm(tlb->mm, p4d, addr);
+#else
 	pud = pud_offset(p4d, addr);
+#endif
 	do {
 		next = pud_addr_end(addr, end);
 		if (pud_none_or_clear_bad(pud))
@@ -304,7 +318,12 @@ static inline void free_pud_range(struct mmu_gather *tlb, p4d_t *p4d,
 	if (end - 1 > ceiling - 1)
 		return;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pud = pud_offset_map_with_mm(tlb->mm, p4d, start);
+#else
 	pud = pud_offset(p4d, start);
+#endif
+
 	p4d_clear(p4d);
 	pud_free_tlb(tlb, pud, start);
 	mm_dec_nr_puds(tlb->mm);
@@ -319,7 +338,11 @@ static inline void free_p4d_range(struct mmu_gather *tlb, pgd_t *pgd,
 	unsigned long start;
 
 	start = addr;
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	p4d = p4d_offset_map_with_mm(tlb->mm, pgd, addr);
+#else
 	p4d = p4d_offset(pgd, addr);
+#endif
 	do {
 		next = p4d_addr_end(addr, end);
 		if (p4d_none_or_clear_bad(p4d))
@@ -338,7 +361,11 @@ static inline void free_p4d_range(struct mmu_gather *tlb, pgd_t *pgd,
 	if (end - 1 > ceiling - 1)
 		return;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	p4d = p4d_offset_map_with_mm(tlb->mm, pgd, start);
+#else
 	p4d = p4d_offset(pgd, start);
+#endif
 	pgd_clear(pgd);
 	p4d_free_tlb(tlb, p4d, start);
 }
@@ -403,7 +430,12 @@ void free_pgd_range(struct mmu_gather *tlb,
 	 * (see pte_free_tlb()), flush the tlb if we need
 	 */
 	tlb_change_page_size(tlb, PAGE_SIZE);
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(tlb->mm, addr);
+#else
 	pgd = pgd_offset(tlb->mm, addr);
+#endif
 	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none_or_clear_bad(pgd))
@@ -584,10 +616,18 @@ static inline void add_mm_rss_vec(struct mm_struct *mm, int *rss)
 static void print_bad_pte(struct vm_area_struct *vma, unsigned long addr,
 			  pte_t pte, struct page *page)
 {	
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd_t *pgd = pgd_offset_map_with_mm(vma->vm_mm, addr);
+	p4d_t *p4d = p4d_offset_map_with_mm(vma->vm_mm, pgd, addr);
+	pud_t *pud = pud_offset_map_with_mm(vma->vm_mm, p4d, addr);
+	pmd_t *pmd = pmd_offset_map_with_mm(vma->vm_mm, pud, addr);
+#else
 	pgd_t *pgd = pgd_offset(vma->vm_mm, addr);
 	p4d_t *p4d = p4d_offset(pgd, addr);
 	pud_t *pud = pud_offset(p4d, addr);
 	pmd_t *pmd = pmd_offset(pud, addr);
+#endif
 	struct address_space *mapping;
 	pgoff_t index;
 	static unsigned long resume;
@@ -1595,7 +1635,12 @@ copy_pmd_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
 	dst_pmd = pmd_alloc(dst_mm, dst_pud, addr);
 	if (!dst_pmd)
 		return -ENOMEM;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	src_pmd = pmd_offset(src_mm, src_pud, addr);
+#else
 	src_pmd = pmd_offset(src_pud, addr);
+#endif
 	do {
 		next = pmd_addr_end(addr, end);
 		if (is_swap_pmd(*src_pmd) || pmd_trans_huge(*src_pmd)
@@ -1632,7 +1677,11 @@ copy_pud_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
 	dst_pud = pud_alloc(dst_mm, dst_p4d, addr);
 	if (!dst_pud)
 		return -ENOMEM;
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	src_pud = pud_offset_map_with_mm(src_mm, src_p4d, addr);
+#else
 	src_pud = pud_offset(src_p4d, addr);
+#endif
 	do {
 		next = pud_addr_end(addr, end);
 		if (pud_trans_huge(*src_pud) || pud_devmap(*src_pud)) {
@@ -1668,7 +1717,13 @@ copy_p4d_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
 	dst_p4d = p4d_alloc(dst_mm, dst_pgd, addr);
 	if (!dst_p4d)
 		return -ENOMEM;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	src_p4d = p4d_offset_map_with_mm(src_vma->vm_mm, src_pgd, addr);
+#else
 	src_p4d = p4d_offset(src_pgd, addr);
+#endif
+
 	do {
 		next = p4d_addr_end(addr, end);
 		if (p4d_none_or_clear_bad(src_p4d))
@@ -1777,6 +1832,21 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 			BUG();
 		}
 	} while (addr = next, addr != end);
+
+#elif CONFIG_PGTABLE_OP_GENERALIZABLE
+	ret = 0;
+	dst_pgd = pgd_offset_map_with_mm(dst_mm, addr);
+	src_pgd = pgd_offset_map_with_mm(src_mm, addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(src_pgd))
+			continue;
+		if (unlikely(copy_p4d_range(dst_vma, src_vma, dst_pgd, src_pgd,
+					    addr, next))) {
+			ret = -ENOMEM;
+			break;
+		}
+	} while (dst_pgd++, src_pgd++, addr = next, addr != end);
 #else
 	ret = 0;
 	dst_pgd = pgd_offset(dst_mm, addr);
@@ -2684,7 +2754,12 @@ static pmd_t *walk_to_pmd(struct mm_struct *mm, unsigned long addr)
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, addr);
+#else
 	pgd = pgd_offset(mm, addr);
+#endif
 	p4d = p4d_alloc(mm, pgd, addr);
 	if (!p4d)
 		return NULL;
@@ -3389,7 +3464,12 @@ int remap_pfn_range_notrack(struct vm_area_struct *vma, unsigned long addr,
 
 	BUG_ON(addr >= end);
 	pfn -= addr >> PAGE_SHIFT;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, addr);
+#else
 	pgd = pgd_offset(mm, addr);
+#endif
 	flush_cache_range(vma, addr, end);
 	do {
 		next = pgd_addr_end(addr, end);
@@ -3538,7 +3618,11 @@ static int apply_to_pmd_range(struct mm_struct *mm, pud_t *pud,
 		if (!pmd)
 			return -ENOMEM;
 	} else {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+		pmd = pmd_offset_map_with_mm(mm, pud, addr);
+#else
 		pmd = pmd_offset(pud, addr);
+#endif
 	}
 	do {
 		next = pmd_addr_end(addr, end);
@@ -3574,7 +3658,12 @@ static int apply_to_pud_range(struct mm_struct *mm, p4d_t *p4d,
 		if (!pud)
 			return -ENOMEM;
 	} else {
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+		pud = pud_offset_map_with_mm(mm, p4d, addr);
+#else
 		pud = pud_offset(p4d, addr);
+#endif
 	}
 	do {
 		next = pud_addr_end(addr, end);
@@ -3610,7 +3699,12 @@ static int apply_to_p4d_range(struct mm_struct *mm, pgd_t *pgd,
 		if (!p4d)
 			return -ENOMEM;
 	} else {
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+		p4d = p4d_offset_map_with_mm(mm, pgd, addr);
+#else
 		p4d = p4d_offset(pgd, addr);
+#endif
 	}
 	do {
 		next = p4d_addr_end(addr, end);
@@ -3645,7 +3739,12 @@ static int __apply_to_page_range(struct mm_struct *mm, unsigned long addr,
 	if (WARN_ON(addr >= end))
 		return -EINVAL;
 
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, addr);
+#else
 	pgd = pgd_offset(mm, addr);
+#endif
 	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none(*pgd) && !create)
@@ -6320,6 +6419,22 @@ int follow_invalidate_pte(struct mm_struct *mm, unsigned long address,
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *ptep;
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, address);
+	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
+		goto out;
+
+	p4d = p4d_offset_map_with_mm(mm, pgd, address);
+	if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d)))
+		goto out;
+
+	pud = pud_offset_map_with_mm(mm, p4d, address);
+	if (pud_none(*pud) || unlikely(pud_bad(*pud)))
+		goto out;
+
+	pmd = pmd_offset_map_with_mm(mm, pud, address);
+#else
 	pgd = pgd_offset(mm, address);
 	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
 		goto out;
@@ -6333,6 +6448,7 @@ int follow_invalidate_pte(struct mm_struct *mm, unsigned long address,
 		goto out;
 
 	pmd = pmd_offset(pud, address);
+#endif
 	VM_BUG_ON(pmd_trans_huge(*pmd));
 
 	if (pmd_huge(*pmd)) {

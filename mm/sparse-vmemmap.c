@@ -119,7 +119,11 @@ static int vmemmap_pmd_range(pud_t *pud, unsigned long addr,
 	pmd_t *pmd;
 	unsigned long next;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pmd = pmd_offset_map_with_mm(&init_mm, pud, addr);
+#else
 	pmd = pmd_offset(pud, addr);
+#endif
 	do {
 		if (pmd_leaf(*pmd)) {
 			int ret;
@@ -524,7 +528,11 @@ static void * __meminit vmemmap_alloc_block_zero(unsigned long size, int node)
 
 pmd_t * __meminit vmemmap_pmd_populate(pud_t *pud, unsigned long addr, int node)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pmd_t *pmd = pmd_offset_map_with_mm(&init_mm, pud, addr);
+#else
 	pmd_t *pmd = pmd_offset(pud, addr);
+#endif
 	if (pmd_none(*pmd)) {
 		void *p = vmemmap_alloc_block_zero(PAGE_SIZE, node);
 		if (!p)
@@ -536,7 +544,11 @@ pmd_t * __meminit vmemmap_pmd_populate(pud_t *pud, unsigned long addr, int node)
 
 pud_t * __meminit vmemmap_pud_populate(p4d_t *p4d, unsigned long addr, int node)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pud_t *pud = pud_offset_map_with_mm(&init_mm, p4d, addr);
+#else
 	pud_t *pud = pud_offset(p4d, addr);
+#endif
 	if (pud_none(*pud)) {
 		void *p = vmemmap_alloc_block_zero(PAGE_SIZE, node);
 		if (!p)
@@ -548,7 +560,11 @@ pud_t * __meminit vmemmap_pud_populate(p4d_t *p4d, unsigned long addr, int node)
 
 p4d_t * __meminit vmemmap_p4d_populate(pgd_t *pgd, unsigned long addr, int node)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	p4d_t *p4d = p4d_offset_map_with_mm(&init_mm, pgd, addr);
+#else
 	p4d_t *p4d = p4d_offset(pgd, addr);
+#endif
 	if (p4d_none(*p4d)) {
 		void *p = vmemmap_alloc_block_zero(PAGE_SIZE, node);
 		if (!p)
@@ -560,7 +576,12 @@ p4d_t * __meminit vmemmap_p4d_populate(pgd_t *pgd, unsigned long addr, int node)
 
 pgd_t * __meminit vmemmap_pgd_populate(unsigned long addr, int node)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd_t *pgd = pgd_offset_map_with_mm(&init_mm, addr);
+#else
 	pgd_t *pgd = pgd_offset_k(addr);
+#endif
+
 	if (pgd_none(*pgd)) {
 		void *p = vmemmap_alloc_block_zero(PAGE_SIZE, node);
 		if (!p)

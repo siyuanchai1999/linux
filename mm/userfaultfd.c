@@ -18,6 +18,10 @@
 #include <asm/tlbflush.h>
 #include "internal.h"
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 static __always_inline
 struct vm_area_struct *find_dst_vma(struct mm_struct *dst_mm,
 				    unsigned long dst_start,
@@ -254,7 +258,11 @@ static pmd_t *mm_alloc_pmd(struct mm_struct *mm, unsigned long address)
 	p4d_t *p4d;
 	pud_t *pud;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, address);
+#else
 	pgd = pgd_offset(mm, address);
+#endif
 	p4d = p4d_alloc(mm, pgd, address);
 	if (!p4d)
 		return NULL;
