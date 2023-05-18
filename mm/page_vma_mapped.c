@@ -202,6 +202,8 @@ bool page_vma_mapped_walk(struct page_vma_mapped_walk *pvmw)
 		goto next_pte;
 restart:
 	do {
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 		pgd = pgd_offset(mm, pvmw->address);
 		if (!pgd_present(*pgd)) {
 			step_forward(pvmw, PGDIR_SIZE);
@@ -219,6 +221,25 @@ restart:
 		}
 
 		pvmw->pmd = pmd_offset(pud, pvmw->address);
+#else
+		pgd = pgd_offset_map_with_mm(mm, pvmw->address);
+		if (!pgd_present(*pgd)) {
+			step_forward(pvmw, PGDIR_SIZE);
+			continue;
+		}
+		p4d = p4d_offset_map_with_mm(mm, pgd, pvmw->address);
+		if (!p4d_present(*p4d)) {
+			step_forward(pvmw, P4D_SIZE);
+			continue;
+		}
+		pud = pud_offset_map_with_mm(mm, p4d, pvmw->address);
+		if (!pud_present(*pud)) {
+			step_forward(pvmw, PUD_SIZE);
+			continue;
+		}
+
+		pvmw->pmd = pmd_offset_map_with_mm(mm, pud, pvmw->address);
+#endif
 		/*
 		 * Make sure the pmd value isn't cached in a register by the
 		 * compiler and used as a stale value after we've observed a

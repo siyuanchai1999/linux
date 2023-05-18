@@ -44,6 +44,11 @@
 #include "internal.h"
 #include "hugetlb_vmemmap.h"
 
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 int hugetlb_max_hstate __read_mostly;
 unsigned int default_hstate_idx;
 struct hstate hstates[HUGE_MAX_HSTATE];
@@ -6032,9 +6037,16 @@ out:
 int huge_pmd_unshare(struct mm_struct *mm, struct vm_area_struct *vma,
 					unsigned long *addr, pte_t *ptep)
 {
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd_t *pgd = pgd_offset_map_with_mm(mm, *addr);
+	p4d_t *p4d = p4d_offset_map_with_mm(mm, pgd, *addr);
+	pud_t *pud = pud_offset_map_with_mm(mm, p4d, *addr);
+#else
 	pgd_t *pgd = pgd_offset(mm, *addr);
 	p4d_t *p4d = p4d_offset(pgd, *addr);
 	pud_t *pud = pud_offset(p4d, *addr);
+#endif
 
 	i_mmap_assert_write_locked(vma->vm_file->f_mapping);
 	BUG_ON(page_count(virt_to_page(ptep)) == 0);
@@ -6081,7 +6093,11 @@ pte_t *huge_pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,
 	pud_t *pud;
 	pte_t *pte = NULL;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(mm, addr);
+#else
 	pgd = pgd_offset(mm, addr);
+#endif
 	p4d = p4d_alloc(mm, pgd, addr);
 	if (!p4d)
 		return NULL;
@@ -6111,6 +6127,36 @@ pte_t *huge_pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,
  * size @sz doesn't match the hugepage size at this level of the page
  * table.
  */
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+pte_t *huge_pte_offset(struct mm_struct *mm,
+		       unsigned long addr, unsigned long sz)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	pgd = pgd_offset_map_with_mm(mm, addr);
+	if (!pgd_present(*pgd))
+		return NULL;
+	p4d = p4d_offset_map_with_mm(mm, pgd, addr);
+	if (!p4d_present(*p4d))
+		return NULL;
+
+	pud = pud_offset_map_with_mm(mm, p4d, addr);
+	if (sz == PUD_SIZE)
+		/* must be pud huge, non-present or none */
+		return (pte_t *)pud;
+	if (!pud_present(*pud))
+		return NULL;
+	/* must have a valid entry and size to go further */
+
+	pmd = pmd_offset_map_with_mm(mm, pud, addr);
+	/* must be pmd huge, non-present or none */
+	return (pte_t *)pmd;
+}
+#else
 pte_t *huge_pte_offset(struct mm_struct *mm,
 		       unsigned long addr, unsigned long sz)
 {
@@ -6138,6 +6184,7 @@ pte_t *huge_pte_offset(struct mm_struct *mm,
 	/* must be pmd huge, non-present or none */
 	return (pte_t *)pmd;
 }
+#endif /* CONFIG_PGTABLE_OP_GENERALIZABLE */
 
 #endif /* CONFIG_ARCH_WANT_GENERAL_HUGETLB */
 

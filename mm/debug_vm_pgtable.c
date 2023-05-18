@@ -34,6 +34,11 @@
 #include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
 
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 /*
  * Please refer Documentation/vm/arch_pgtable_helpers.rst for the semantics
  * expectations that are being validated here. All future changes in here
@@ -1095,6 +1100,145 @@ debug_vm_pgtable_alloc_huge_page(struct pgtable_debug_args *args, int order)
 	return page;
 }
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+static int __init init_args(struct pgtable_debug_args *args)
+{
+	struct page *page = NULL;
+	phys_addr_t phys;
+	int ret = 0;
+
+	/*
+	 * Initialize the debugging data.
+	 *
+	 * __P000 (or even __S000) will help create page table entries with
+	 * PROT_NONE permission as required for pxx_protnone_tests().
+	 */
+	memset(args, 0, sizeof(*args));
+	args->vaddr              = get_random_vaddr();
+	args->page_prot          = vm_get_page_prot(VMFLAGS);
+	args->page_prot_none     = __P000;
+	args->is_contiguous_page = false;
+	args->pud_pfn            = ULONG_MAX;
+	args->pmd_pfn            = ULONG_MAX;
+	args->pte_pfn            = ULONG_MAX;
+	args->fixed_pgd_pfn      = ULONG_MAX;
+	args->fixed_p4d_pfn      = ULONG_MAX;
+	args->fixed_pud_pfn      = ULONG_MAX;
+	args->fixed_pmd_pfn      = ULONG_MAX;
+	args->fixed_pte_pfn      = ULONG_MAX;
+
+	/* Allocate mm and vma */
+	args->mm = mm_alloc();
+	if (!args->mm) {
+		pr_err("Failed to allocate mm struct\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	args->vma = vm_area_alloc(args->mm);
+	if (!args->vma) {
+		pr_err("Failed to allocate vma\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	/*
+	 * Allocate page table entries. They will be modified in the tests.
+	 * Lets save the page table entries so that they can be released
+	 * when the tests are completed.
+	 */
+	args->pgdp = pgd_offset_map_with_mm(args->mm, args->vaddr);
+	args->p4dp = p4d_alloc(args->mm, args->pgdp, args->vaddr);
+	if (!args->p4dp) {
+		pr_err("Failed to allocate p4d entries\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+	args->start_p4dp = p4d_offset_map_with_mm(args->mm, args->pgdp, 0UL);
+	WARN_ON(!args->start_p4dp);
+
+	args->pudp = pud_alloc(args->mm, args->p4dp, args->vaddr);
+	if (!args->pudp) {
+		pr_err("Failed to allocate pud entries\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+	args->start_pudp = pud_offset_map_with_mm(args->mm, args->p4dp, 0UL);
+	WARN_ON(!args->start_pudp);
+
+	args->pmdp = pmd_alloc(args->mm, args->pudp, args->vaddr);
+	if (!args->pmdp) {
+		pr_err("Failed to allocate pmd entries\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+	args->start_pmdp = pmd_offset_map_with_mm(args->mm, args->pudp, 0UL);
+	WARN_ON(!args->start_pmdp);
+
+	if (pte_alloc(args->mm, args->pmdp)) {
+		pr_err("Failed to allocate pte entries\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+	args->start_ptep = pmd_pgtable(READ_ONCE(*args->pmdp));
+	WARN_ON(!args->start_ptep);
+
+	/*
+	 * PFN for mapping at PTE level is determined from a standard kernel
+	 * text symbol. But pfns for higher page table levels are derived by
+	 * masking lower bits of this real pfn. These derived pfns might not
+	 * exist on the platform but that does not really matter as pfn_pxx()
+	 * helpers will still create appropriate entries for the test. This
+	 * helps avoid large memory block allocations to be used for mapping
+	 * at higher page table levels in some of the tests.
+	 */
+	phys = __pa_symbol(&start_kernel);
+	args->fixed_pgd_pfn = __phys_to_pfn(phys & PGDIR_MASK);
+	args->fixed_p4d_pfn = __phys_to_pfn(phys & P4D_MASK);
+	args->fixed_pud_pfn = __phys_to_pfn(phys & PUD_MASK);
+	args->fixed_pmd_pfn = __phys_to_pfn(phys & PMD_MASK);
+	args->fixed_pte_pfn = __phys_to_pfn(phys & PAGE_MASK);
+	WARN_ON(!pfn_valid(args->fixed_pte_pfn));
+
+	/*
+	 * Allocate (huge) pages because some of the tests need to access
+	 * the data in the pages. The corresponding tests will be skipped
+	 * if we fail to allocate (huge) pages.
+	 */
+	if (IS_ENABLED(CONFIG_TRANSPARENT_HUGEPAGE) &&
+	    IS_ENABLED(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD) &&
+	    has_transparent_hugepage()) {
+		page = debug_vm_pgtable_alloc_huge_page(args,
+				HPAGE_PUD_SHIFT - PAGE_SHIFT);
+		if (page) {
+			args->pud_pfn = page_to_pfn(page);
+			args->pmd_pfn = args->pud_pfn;
+			args->pte_pfn = args->pud_pfn;
+			return 0;
+		}
+	}
+
+	if (IS_ENABLED(CONFIG_TRANSPARENT_HUGEPAGE) &&
+	    has_transparent_hugepage()) {
+		page = debug_vm_pgtable_alloc_huge_page(args, HPAGE_PMD_ORDER);
+		if (page) {
+			args->pmd_pfn = page_to_pfn(page);
+			args->pte_pfn = args->pmd_pfn;
+			return 0;
+		}
+	}
+
+	page = alloc_pages(GFP_KERNEL, 0);
+	if (page)
+		args->pte_pfn = page_to_pfn(page);
+
+	return 0;
+
+error:
+	destroy_args(args);
+	return ret;
+}
+#else /* CONFIG_PGTABLE_OP_GENERALIZABLE */
 static int __init init_args(struct pgtable_debug_args *args)
 {
 	struct page *page = NULL;
@@ -1232,6 +1376,7 @@ error:
 	destroy_args(args);
 	return ret;
 }
+#endif
 
 static int __init debug_vm_pgtable(void)
 {

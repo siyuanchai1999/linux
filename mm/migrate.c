@@ -2817,7 +2817,11 @@ static void migrate_vma_insert_page(struct migrate_vma *migrate,
 	if (!vma_is_anonymous(vma))
 		goto abort;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgdp = pgd_offset_map_with_mm(mm, addr);
+#else
 	pgdp = pgd_offset(mm, addr);
+#endif
 	p4dp = p4d_alloc(mm, pgdp, addr);
 	if (!p4dp)
 		goto abort;

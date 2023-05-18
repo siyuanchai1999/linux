@@ -45,6 +45,11 @@
 #include <linux/swapops.h>
 #include <linux/swap_cgroup.h>
 
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+#include <linux/pgtable_enhanced.h>
+#endif
+
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
 static void free_swap_count_continuations(struct swap_info_struct *);
@@ -2017,7 +2022,11 @@ static inline int unuse_pmd_range(struct vm_area_struct *vma, pud_t *pud,
 	unsigned long next;
 	int ret;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pmd = pmd_offset_map_with_mm(vma->vm_mm, pud, addr);
+#else
 	pmd = pmd_offset(pud, addr);
+#endif
 	do {
 		cond_resched();
 		next = pmd_addr_end(addr, end);
@@ -2040,7 +2049,11 @@ static inline int unuse_pud_range(struct vm_area_struct *vma, p4d_t *p4d,
 	unsigned long next;
 	int ret;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pud = pud_offset_map_with_mm(vma->vm_mm, p4d, addr);
+#else
 	pud = pud_offset(p4d, addr);
+#endif
 	do {
 		next = pud_addr_end(addr, end);
 		if (pud_none_or_clear_bad(pud))
@@ -2062,7 +2075,11 @@ static inline int unuse_p4d_range(struct vm_area_struct *vma, pgd_t *pgd,
 	unsigned long next;
 	int ret;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	p4d = p4d_offset_map_with_mm(vma->vm_mm, pgd, addr);
+#else
 	p4d = p4d_offset(pgd, addr);
+#endif
 	do {
 		next = p4d_addr_end(addr, end);
 		if (p4d_none_or_clear_bad(p4d))
@@ -2085,7 +2102,11 @@ static int unuse_vma(struct vm_area_struct *vma, unsigned int type,
 	addr = vma->vm_start;
 	end = vma->vm_end;
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pgd = pgd_offset_map_with_mm(vma->vm_mm, addr);
+#else
 	pgd = pgd_offset(vma->vm_mm, addr);
+#endif
 	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none_or_clear_bad(pgd))
