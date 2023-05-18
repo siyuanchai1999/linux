@@ -691,6 +691,7 @@ struct page *vm_normal_page(struct vm_area_struct *vma, unsigned long addr,
 		if (pte_devmap(pte))
 			return NULL;
 
+		pr_info_verbose("addr=%lx,pte=%lx\n", addr, pte.pte);
 		print_bad_pte(vma, addr, pte, NULL);
 		return NULL;
 	}
@@ -3702,6 +3703,24 @@ EXPORT_SYMBOL_GPL(apply_to_existing_page_range);
  * proceeding (but do_wp_page is only called after already making such a check;
  * and do_anonymous_page can safely check later on).
  */
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+static inline int pte_unmap_same(struct mm_struct *mm, pmd_t *pmd,
+				pte_t *page_table, pte_t orig_pte, unsigned long addr)
+{
+	int same = 1;
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPTION)
+	if (sizeof(pte_t) > sizeof(unsigned long)) {
+		spinlock_t *ptl = pte_lockptr_with_addr(mm, pmd, addr);
+		// spinlock_t *ptl = pte_lockptr(mm, pmd);
+		spin_lock(ptl);
+		same = pte_same(*page_table, orig_pte);
+		spin_unlock(ptl);
+	}
+#endif
+	pte_unmap(page_table);
+	return same;
+}
+#else
 static inline int pte_unmap_same(struct mm_struct *mm, pmd_t *pmd,
 				pte_t *page_table, pte_t orig_pte)
 {
@@ -3717,6 +3736,7 @@ static inline int pte_unmap_same(struct mm_struct *mm, pmd_t *pmd,
 	pte_unmap(page_table);
 	return same;
 }
+#endif
 
 static inline bool cow_user_page(struct page *dst, struct page *src,
 				 struct vm_fault *vmf)
@@ -4468,8 +4488,14 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	vm_fault_t ret = 0;
 	void *shadow = NULL;
 	pr_info_verbose("WARN: NOT implemented!\n");
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	if (!pte_unmap_same(vma->vm_mm, vmf->pmd, vmf->pte, vmf->orig_pte, vmf->address))
+		goto out;
+#else
 	if (!pte_unmap_same(vma->vm_mm, vmf->pmd, vmf->pte, vmf->orig_pte))
 		goto out;
+#endif
 
 	entry = pte_to_swp_entry(vmf->orig_pte);
 	if (unlikely(non_swap_entry(entry))) {
@@ -5379,7 +5405,11 @@ static vm_fault_t do_numa_page(struct vm_fault *vmf)
 	 * validation through pte_unmap_same(). It's of NUMA type but
 	 * the pfn may be screwed if the read is non atomic.
 	 */
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	vmf->ptl = pte_lockptr_with_addr(vma->vm_mm, vmf->pmd, vmf->address);
+#else
 	vmf->ptl = pte_lockptr(vma->vm_mm, vmf->pmd);
+#endif
 	spin_lock(vmf->ptl);
 	if (unlikely(!pte_same(*vmf->pte, vmf->orig_pte))) {
 		pte_unmap_unlock(vmf->pte, vmf->ptl);
@@ -5615,8 +5645,9 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 
 	if (pte_protnone(vmf->orig_pte) && vma_is_accessible(vmf->vma))
 		return do_numa_page(vmf);
-
-	vmf->ptl = pte_lockptr(vmf->vma->vm_mm, vmf->pmd);
+	
+	vmf->ptl = pte_lockptr_with_addr(vmf->vma->vm_mm, vmf->pmd, vmf->address);
+	// vmf->ptl = pte_lockptr(vmf->vma->vm_mm, vmf->pmd);
 	spin_lock(vmf->ptl);
 	entry = vmf->orig_pte;
 	if (unlikely(!pte_same(*vmf->pte, entry))) {
