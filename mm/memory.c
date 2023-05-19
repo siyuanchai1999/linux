@@ -233,6 +233,7 @@ static void check_sync_rss_stat(struct task_struct *task)
  * Note: this doesn't free the actual pages themselves. That
  * has been handled earlier when unmapping all the memory regions.
  */
+#ifndef CONFIG_X86_64_ECPT
 static void free_pte_range(struct mmu_gather *tlb, pmd_t *pmd,
 			   unsigned long addr)
 {
@@ -252,11 +253,7 @@ static inline void free_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 
 	start = addr;
 
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 	pmd = pmd_offset(pud, addr);
-#else
-	pmd = pmd_offset(tlb->mm, pud, addr);
-#endif
 	do {
 		next = pmd_addr_end(addr, end);
 		if (pmd_none_or_clear_bad(pmd))
@@ -275,11 +272,7 @@ static inline void free_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 	if (end - 1 > ceiling - 1)
 		return;
 
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	pmd = pmd_offset_map_with_mm(tlb->mm, pud, start);
-#else
 	pmd = pmd_offset(pud, start);
-#endif
 	pud_clear(pud);
 	pmd_free_tlb(tlb, pmd, start);
 	mm_dec_nr_pmds(tlb->mm);
@@ -294,12 +287,7 @@ static inline void free_pud_range(struct mmu_gather *tlb, p4d_t *p4d,
 	unsigned long start;
 
 	start = addr;
-
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	pud = pud_offset_map_with_mm(tlb->mm, p4d, addr);
-#else
 	pud = pud_offset(p4d, addr);
-#endif
 	do {
 		next = pud_addr_end(addr, end);
 		if (pud_none_or_clear_bad(pud))
@@ -318,11 +306,7 @@ static inline void free_pud_range(struct mmu_gather *tlb, p4d_t *p4d,
 	if (end - 1 > ceiling - 1)
 		return;
 
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	pud = pud_offset_map_with_mm(tlb->mm, p4d, start);
-#else
 	pud = pud_offset(p4d, start);
-#endif
 
 	p4d_clear(p4d);
 	pud_free_tlb(tlb, pud, start);
@@ -338,11 +322,9 @@ static inline void free_p4d_range(struct mmu_gather *tlb, pgd_t *pgd,
 	unsigned long start;
 
 	start = addr;
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	p4d = p4d_offset_map_with_mm(tlb->mm, pgd, addr);
-#else
+
 	p4d = p4d_offset(pgd, addr);
-#endif
+
 	do {
 		next = p4d_addr_end(addr, end);
 		if (p4d_none_or_clear_bad(p4d))
@@ -361,11 +343,8 @@ static inline void free_p4d_range(struct mmu_gather *tlb, pgd_t *pgd,
 	if (end - 1 > ceiling - 1)
 		return;
 
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	p4d = p4d_offset_map_with_mm(tlb->mm, pgd, start);
-#else
 	p4d = p4d_offset(pgd, start);
-#endif
+
 	pgd_clear(pgd);
 	p4d_free_tlb(tlb, p4d, start);
 }
@@ -379,10 +358,10 @@ void free_pgd_range(struct mmu_gather *tlb,
 {
 	pgd_t *pgd;
 	unsigned long next;
-#ifdef CONFIG_X86_64_ECPT	
+	
 	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
 	return;
-#endif
+
 
 	/*
 	 * The next few lines have given us lots of grief...
@@ -431,11 +410,8 @@ void free_pgd_range(struct mmu_gather *tlb,
 	 */
 	tlb_change_page_size(tlb, PAGE_SIZE);
 
-#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-	pgd = pgd_offset_map_with_mm(tlb->mm, addr);
-#else
 	pgd = pgd_offset(tlb->mm, addr);
-#endif
+
 	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none_or_clear_bad(pgd))
@@ -443,6 +419,7 @@ void free_pgd_range(struct mmu_gather *tlb,
 		free_p4d_range(tlb, pgd, addr, next, floor, ceiling);
 	} while (pgd++, addr = next, addr != end);
 }
+#endif
 
 void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		unsigned long floor, unsigned long ceiling)
@@ -478,6 +455,7 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		vma = next;
 	}
 }
+
 #ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long addr)
 {
@@ -3433,7 +3411,7 @@ int remap_pfn_range_notrack(struct vm_area_struct *vma, unsigned long addr,
 	unsigned long end = addr + PAGE_ALIGN(size);
 	struct mm_struct *mm = vma->vm_mm;
 	int err;
-	WARN(1, "remap_pfn_range_notrack not implemented with ECPT!\n");
+	WARN(1, "remap_pfn_range_notrack not implemented with generalized interface!\n");
 	if (WARN_ON_ONCE(!PAGE_ALIGNED(addr)))
 		return -EINVAL;
 
@@ -3736,7 +3714,7 @@ static int __apply_to_page_range(struct mm_struct *mm, unsigned long addr,
 	unsigned long end = addr + size;
 	pgtbl_mod_mask mask = 0;
 	int err = 0;
-	WARN(1, "remap_pfn_range_notrack not implemented with ECPT!\n");
+	WARN(1, "remap_pfn_range_notrack not implemented with generalized interface!\n");
 	if (WARN_ON(addr >= end))
 		return -EINVAL;
 

@@ -988,6 +988,15 @@ void pgd_free(struct mm_struct *mm, pgd_t *map_desc)
 	kfree(ecpt);
 }
 
+void free_pgd_range(struct mmu_gather *tlb,
+			unsigned long addr, unsigned long end,
+			unsigned long floor, unsigned long ceiling)
+{
+	/* noop for ECPT since it only grow and shrink on need */
+	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n",
+	 	addr, end, floor, ceiling);
+}
+
 pgtable_t pte_alloc_one(struct mm_struct *mm)
 {
 	return pte_page_default;
