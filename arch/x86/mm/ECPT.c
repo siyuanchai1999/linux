@@ -974,8 +974,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *map_desc)
 	uint32_t n_entries = 0, bytes_need;
 	ECPT_info_verbose("Destroy ecpt at %llx\n", (uint64_t)ecpt);
 	// dump_stack();
-	// print_ecpt(ecpt);
-
+	print_ecpt(ecpt, 0, 0, 0);
 	for (i = ECPT_KERNEL_WAY; i < ECPT_TOTAL_WAY; i++) {
 		free_one_way(ecpt->table[i]);
 
@@ -1189,7 +1188,7 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 {
 	uint64_t size, hash, vpn, cr;
 	uint64_t rehash_ptr = 0, rehash_cr, rehash_size, rehash_hash;
-	uint32_t w = 0, way_start, way_end, rehash_way;
+	uint32_t w = 0, way_start, way_end, rehash_way, picked_way;
 
 	ecpt_entry_t *ecpt_base;
 	ecpt_entry_t *entry_ptr = NULL;
@@ -1217,6 +1216,7 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 		rehash_cr = 0;
 		rehash_size = 0;
 		rehash_hash = 0;
+		picked_way = w;
 
 		if (*gran == unknown) {
 			vpn = way_to_vpn(w, vaddr);
@@ -1231,9 +1231,10 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 		}
 
 		hash = gen_hash_64(vpn, size, w);
-
 		rehash_ptr = ecpt_get_rehash(ecpt, w);
-
+		ECPT_info_verbose("vaddr=%lx hash =%llx rehash_ptr=%llx\n", 
+			vaddr, hash, rehash_ptr);
+		
 		if (hash < rehash_ptr) {
 			/* not supported for resizing now */
 			rehash_way = find_rehash_way(w);
@@ -1241,35 +1242,38 @@ static ecpt_entry_t *ecpt_search_fit_entry(ECPT_desc_t *ecpt, uint64_t vaddr,
 			rehash_size = GET_HPT_SIZE(rehash_cr);
 
 			/* we use the original way's hash function now */
-			/* TODO: change the hash function with size as seed */
+			/* NOTE: we keep w as seed here because after 
+				we put the rehash way in place, it will be treated as way w
+			 */
 			rehash_hash = gen_hash_64(vpn, rehash_size, w);
 
 			ecpt_base =
 				(ecpt_entry_t *)GET_HPT_BASE_VIRT(rehash_cr);
 			entry_ptr = &ecpt_base[rehash_hash];
 
+			picked_way = rehash_way;
 		} else {
 			/* stay with current hash table */
 			ecpt_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(cr);
 			entry_ptr = &ecpt_base[hash];
 		}
 		// entry = *entry_ptr;
-
+		
 		if (ecpt_entry_match_vpn(entry_ptr, vpn)) {
 			*status = ENTRY_MATCHED;
 			if (*gran == unknown)
 				*gran = way_to_gran(w);
-			*way_found = w;
+			*way_found = picked_way;
 			return entry_ptr;
 		} else if (empty_entry(entry_ptr)) {
 			/* not found, but entry empty */
 			empty_slots[empty_i] = entry_ptr;
-			empty_slots_ways[empty_i] = w;
+			empty_slots_ways[empty_i] = picked_way;
 			empty_i++;
 			entry_ptr = NULL;
 		} else {
 			evict_slots[evict_i] = entry_ptr;
-			evict_slots_ways[evict_i] = w;
+			evict_slots_ways[evict_i] = picked_way;
 			evict_i++;
 			entry_ptr = NULL;
 		}
@@ -1677,7 +1681,8 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 		end = old_size;
 	}
 
-	pr_info("start=%x end=%x\n", start, end);
+	pr_info("start=%x end=%x [%llx %llx]\n",
+	 	start, end, (uint64_t) (old_base + start), (uint64_t) (old_base + end));
 
 	// src_ptl = pte_lockptr
 	src_ptl = pte_lockptr_with_addr(ecpt->mm, NULL, start);
