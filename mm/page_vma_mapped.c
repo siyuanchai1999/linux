@@ -19,7 +19,11 @@ static inline bool not_found(struct page_vma_mapped_walk *pvmw)
 
 static bool map_pte(struct page_vma_mapped_walk *pvmw)
 {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pvmw->pte = pte_offset_map_with_mm(pvmw->vma->vm_mm, pvmw->pmd, pvmw->address);
+#else
 	pvmw->pte = pte_offset_map(pvmw->pmd, pvmw->address);
+#endif
 	if (!(pvmw->flags & PVMW_SYNC)) {
 		if (pvmw->flags & PVMW_MIGRATION) {
 			if (!is_swap_pte(*pvmw->pte))
@@ -204,24 +208,6 @@ restart:
 	do {
 
 #ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
-		pgd = pgd_offset(mm, pvmw->address);
-		if (!pgd_present(*pgd)) {
-			step_forward(pvmw, PGDIR_SIZE);
-			continue;
-		}
-		p4d = p4d_offset(pgd, pvmw->address);
-		if (!p4d_present(*p4d)) {
-			step_forward(pvmw, P4D_SIZE);
-			continue;
-		}
-		pud = pud_offset(p4d, pvmw->address);
-		if (!pud_present(*pud)) {
-			step_forward(pvmw, PUD_SIZE);
-			continue;
-		}
-
-		pvmw->pmd = pmd_offset(pud, pvmw->address);
-#else
 		pgd = pgd_offset_map_with_mm(mm, pvmw->address);
 		if (!pgd_present(*pgd)) {
 			step_forward(pvmw, PGDIR_SIZE);
@@ -239,6 +225,24 @@ restart:
 		}
 
 		pvmw->pmd = pmd_offset_map_with_mm(mm, pud, pvmw->address);
+#else
+		pgd = pgd_offset(mm, pvmw->address);
+		if (!pgd_present(*pgd)) {
+			step_forward(pvmw, PGDIR_SIZE);
+			continue;
+		}
+		p4d = p4d_offset(pgd, pvmw->address);
+		if (!p4d_present(*p4d)) {
+			step_forward(pvmw, P4D_SIZE);
+			continue;
+		}
+		pud = pud_offset(p4d, pvmw->address);
+		if (!pud_present(*pud)) {
+			step_forward(pvmw, PUD_SIZE);
+			continue;
+		}
+
+		pvmw->pmd = pmd_offset(pud, pvmw->address);
 #endif
 		/*
 		 * Make sure the pmd value isn't cached in a register by the
