@@ -722,8 +722,13 @@ static void set_huge_zero_page(pgtable_t pgtable, struct mm_struct *mm,
 		struct page *zero_page)
 {
 	pmd_t entry;
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	if (!no_pmd_huge_page(*pmd))
+		return;
+#else
 	if (!pmd_none(*pmd))
 		return;
+#endif
 	entry = mk_pmd(zero_page, vma->vm_page_prot);
 	entry = pmd_mkhuge(entry);
 	if (pgtable)
@@ -762,7 +767,12 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 		}
 		vmf->ptl = pmd_lock(vma->vm_mm, vmf->pmd);
 		ret = 0;
-		if (pmd_none(*vmf->pmd)) {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+		if (no_pmd_huge_page(*vmf->pmd)) 
+#else
+		if (pmd_none(*vmf->pmd)) 
+#endif
+		{
 			ret = check_stable_address_space(vma->vm_mm);
 			if (ret) {
 				spin_unlock(vmf->ptl);
@@ -803,7 +813,12 @@ static void insert_pfn_pmd(struct vm_area_struct *vma, unsigned long addr,
 	spinlock_t *ptl;
 
 	ptl = pmd_lock(mm, pmd);
-	if (!pmd_none(*pmd)) {
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	if (!no_pmd_huge_page(*pmd))
+#else
+	if (!pmd_none(*pmd)) 
+#endif
+	{
 		if (write) {
 			if (pmd_pfn(*pmd) != pfn_t_to_pfn(pfn)) {
 				WARN_ON_ONCE(!is_huge_zero_pmd(*pmd));
