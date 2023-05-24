@@ -171,7 +171,7 @@ bool page_vma_mapped_walk(struct page_vma_mapped_walk *pvmw)
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t pmde;
-	WARN(1, "%s not implemneted with ECPT!\n", __func__);
+
 	/* The only possible pmd mapping has been handled on last iteration */
 	if (pvmw->pmd && !pvmw->pte)
 		return not_found(pvmw);
