@@ -77,6 +77,7 @@ void ecpt_early_init(void);
 
 void load_ECPT_desc(ECPT_desc_t * ecpt);
 
+uint32_t find_way_from_ptr(ECPT_desc_t *ecpt, void *ptr);
 bool ptep_is_in_ecpt(ECPT_desc_t *ecpt, void *ptep, uint64_t addr, Granularity gran);
 
 int early_ecpt_insert(ECPT_desc_t * ecpt, uint64_t vaddr, uint64_t paddr, ecpt_pgprot_t prot, uint64_t kernel_start, uint64_t physaddr);

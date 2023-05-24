@@ -170,6 +170,13 @@ inline bool empty_entry(ecpt_entry_t * e);
 #define PTE_ARRAY_FMT REP8("%016llx ")
 #define PTE_ARRAY_PRINT(e) PTE_7(e)
 
+#define PRINT_ECPT_ENTRY_BASE_WITH_ECPT(ecpt, e, func) \
+	do { \
+    	func("entry at %llx (way %d) {.vpn=%llx .pte={" PTE_ARRAY_FMT "}}\n",\
+			(uint64_t) e, find_way_from_ptr(ecpt, e), ecpt_entry_get_vpn(e), PTE_ARRAY_PRINT(e) \
+		); \
+  	} while (0)
+
 #define PRINT_ECPT_ENTRY_BASE(e, func) \
 	do { \
     	func("entry at %llx  {.vpn=%llx .pte={" PTE_ARRAY_FMT "}}\n",\

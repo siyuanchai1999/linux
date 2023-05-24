@@ -44,6 +44,10 @@
 #define ECPT_info_verbose(fmt, ...)
 #endif
 
+
+#define PRINT_ECPT_ENTRY_DEBUG_WITH_WAY(ecpt, e) PRINT_ECPT_ENTRY_BASE_WITH_ECPT(ecpt, e, ECPT_info_verbose)
+#define PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, e) PRINT_ECPT_ENTRY_BASE_WITH_ECPT(ecpt, e, pr_info)
+
 #define PRINT_ECPT_ENTRY_DEBUG(e) PRINT_ECPT_ENTRY_BASE(e, ECPT_info_verbose)
 #define PRINT_ECPT_ENTRY_INFO(e) PRINT_ECPT_ENTRY_BASE(e, pr_info)
 
@@ -974,7 +978,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *map_desc)
 	uint32_t n_entries = 0, bytes_need;
 	ECPT_info_verbose("Destroy ecpt at %llx\n", (uint64_t)ecpt);
 	// dump_stack();
-	print_ecpt(ecpt, 0, 0, 0);
+	// print_ecpt(ecpt, 0, 0, 0);
 	for (i = ECPT_KERNEL_WAY; i < ECPT_TOTAL_WAY; i++) {
 		free_one_way(ecpt->table[i]);
 
@@ -1423,6 +1427,8 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 
 	uint32_t n_way = way_end - way_start, rehash_way = 0;
 	static uint32_t way = 0;
+	int merge_result = 0;
+
 
 	ecpt_entry_t *ecpt_base;
 	ecpt_entry_t *entry_ptr;
@@ -1485,13 +1491,13 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 
 		if (ecpt_entry_empty_vpn(entry_ptr)) {
 			pr_info("Merge ");
-			PRINT_ECPT_ENTRY_INFO(entry_ptr);
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
 			pr_info("with ");
-			PRINT_ECPT_ENTRY_INFO(&to_insert);
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, &to_insert);
 
 			ecpt_entry_do_merge(entry_ptr, &to_insert);
 			ECPT_info_verbose("Set ");
-			PRINT_ECPT_ENTRY_INFO(entry_ptr);
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
 			
 			if (hash < rehash_ptr) {
 				/* increase the occupancy of rehash */
@@ -1505,22 +1511,25 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 			/* can insert here */
 
 			pr_info("Merge ");
-			PRINT_ECPT_ENTRY_INFO(entry_ptr);
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
 			pr_info("with ");
-			PRINT_ECPT_ENTRY_INFO(&to_insert);
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, &to_insert);
 
-			ecpt_entry_do_merge(entry_ptr, &to_insert);
+			merge_result = ecpt_entry_do_merge(entry_ptr, &to_insert);
 			pr_info("Set ");
-			PRINT_ECPT_ENTRY_INFO(entry_ptr);
-
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
+			
+			if (merge_result) {
+				print_ecpt(ecpt, 0, 1, 1);
+			}
 			return 0;
 		} else {
 			/* swap and insert again */
 
 			pr_info("Kick ");
-			PRINT_ECPT_ENTRY_INFO(entry_ptr);
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
 			pr_info("with ");
-			PRINT_ECPT_ENTRY_INFO(&to_insert);
+			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, &to_insert);
 
 			prev_entry = *entry_ptr;
 
@@ -1607,7 +1616,7 @@ int ecpt_insert(ECPT_desc_t *ecpt, uint64_t vaddr, uint64_t paddr,
 		     "Invalid entry_ptr=%llx returned from ecpt_search_fit_entry\n",
 		     (uint64_t)entry_ptr);
 		ecpt_entry_do_merge(entry_ptr, &entry);
-		PRINT_ECPT_ENTRY_DEBUG(entry_ptr);
+		PRINT_ECPT_ENTRY_DEBUG_WITH_WAY(ecpt, entry_ptr);
 
 		if (status == ENTRY_EMPTY) {
 			inc_occupancy(ecpt, entry_way);
@@ -1646,6 +1655,23 @@ static uint64_t alloc_resize_way(uint64_t cr)
 	return new_cr;
 }
 
+static void select_rehash_way_range(uint32_t way, uint32_t *way_start, uint32_t *way_end) 
+{	
+	Granularity gran = way_to_gran(way);
+	uint64_t tmp = 0;
+	if (way < ECPT_KERNEL_WAY) {
+		select_way(DUMMY_KERNEL_VA, /* we only rehash */
+			gran, way_start, way_end, &tmp /* place holder */
+		);
+	} else if (way >= ECPT_KERNEL_WAY && way < ECPT_TOTAL_WAY) {
+		select_way(DUMMY_USER_VA, /* we only rehash */
+			gran, way_start, way_end, &tmp /* place holder */
+		);
+	} else {
+		WARN(1, "No available way range selection for way=%d\n", way);
+	}
+}
+
 /**
  * @brief 
  * 
@@ -1659,14 +1685,15 @@ static uint64_t alloc_resize_way(uint64_t cr)
  */
 static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 				uint32_t new_way, uint32_t start,
-				uint32_t rehash_granularity, uint32_t n_batch,
-				uint32_t * failed_entry_cnt, ecpt_entry_t ** failed_entries)
+				uint32_t rehash_granularity, uint32_t n_batch)
 {
 	uint64_t cr = ecpt->table[way], new_cr = ecpt->table[new_way];
 	ecpt_entry_t *old_ptr = NULL;
 	ecpt_entry_t *new_ptr = NULL;
 	ecpt_entry_t *old_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(cr);
 	ecpt_entry_t *new_base = (ecpt_entry_t *)GET_HPT_BASE_VIRT(new_cr);
+	ecpt_entry_t *collision_entry = NULL;
+
 
 	uint64_t hash = 0;
 	uint32_t old_size = GET_HPT_SIZE(cr);
@@ -1676,6 +1703,10 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 
 	spinlock_t *src_ptl = NULL;
 	spinlock_t *dest_ptl = NULL;
+
+	uint32_t way_start, way_end;
+	int kick_res = 0;
+	select_rehash_way_range(way, &way_start, &way_end);
 
 	if (end > old_size) {
 		end = old_size;
@@ -1694,7 +1725,9 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 	}
 
 	for (; it < end; it++) {
+		collision_entry = NULL;
 		old_ptr = &old_base[it];
+		
 		if (!ecpt_entry_empty_vpn(old_ptr)) {
 			/**
 			 * here we use old vpn to do hash,
@@ -1708,16 +1741,11 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 
 			if (!ecpt_entry_empty_vpn(new_ptr)) {
 				pr_info("Collision entry:");
-				PRINT_ECPT_ENTRY_INFO(old_ptr);
+				PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, old_ptr);
 				pr_info("target entry:");
-				PRINT_ECPT_ENTRY_INFO(new_ptr);
-				
-				WARN(*failed_entry_cnt >= MAX_REHASH_FAILURE, 
-					"failed_entry_cnt exceed maximum=%d\n", *failed_entry_cnt);
-				/* record failing entries */
-				failed_entries[*failed_entry_cnt] = old_ptr;
-				*failed_entry_cnt = *failed_entry_cnt + 1;
-				// PRINT_ECPT_ENTRY_INFO(new_ptr);
+				PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, new_ptr);
+
+				collision_entry = old_ptr;
 			} else {
 				ECPT_info_verbose("it=%x old_ptr at %llx hash=%llx new_ptr at %llx\n",
 				it, (uint64_t) old_ptr, hash, (uint64_t) new_ptr);
@@ -1729,6 +1757,18 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 		migrated_cnt++;
 
 		ecpt_inc_rehash(ecpt, way);
+		/**
+		 * migration of current entry leads to a collision
+		 * we force it to be inserted into the table after we increase the rehash pointer
+		 */
+		if (collision_entry) {
+			kick_res = kick_to_insert(ecpt, collision_entry, way_start, way_end);
+			if (kick_res) {
+				PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, collision_entry);
+				WARN(kick_res, "Fail to insert even we kick!");
+			}	
+		}
+		
 		if (migrated_cnt % rehash_granularity == 0) {
 			if (check_ecpt_way_loaded_in_cr(ecpt, way)) {
 				ECPT_info_verbose("load way=%d\n", way);
@@ -1747,8 +1787,7 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 	return it;
 }
 
-static int do_rehash(ECPT_desc_t *ecpt, uint32_t way, uint32_t new_way,
-		uint32_t * failed_entry_cnt, ecpt_entry_t ** failed_entries)
+static int do_rehash(ECPT_desc_t *ecpt, uint32_t way, uint32_t new_way)
 {
 	uint64_t cr = ecpt->table[way];
 	uint32_t rehash_gran = ECPT_REHASH_GRANULARITY;
@@ -1763,8 +1802,7 @@ static int do_rehash(ECPT_desc_t *ecpt, uint32_t way, uint32_t new_way,
 
 	while (start < old_size) {
 		next_start = do_rehash_range(ecpt, way, new_way, start,
-					     rehash_gran, ECPT_REHASH_N_BATCH,
-					     failed_entry_cnt, failed_entries);
+					     rehash_gran, ECPT_REHASH_N_BATCH);
 		cond_resched();
 		if (next_start <= start) {
 			WARN(1,
@@ -1778,50 +1816,6 @@ static int do_rehash(ECPT_desc_t *ecpt, uint32_t way, uint32_t new_way,
 	return 0;
 }
 
-static void select_rehash_way_range(uint32_t way, uint32_t *way_start, uint32_t *way_end) 
-{	
-	Granularity gran = way_to_gran(way);
-	uint64_t tmp = 0;
-	if (way < ECPT_KERNEL_WAY) {
-		select_way(DUMMY_KERNEL_VA, /* we only rehash */
-			gran, way_start, way_end, &tmp /* place holder */
-		);
-	} else if (way >= ECPT_KERNEL_WAY && way < ECPT_TOTAL_WAY) {
-		select_way(DUMMY_USER_VA, /* we only rehash */
-			gran, way_start, way_end, &tmp /* place holder */
-		);
-	} else {
-		WARN(1, "No available way range selection for way=%d\n", way);
-	}
-}
-
-static int fix_failed_rehash(ECPT_desc_t *ecpt, uint32_t way,
-	uint32_t failed_entry_cnt, ecpt_entry_t ** failed_entries)
-{	
-	uint32_t i = 0;
-	ecpt_entry_t to_insert = {};
-	int ret = 0;
-
-	uint32_t way_start, way_end;
-	select_rehash_way_range(way, &way_start, &way_end);
-	
-	while (i < failed_entry_cnt)
-	{
-		ecpt_entry_overwrite(&to_insert, failed_entries[i]);
-		pr_info("Re insert entry at %llx after rehashing\n", (uint64_t) failed_entries[i]);
-		PRINT_ECPT_ENTRY_INFO(failed_entries[i]);
-
-		ret = kick_to_insert(ecpt, &to_insert, way_start, way_end);
-		if (ret) {
-			WARN(1, "Fail to insert rehashing entry");
-			return ret;
-		}
-		
-		i++;
-	}
-	return 0;
-}
-
 int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way)
 {
 	uint64_t cr = ecpt->table[way], new_cr;
@@ -1829,8 +1823,6 @@ int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way)
 	uint32_t new_way = 0;
 	bool ecpt_curr_loaded;
 	int ret = 0;
-	ecpt_entry_t * failed_entries[MAX_REHASH_FAILURE];
-	uint32_t failed_entry_cnt = 0;
 
 	BUG_ON(way >= ECPT_TOTAL_WAY);
 
@@ -1862,13 +1854,8 @@ int ecpt_rehash_way(ECPT_desc_t *ecpt, uint32_t way)
 	/* cr info before rehash work starts */
 	print_curr_ecpt_crs();
 
-	ret = do_rehash(ecpt, way, new_way, &failed_entry_cnt, failed_entries);
+	ret = do_rehash(ecpt, way, new_way);
 
-	if (ret) {
-		goto err_cleanup;
-	}
-
-	ret = fix_failed_rehash(ecpt, way, failed_entry_cnt, failed_entries);
 	if (ret) {
 		goto err_cleanup;
 	}
@@ -2135,6 +2122,24 @@ static void find_way_vpn_from_ptep(ECPT_desc_t *ecpt, pte_t *ptep, uint64_t addr
 	*vpn = 0;
 }
 
+/**
+ * @brief 
+ * 
+ * @param ecpt 
+ * @param ptr can be either ptep or ecpt_entry_t 
+ * @return uint32_t 
+ */
+uint32_t find_way_from_ptr(ECPT_desc_t *ecpt, void *ptr) 
+{
+	uint32_t way = 0;
+	for (way = 0; way < ECPT_TOTAL_WAY + ECPT_REHASH_WAY; way++) {
+		if (ptep_in_ecpt_way(ecpt, ptr, way)) {
+			return way;
+		}
+	}
+	return -1;
+}
+
 bool ptep_is_in_ecpt(ECPT_desc_t *ecpt, void *ptep, uint64_t addr, Granularity gran)
 {
 	uint32_t way = -1;
@@ -2271,10 +2276,10 @@ static int ecpt_set_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte,
 	}
 
 	check_ecpt_user_detail(mm->map_desc, 0);
-	PRINT_ECPT_ENTRY_DEBUG(e);
+	PRINT_ECPT_ENTRY_DEBUG_WITH_WAY(ecpt, e);
 	if (gran == page_2MB) {
 		pr_info_verbose("orig_pte = %lx pte =%lx\n", orig_pte.pte, pte.pte);
-		PRINT_ECPT_ENTRY_INFO(e);
+		PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, e);
 	}
 
 	return 0;
@@ -2284,7 +2289,7 @@ int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 		    pte_t pte)
 {
 	int res = 0;
-	pr_info(
+	pr_info_verbose(
 		"  set_pte_at 4KB addr=%lx pte=%lx ptep=%llx pte_default at %llx\n",
 		addr, pte.pte, (uint64_t)ptep, (uint64_t)&pte_default);
 
@@ -2310,7 +2315,7 @@ void ecpt_set_pmd_at(struct mm_struct *mm, unsigned long addr,
 {
 	int res = 0;
 
-	pr_info("  ecpt_set_pmd_at 2MB addr=%lx pmd=%lx pmdp=%llx pmd_default at %llx\n",
+	pr_info_verbose("  ecpt_set_pmd_at 2MB addr=%lx pmd=%lx pmdp=%llx pmd_default at %llx\n",
 		addr, pmd.pmd, (uint64_t)pmdp, (uint64_t)&pmd_default);
 
 	if (pmdp != NULL && pmdp != (pmd_t *)&pmd_default) {
@@ -2339,7 +2344,7 @@ void ecpt_set_pud_at(struct mm_struct *mm, unsigned long addr,
 {
 	int res = 0;
 
-	pr_info("  ecpt_set_pud_at 1GB addr=%lx pud=%lx pudp=%llx pmd_default at %llx\n",
+	pr_info_verbose("  ecpt_set_pud_at 1GB addr=%lx pud=%lx pudp=%llx pmd_default at %llx\n",
 		addr, pud.pud, (uint64_t)pudp, (uint64_t)&pmd_default);
 
 	if (pudp != NULL && pudp != (pud_t *)&pmd_default) {
@@ -2414,7 +2419,7 @@ static int __ecpt_native_ptep_get_and_clear(struct mm_struct *mm, pte_t *ptep,
 	ECPT_info_verbose(
 		"ptep_get_and_clear 4KB addr=%lx with entry at %llx\n", addr,
 		(uint64_t)e);
-	PRINT_ECPT_ENTRY_DEBUG(e);
+	PRINT_ECPT_ENTRY_DEBUG_WITH_WAY(ecpt, e);
 
 	ecpt_entry_clear_ptep(e, (uint64_t *)ptep);
 
@@ -2432,7 +2437,7 @@ pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 {
 	pte_t ret = READ_ONCE(*ptep);
 	int res;
-	pr_info("Invalidate 4KB addr=%lx ptep %llx pte_default at %llx\n",
+	pr_info_verbose("Invalidate 4KB addr=%lx ptep %llx pte_default at %llx\n",
 	 		addr, (uint64_t) ptep, (uint64_t) &pte_default);
 	
 	if (ptep != NULL && ptep != &pte_default) {
@@ -2456,7 +2461,7 @@ pmd_t ecpt_native_pmdp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	pmd_t ret = READ_ONCE(*pmdp);
 	int res;
 	
-	pr_info("Invalidate 2MB addr=%lx pmdp %llx pmd_default at %llx\n",
+	pr_info_verbose("Invalidate 2MB addr=%lx pmdp %llx pmd_default at %llx\n",
 	 		addr, (uint64_t) pmdp, (uint64_t) &pmd_default);
 
 	if (pmdp != NULL && pmdp != (pmd_t *) &pmd_default) {
@@ -2480,7 +2485,7 @@ pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	pud_t ret = READ_ONCE(*pudp);
 	int res;
 
-	pr_info("Invalidate 1GB addr=%lx pudp %llx pmd_default at %llx\n",
+	pr_info_verbose("Invalidate 1GB addr=%lx pudp %llx pmd_default at %llx\n",
 	 		addr, (uint64_t) pudp, (uint64_t) &pmd_default);
 
 	if (pudp != NULL && pudp != (pud_t *) &pmd_default) {
@@ -2537,7 +2542,7 @@ int ecpt_invalidate(ECPT_desc_t *ecpt_desc, uint64_t vaddr, Granularity g)
 	}
 
 	ECPT_info_verbose("ecpt_invalidate");
-	PRINT_ECPT_ENTRY_DEBUG(entry);
+	PRINT_ECPT_ENTRY_DEBUG_WITH_WAY(ecpt_desc, entry);
 
 	return 0;
 }
@@ -2606,7 +2611,7 @@ int ecpt_update_prot(ECPT_desc_t *ecpt, uint64_t vaddr, ecpt_pgprot_t new_prot,
 	pte_val.pte = ENTRY_TO_ADDR(*ptep) | new_prot.pgprot;
 	ecpt_entry_set_pte_with_pointer(entry_p, pte_val, ptep, vaddr);
 
-	PRINT_ECPT_ENTRY_DEBUG(entry_p);
+	PRINT_ECPT_ENTRY_DEBUG_WITH_WAY(ecpt, entry_p);
 	return 0;
 }
 
@@ -2790,7 +2795,7 @@ static void check_ecpt_detail(ECPT_desc_t *ecpt, uint32_t way_start,
 			e = &ecpt_base[j];
 			if (!ecpt_entry_empty_vpn(e)) {
 				if (print_entry) {
-					PRINT_ECPT_ENTRY_INFO(e);
+					PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, e);
 				}
 				valid_entries_cnt++;
 			}
@@ -2809,7 +2814,7 @@ static void check_ecpt_detail(ECPT_desc_t *ecpt, uint32_t way_start,
 			for (j = 0; j < size; j++) {
 				e = &ecpt_base[j];
 				if (print_entry && !ecpt_entry_empty_vpn(e)) {
-					PRINT_ECPT_ENTRY_INFO(e);
+					PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, e);
 				}
 			}
 		}
