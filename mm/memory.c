@@ -360,7 +360,6 @@ void free_pgd_range(struct mmu_gather *tlb,
 	unsigned long next;
 	
 	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
-	return;
 
 
 	/*
