@@ -589,35 +589,13 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 	arch_leave_lazy_mmu_mode();
 	pte_unmap_unlock(pte - 1, ptl);
 
-	return pages;static unsigned long change_protection_range(struct vm_area_struct *vma,
+	return pages;
+}
+
+static unsigned long change_protection_range(struct vm_area_struct *vma,
 		unsigned long addr, unsigned long end, pgprot_t newprot,
 		unsigned long cp_flags)
 {
-	struct mm_struct *mm = vma->vm_mm;
-	pgd_t *pgd;
-	unsigned long next;
-	unsigned long start = addr;
-	unsigned long pages = 0;
-
-	BUG_ON(addr >= end);
-	pgd = pgd_offset(mm, addr);
-	flush_cache_range(vma, addr, end);
-	inc_tlb_flush_pending(mm);
-	do {
-		next = pgd_addr_end(addr, end);
-		if (pgd_none_or_clear_bad(pgd))
-			continue;
-		pages += change_p4d_range(vma, pgd, addr, next, newprot,
-					  cp_flags);
-	} while (pgd++, addr = next, addr != end);
-
-	/* Only flush the TLB if we actually modified any entries: */
-	if (pages)
-		flush_tlb_range(vma, start, end);
-	dec_tlb_flush_pending(mm);
-
-	return pages;
-}
 	struct mm_struct *mm = vma->vm_mm;
 	unsigned long next;
 	unsigned long start = addr;
