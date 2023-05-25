@@ -599,6 +599,8 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 	unsigned long start = addr;
 	unsigned long pages = 0;
 
+	WARN(1, "%s not implemented with page iterator\n", __func__);
+
 	BUG_ON(addr >= end);
 	pgd = pgd_offset(mm, addr);
 	flush_cache_range(vma, addr, end);
@@ -1000,6 +1002,9 @@ static unsigned long change_protection_range(struct vm_area_struct *vma,
 	unsigned long next;
 	unsigned long start = addr;
 	unsigned long pages = 0;
+
+
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 
 	BUG_ON(addr >= end);
 	pgd = pgd_offset(mm, addr);

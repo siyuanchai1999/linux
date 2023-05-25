@@ -269,6 +269,7 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 	const struct mm_walk_ops *ops = walk->ops;
 	int err = 0;
 	WARN(1, "walk_pgd_range not implemented with ECPT!\n");
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 	if (walk->pgd)
 		pgd = walk->pgd + pgd_index(addr);
 	else
