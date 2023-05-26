@@ -229,11 +229,238 @@ static void check_sync_rss_stat(struct task_struct *task)
 
 #endif /* SPLIT_RSS_COUNTING */
 
+
+#ifndef __HAVE_ARCH_FREE_PGD_RANGE
+/**
+ * Note: free_pgd_range function should be considered as part of interface 
+ * that we redo the implemenation. The reason is that there's no mapping 
+ * from VA to pgtable page in ECPT.
+ * Here, we substiute p*d_offset, p*d_none_or_clear_bad and pgtable iterator
+ * with generalized interface to make it consistent with other functions in the file.
+ * Again, free_pgd_range should be part of the interface.
+ */
+
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
 /*
  * Note: this doesn't free the actual pages themselves. That
  * has been handled earlier when unmapping all the memory regions.
  */
-#ifndef CONFIG_X86_64_ECPT
+static void free_pte_range(struct mmu_gather *tlb, pmd_t *pmd,
+			   unsigned long addr)
+{
+	pgtable_t token = pmd_pgtable(*pmd);
+	pmd_clear(pmd);
+	pte_free_tlb(tlb, token, addr);
+	mm_dec_nr_ptes(tlb->mm);
+}
+
+static inline void free_pmd_range(struct mmu_gather *tlb, pud_t *pud,
+				unsigned long addr, unsigned long end,
+				unsigned long floor, unsigned long ceiling)
+{
+	pmd_t *pmd;
+	unsigned long next;
+	unsigned long start;
+
+	start = addr;
+
+	pmd = pmd_offset_map_with_mm(tlb->mm, pud, addr);
+	// pmd = pmd_offset(pud, addr);
+	do {
+		next = pmd_addr_end(addr, end);
+
+		if (pmd_next_level_not_accessible(pmd))
+			goto next;
+		// if (pmd_none_or_clear_bad(pmd))
+		// 	continue;
+		free_pte_range(tlb, pmd, addr);
+	} while(next != end ? 
+		(pmd = pmdp_get_next(tlb->mm, pmd, addr), addr = next) : 
+		(addr = next, 0));
+
+	start &= PUD_MASK;
+	if (start < floor)
+		return;
+	if (ceiling) {
+		ceiling &= PUD_MASK;
+		if (!ceiling)
+			return;
+	}
+	if (end - 1 > ceiling - 1)
+		return;
+
+	pmd = pmd_offset_map_with_mm(tlb->mm, pud, addr);
+	// pmd = pmd_offset(pud, start);
+	pud_clear(pud);
+	pmd_free_tlb(tlb, pmd, start);
+	mm_dec_nr_pmds(tlb->mm);
+}
+
+static inline void free_pud_range(struct mmu_gather *tlb, p4d_t *p4d,
+				unsigned long addr, unsigned long end,
+				unsigned long floor, unsigned long ceiling)
+{
+	pud_t *pud;
+	unsigned long next;
+	unsigned long start;
+
+	start = addr;
+	pud = pud_offset_map_with_mm(tlb->mm, p4d, addr);
+	// pud = pud_offset(p4d, addr);
+	do {
+		next = pud_addr_end(addr, end);
+		if (pud_next_level_not_accessible(pud))
+			continue;
+		// if (pud_none_or_clear_bad(pud))
+		// 	continue;
+		free_pmd_range(tlb, pud, addr, next, floor, ceiling);
+	} while(next != end ? 
+			(pud = pudp_get_next(tlb->mm, pud, addr), addr = next) : 
+			(addr = next, 0));
+	// while (pud++, addr = next, addr != end);
+
+	start &= P4D_MASK;
+	if (start < floor)
+		return;
+	if (ceiling) {
+		ceiling &= P4D_MASK;
+		if (!ceiling)
+			return;
+	}
+	if (end - 1 > ceiling - 1)
+		return;
+
+	pud = pud_offset_map_with_mm(tlb->mm, p4d, addr);
+	// pud = pud_offset(p4d, start);
+
+	p4d_clear(p4d);
+	pud_free_tlb(tlb, pud, start);
+	mm_dec_nr_puds(tlb->mm);
+}
+
+static inline void free_p4d_range(struct mmu_gather *tlb, pgd_t *pgd,
+				unsigned long addr, unsigned long end,
+				unsigned long floor, unsigned long ceiling)
+{
+	p4d_t *p4d;
+	unsigned long next;
+	unsigned long start;
+
+	start = addr;
+
+	p4d = p4d_offset_map_with_mm(tlb->mm, pgd, addr);
+	// p4d = p4d_offset(pgd, addr);
+
+	do {
+		next = p4d_addr_end(addr, end);
+		
+		if (p4d_next_level_not_accessible(p4d))
+			continue;
+		// if (p4d_none_or_clear_bad(p4d))
+		// 	continue;
+		free_pud_range(tlb, p4d, addr, next, floor, ceiling);
+	} while(next != end ? 
+			(p4d = p4dp_get_next(tlb->mm, p4d, addr), addr = next) : 
+			(addr = next, 0));
+	// while (p4d++, addr = next, addr != end);
+
+	start &= PGDIR_MASK;
+	if (start < floor)
+		return;
+	if (ceiling) {
+		ceiling &= PGDIR_MASK;
+		if (!ceiling)
+			return;
+	}
+	if (end - 1 > ceiling - 1)
+		return;
+
+	p4d = p4d_offset_map_with_mm(tlb->mm, pgd, addr);
+	// p4d = p4d_offset(pgd, start);
+
+	pgd_clear(pgd);
+	p4d_free_tlb(tlb, p4d, start);
+}
+
+/*
+ * This function frees user-level page tables of a process.
+ */
+void free_pgd_range(struct mmu_gather *tlb,
+			unsigned long addr, unsigned long end,
+			unsigned long floor, unsigned long ceiling)
+{
+	pgd_t *pgd;
+	unsigned long next;
+	
+	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
+
+	/*
+	 * The next few lines have given us lots of grief...
+	 *
+	 * Why are we testing PMD* at this top level?  Because often
+	 * there will be no work to do at all, and we'd prefer not to
+	 * go all the way down to the bottom just to discover that.
+	 *
+	 * Why all these "- 1"s?  Because 0 represents both the bottom
+	 * of the address space and the top of it (using -1 for the
+	 * top wouldn't help much: the masks would do the wrong thing).
+	 * The rule is that addr 0 and floor 0 refer to the bottom of
+	 * the address space, but end 0 and ceiling 0 refer to the top
+	 * Comparisons need to use "end - 1" and "ceiling - 1" (though
+	 * that end 0 case should be mythical).
+	 *
+	 * Wherever addr is brought up or ceiling brought down, we must
+	 * be careful to reject "the opposite 0" before it confuses the
+	 * subsequent tests.  But what about where end is brought down
+	 * by PMD_SIZE below? no, end can't go down to 0 there.
+	 *
+	 * Whereas we round start (addr) and ceiling down, by different
+	 * masks at different levels, in order to test whether a table
+	 * now has no other vmas using it, so can be freed, we don't
+	 * bother to round floor or end up - the tests don't need that.
+	 */
+
+	addr &= PMD_MASK;
+	if (addr < floor) {
+		addr += PMD_SIZE;
+		if (!addr)
+			return;
+	}
+	if (ceiling) {
+		ceiling &= PMD_MASK;
+		if (!ceiling)
+			return;
+	}
+	if (end - 1 > ceiling - 1)
+		end -= PMD_SIZE;
+	if (addr > end - 1)
+		return;
+	/*
+	 * We add page table cache pages with PAGE_SIZE,
+	 * (see pte_free_tlb()), flush the tlb if we need
+	 */
+	tlb_change_page_size(tlb, PAGE_SIZE);
+
+	pgd = pgd_offset_map_with_mm(tlb->mm, addr);
+	// pgd = pgd_offset(tlb->mm, addr);
+
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_next_level_not_accessible(src_pgd))
+			continue;
+		// if (pgd_none_or_clear_bad(pgd))
+		// 	continue;
+		free_p4d_range(tlb, pgd, addr, next, floor, ceiling);
+	} while(next != end ? 
+		(pgd = pgdp_get_next(tlb->mm, pgd, addr), addr = next) : 
+		(addr = next, 0));
+	// while (pgd++, addr = next, addr != end);
+}
+#else
+/*
+ * Note: this doesn't free the actual pages themselves. That
+ * has been handled earlier when unmapping all the memory regions.
+ */
 static void free_pte_range(struct mmu_gather *tlb, pmd_t *pmd,
 			   unsigned long addr)
 {
@@ -418,6 +645,8 @@ void free_pgd_range(struct mmu_gather *tlb,
 		free_p4d_range(tlb, pgd, addr, next, floor, ceiling);
 	} while (pgd++, addr = next, addr != end);
 }
+
+#endif
 #endif
 
 void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
@@ -3713,7 +3942,7 @@ static int __apply_to_page_range(struct mm_struct *mm, unsigned long addr,
 	unsigned long end = addr + size;
 	pgtbl_mod_mask mask = 0;
 	int err = 0;
-	WARN(1, "remap_pfn_range_notrack not implemented with generalized interface!\n");
+	WARN(1, "__apply_to_page_range not implemented with generalized interface!\n");
 	if (WARN_ON(addr >= end))
 		return -EINVAL;
 
