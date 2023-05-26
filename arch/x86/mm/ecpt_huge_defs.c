@@ -178,8 +178,13 @@ inline void pmd_mk_pte_accessible(struct mm_struct *mm, pmd_t *pmd,
 	 	(uint64_t) pmd, addr);
 #if ECPT_2M_WAY > 0 || ECPT_2M_USER_WAY > 0
 	if (!no_pmd_huge_page(*pmd)) {
-		WARN(1, "Clean pmd at %llx addr=%lx\n", (uint64_t) pmd, addr);
-		// ecpt_native_pmdp_get_and_clear(mm, addr, pmd);
+		// WARN(1, "Clean pmd at %llx = %lx addr=%lx\n", 
+		// 	(uint64_t) pmd, pmd->pmd, addr);
+		if (ptep_is_in_ecpt((ECPT_desc_t *) mm->map_desc, (pte_t *) pmd,
+			 		addr, page_2MB)) 
+		{
+			ecpt_native_pmdp_get_and_clear(mm, addr, pmd);
+		}
 	}
 #else
 	/* do nothing */

@@ -1038,8 +1038,11 @@ static bool __collapse_huge_page_swapin(struct mm_struct *mm,
 			.flags = FAULT_FLAG_ALLOW_RETRY,
 			.pmd = pmd,
 		};
-
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+		vmf.pte = pte_offset_map_with_mm(mm, pmd, address);
+#else
 		vmf.pte = pte_offset_map(pmd, address);
+#endif
 		vmf.orig_pte = *vmf.pte;
 		if (!is_swap_pte(vmf.orig_pte)) {
 			pte_unmap(vmf.pte);
@@ -1160,11 +1163,12 @@ static void collapse_huge_page(struct mm_struct *mm,
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, NULL, mm,
 				address, address + HPAGE_PMD_SIZE);
 	mmu_notifier_invalidate_range_start(&range);
-
-	pte = pte_offset_map(pmd, address);
+	
 #ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	pte = pte_offset_map_with_mm(mm, pmd, address);
 	pte_ptl = pte_lockptr_with_addr(mm, pmd, address);
-#else
+#else	
+	pte = pte_offset_map(pmd, address);
 	pte_ptl = pte_lockptr(mm, pmd);
 #endif	
 
@@ -1187,13 +1191,19 @@ static void collapse_huge_page(struct mm_struct *mm,
 	if (unlikely(!isolated)) {
 		pte_unmap(pte);
 		spin_lock(pmd_ptl);
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+		BUG_ON(!no_pmd_huge_page(*pmd));
+		pmd_mk_pte_accessible(mm, pmd, address, pmd_pgtable(_pmd));
+#else
 		BUG_ON(!pmd_none(*pmd));
+		pmd_populate(mm, pmd, pmd_pgtable(_pmd));
+#endif
 		/*
 		 * We can only use set_pmd_at when establishing
 		 * hugepmds and never for establishing regular pmds that
 		 * points to regular pagetables. Use pmd_populate for that
 		 */
-		pmd_populate(mm, pmd, pmd_pgtable(_pmd));
+		
 		spin_unlock(pmd_ptl);
 		anon_vma_unlock_write(vma->anon_vma);
 		result = SCAN_FAIL;
@@ -1222,7 +1232,11 @@ static void collapse_huge_page(struct mm_struct *mm,
 	_pmd = maybe_pmd_mkwrite(pmd_mkdirty(_pmd), vma);
 
 	spin_lock(pmd_ptl);
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	BUG_ON(!no_pmd_huge_page(*pmd));
+#else
 	BUG_ON(!pmd_none(*pmd));
+#endif
 	page_add_new_anon_rmap(new_page, vma, address, true);
 	lru_cache_add_inactive_or_unevictable(new_page, vma);
 	pgtable_trans_huge_deposit(mm, pmd, pgtable);
