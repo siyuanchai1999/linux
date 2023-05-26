@@ -2373,7 +2373,7 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 #define pte_offset_map_lock(mm, pmd, address, ptlp)	\
 ({							\
 	/* TODO change pte_lockptr */						\
-	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
+	spinlock_t *__ptl = pte_lockptr_with_addr(mm, pmd, address);	\
 	pte_t *__pte = pte_offset_map_with_mm(mm, pmd, address); \
 	*(ptlp) = __ptl;				\
 	spin_lock(__ptl);				\
@@ -2382,7 +2382,7 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 
 /* This macro will not be called by any x86 code or general code */
 #define pte_alloc_kernel(pmd, address)			\
-	((unlikely(pmd_next_level_not_accessible((pmd))) \
+	((unlikely(no_pmd_huge_and_pte_pgtable((pmd))) \
 			&& __pte_alloc_kernel(pmd, address))? \
 		NULL: pte_offset_map_with_mm(&init_mm, pmd, address))
 #else
@@ -2409,6 +2409,9 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 #endif
 
 #ifndef __ARCH_HAS_PTE_ALLOC
+/* TODO: pte_alloc with no_pte_pgtable */
+#define pte_alloc(mm, pmd) (unlikely(no_pte_pgtable(*(pmd))) && __pte_alloc(mm, pmd, 0)) /* XXX: need to handle the addr argument */
+
 #define pte_alloc(mm, pmd) (unlikely(pmd_none(*(pmd))) && __pte_alloc(mm, pmd, 0)) /* XXX: need to handle the addr argument */
 #endif
 

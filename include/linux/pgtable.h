@@ -189,7 +189,11 @@ static inline pte_t *virt_to_kpte(unsigned long vaddr)
 {
 	pmd_t *pmd = pmd_off_k(vaddr);
 
+#ifdef CONFIG_PGTABLE_OP_GENERALIZABLE
+	return no_pmd_huge_and_pte_pgtable(*pmd) ? NULL : pte_offset_kernel(pmd, vaddr);
+#else
 	return pmd_none(*pmd) ? NULL : pte_offset_kernel(pmd, vaddr);
+#endif
 }
 
 #ifndef __HAVE_ARCH_PTEP_SET_ACCESS_FLAGS
