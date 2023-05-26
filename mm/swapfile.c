@@ -2098,6 +2098,8 @@ static int unuse_vma(struct vm_area_struct *vma, unsigned int type,
 	pgd_t *pgd;
 	unsigned long addr, end, next;
 	int ret;
+
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 	WARN(1, "populate_pgd not implemented with ECPT!\n");
 	addr = vma->vm_start;
 	end = vma->vm_end;

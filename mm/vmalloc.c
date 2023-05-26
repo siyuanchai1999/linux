@@ -707,6 +707,7 @@ static int vmap_range_noflush(unsigned long addr, unsigned long end,
 	int err;
 	pgtbl_mod_mask mask = 0;
 
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 	WARN(1, "vmap_range_noflush not implemented with ECPT!\n");
 	might_sleep();
 	BUG_ON(addr >= end);
@@ -1060,6 +1061,8 @@ void vunmap_range_noflush(unsigned long start, unsigned long end)
 	pgd_t *pgd;
 	unsigned long addr = start;
 	pgtbl_mod_mask mask = 0;
+
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 	BUG_ON(addr >= end);
 	pgd = pgd_offset_k(addr);
 	do {
@@ -1360,6 +1363,8 @@ static int vmap_small_pages_range_noflush(unsigned long addr, unsigned long end,
 	int nr = 0;
 	pgtbl_mod_mask mask = 0;
 
+
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 	pr_info_verbose("addr=%lx end=%lx phys_addr=%llx prot=%lx\n",
 					 addr, end, prot.pgprot);
 

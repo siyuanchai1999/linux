@@ -588,7 +588,6 @@ void free_pgd_range(struct mmu_gather *tlb,
 	
 	pr_info_verbose("addr=%lx end=%lx floor=%lx ceiling=%lx\n", addr, end, floor, ceiling);
 
-
 	/*
 	 * The next few lines have given us lots of grief...
 	 *
@@ -1962,6 +1961,8 @@ copy_page_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 	ecpt_entry_t entry;
 #endif
 
+	WARN(1, "%s not implemented with page iterator\n", __func__);
+
 	// WARN(1, "copy_page_range not implemended with ECPT!\n");
 	pr_info_verbose("addr=%lx end=%lx flags=%lx anon_vma=%llx\n",
 	 		addr, end, src_vma->vm_flags, (uint64_t) src_vma->anon_vma);
@@ -2791,6 +2792,8 @@ void unmap_page_range(struct mmu_gather *tlb,
 	pr_info_verbose("vma at %llx vma->pgd=%llx start=%lx end=%lx\n",
 	  	(uint64_t) vma, (uint64_t) vma->vm_mm->pgd,  addr, end);
 	print_ecpt(vma->vm_mm->map_desc);
+
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 	// pr_info_verbose("mm at %llx addr=%lx end=%lx\n", (uint64_t) vma->vm_mm, addr, end);
 	BUG_ON(addr >= end);
 	tlb_start_vma(tlb, vma);
@@ -3640,6 +3643,7 @@ int remap_pfn_range_notrack(struct vm_area_struct *vma, unsigned long addr,
 	struct mm_struct *mm = vma->vm_mm;
 	int err;
 	WARN(1, "remap_pfn_range_notrack not implemented with generalized interface!\n");
+	WARN(1, "%s not implemented with page iterator\n", __func__);
 	if (WARN_ON_ONCE(!PAGE_ALIGNED(addr)))
 		return -EINVAL;
 
@@ -3942,7 +3946,8 @@ static int __apply_to_page_range(struct mm_struct *mm, unsigned long addr,
 	unsigned long end = addr + size;
 	pgtbl_mod_mask mask = 0;
 	int err = 0;
-	WARN(1, "__apply_to_page_range not implemented with generalized interface!\n");
+	WARN(1, "%s not implemented with page iterator\n", __func__);
+
 	if (WARN_ON(addr >= end))
 		return -EINVAL;
 
