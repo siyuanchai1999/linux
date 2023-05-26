@@ -46,7 +46,7 @@
 
 
 #define PRINT_ECPT_ENTRY_DEBUG_WITH_WAY(ecpt, e) PRINT_ECPT_ENTRY_BASE_WITH_ECPT(ecpt, e, ECPT_info_verbose)
-#define PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, e) PRINT_ECPT_ENTRY_BASE_WITH_ECPT(ecpt, e, pr_info)
+#define PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, e) PRINT_ECPT_ENTRY_BASE_WITH_ECPT(ecpt, e, pr_info_verbose)
 
 #define PRINT_ECPT_ENTRY_DEBUG(e) PRINT_ECPT_ENTRY_BASE(e, ECPT_info_verbose)
 #define PRINT_ECPT_ENTRY_INFO(e) PRINT_ECPT_ENTRY_BASE(e, pr_info)
@@ -1490,9 +1490,9 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 		}
 
 		if (ecpt_entry_empty_vpn(entry_ptr)) {
-			pr_info("Merge ");
+			pr_info_verbose("Merge ");
 			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
-			pr_info("with ");
+			pr_info_verbose("with ");
 			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, &to_insert);
 
 			ecpt_entry_do_merge(entry_ptr, &to_insert);
@@ -1510,13 +1510,13 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 		} else if (ecpt_entry_vpn_match(entry_ptr, &to_insert)) {
 			/* can insert here */
 
-			pr_info("Merge ");
+			pr_info_verbose("Merge ");
 			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
-			pr_info("with ");
+			pr_info_verbose("with ");
 			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, &to_insert);
 
 			merge_result = ecpt_entry_do_merge(entry_ptr, &to_insert);
-			pr_info("Set ");
+			pr_info_verbose("Set ");
 			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
 			
 			if (merge_result) {
@@ -1526,9 +1526,9 @@ static int kick_to_insert(ECPT_desc_t *ecpt, ecpt_entry_t *to_insert_ptr,
 		} else {
 			/* swap and insert again */
 
-			pr_info("Kick ");
+			pr_info_verbose("Kick ");
 			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, entry_ptr);
-			pr_info("with ");
+			pr_info_verbose("with ");
 			PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, &to_insert);
 
 			prev_entry = *entry_ptr;
@@ -1712,7 +1712,7 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 		end = old_size;
 	}
 
-	pr_info("start=%x end=%x [%llx %llx]\n",
+	ECPT_info_verbose("start=%x end=%x [%llx %llx]\n",
 	 	start, end, (uint64_t) (old_base + start), (uint64_t) (old_base + end));
 
 	// src_ptl = pte_lockptr
@@ -1740,9 +1740,9 @@ static uint32_t do_rehash_range(ECPT_desc_t *ecpt, uint32_t way,
 			new_ptr = &new_base[hash];
 
 			if (!ecpt_entry_empty_vpn(new_ptr)) {
-				pr_info("Collision entry:");
+				ECPT_info_verbose("Collision entry:");
 				PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, old_ptr);
-				pr_info("target entry:");
+				ECPT_info_verbose("target entry:");
 				PRINT_ECPT_ENTRY_INFO_WITH_WAY(ecpt, new_ptr);
 
 				collision_entry = old_ptr;
@@ -2450,7 +2450,7 @@ pte_t ecpt_native_ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	}
 
 	res = ecpt_invalidate(mm->map_desc, addr, page_4KB);
-	pr_info("  addr=%lx ptep %llx pte_default at %llx has no associated mapping\n",
+	pr_info_verbose("  addr=%lx ptep %llx pte_default at %llx has no associated mapping\n",
 		addr, (uint64_t) ptep, (uint64_t) &pte_default);
 	return ret;
 }
@@ -2497,7 +2497,7 @@ pud_t ecpt_native_pudp_get_and_clear(struct mm_struct *mm, unsigned long addr,
 
 	res = ecpt_invalidate(mm->map_desc, addr, page_1GB);
 	
-	pr_info("  addr=%lx pudp %llx pmd_default at %llx has no associated mapping\n",
+	pr_info_verbose("  addr=%lx pudp %llx pmd_default at %llx has no associated mapping\n",
 		addr, (uint64_t) pudp, (uint64_t) &pmd_default);
 	return ret;
 }

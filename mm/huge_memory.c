@@ -2026,8 +2026,8 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 
 	count_vm_event(THP_SPLIT_PMD);
 
-	pr_info_verbose("anonymous=%d huge_zero=%d\n",
-		vma_is_anonymous(vma), is_huge_zero_pmd(*pmd));
+	pr_info("__split_huge_pmd_locked: anonymous=%d huge_zero=%d pmd at %llx =%lx\n",
+		vma_is_anonymous(vma), is_huge_zero_pmd(*pmd), (uint64_t) pmd, pmd->pmd);
 
 	if (!vma_is_anonymous(vma)) {
 		old_pmd = pmdp_huge_clear_flush_notify(vma, haddr, pmd);
@@ -2163,7 +2163,7 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 #else
 		pte = pte_offset_map(&_pmd, addr);
 #endif
-	
+		pr_info("addr=%lx pte at %llx pte=%lx\n", addr, (uint64_t) pte, pte->pte);
 		BUG_ON(!pte_none(*pte));
 		set_pte_at(mm, addr, pte, entry);
 		if (!pmd_migration)

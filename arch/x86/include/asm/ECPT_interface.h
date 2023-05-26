@@ -472,6 +472,8 @@ static inline void mm_dec_nr_puds(struct mm_struct *mm)
 	/* ECPT do nothing */
 }
 
+#define __HAVE_ARCH_FREE_PGD_RANGE
+
 int ecpt_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte);
 
@@ -503,5 +505,7 @@ void pgtable_trans_huge_deposit(struct mm_struct *mm, pmd_t *pmdp,
 
 #define __HAVE_ARCH_PGTABLE_WITHDRAW
 pgtable_t pgtable_trans_huge_withdraw(struct mm_struct *mm, pmd_t *pmdp);
+
+
 
 #endif /* _ASM_X86_ECPT_INTERFACE_H */

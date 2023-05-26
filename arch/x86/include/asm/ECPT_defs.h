@@ -211,4 +211,9 @@
 
 #define ECPT_WAY_TO_CR_SEQ 3,1,5,6,7,9,10,11,12,13,14,15
 
+/* at most 18 bits for PMD and  */
+#define CWT_VPN_N_BYTES 18
+#define CWT_N_SECTION_HEADERS 64
+
+
 #endif /* _ASM_X86_ECPT_DEFS_H */

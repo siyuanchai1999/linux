@@ -28,6 +28,16 @@ typedef struct ecpt_entry{
 	uint64_t pte[ECPT_CLUSTER_FACTOR];
 } ecpt_entry_t;
 
+struct cwt_vpn {
+	uint8_t vpn_fields[CWT_VPN_N_BYTES];
+} __attribute__((packed));
+
+typedef struct cwt_entry {
+	struct cwt_vpn vpn;
+	uint8_t sec_headers[CWT_N_SECTION_HEADERS];
+} __attribute__((packed)) cwt_entry_t;
+
+
 typedef struct __attribute__((__packed__)) ECPT_desc {
 	uint64_t table[ECPT_MAX_WAY];
 	struct mm_struct * mm;
