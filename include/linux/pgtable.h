@@ -133,7 +133,7 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
 #define pgd_offset(mm, address)  \
 ({									\
 	if (!(__FILE__[0] == 'a' && __FILE__[1] == 'r' && __FILE__[2] == 'c')) { \
-		WARN(1, "%s not implemented with ECPT\n", __func__);	\
+		WARN(1, "%s not implemented with pgd_offset_map_with_mm\n", __func__);	\
 	} \
 	pgd_offset_pgd((mm)->pgd, (address));	\
 })
