@@ -2411,8 +2411,6 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 #ifndef __ARCH_HAS_PTE_ALLOC
 /* TODO: pte_alloc with no_pte_pgtable */
 #define pte_alloc(mm, pmd) (unlikely(no_pte_pgtable(*(pmd))) && __pte_alloc(mm, pmd, 0)) /* XXX: need to handle the addr argument */
-
-#define pte_alloc(mm, pmd) (unlikely(pmd_none(*(pmd))) && __pte_alloc(mm, pmd, 0)) /* XXX: need to handle the addr argument */
 #endif
 
 #define pte_alloc_map(mm, pmd, address)			\
